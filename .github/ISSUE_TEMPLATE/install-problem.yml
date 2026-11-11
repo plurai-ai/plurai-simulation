@@ -1,0 +1,75 @@
+name: Install problem
+description: The plugin or the SDK would not install, or the plugin would not load after installing.
+labels: ["install"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If the install failed, `/plurai-diagnose` may not be able to run, so paste the pieces it would have printed. If a
+        command printed a line like `support reference: inst-1a2b3c4d`, put that line in the last field. Look over every
+        paste first: remove a password from a package index url, and never paste `~/.plurai/credentials.json` or a token.
+  - type: textarea
+    id: install-command
+    attributes:
+      label: The install command you ran
+      description: The exact command, with any index credentials removed.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: install-output
+    attributes:
+      label: Output of the install command
+      description: The last 50 lines or more. For a pip install, re-run it with `-v`.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: harness
+    attributes:
+      label: Harness
+      options:
+        - Claude Code
+        - Codex
+        - GitHub Copilot
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: The version you tried to install, or "not installed".
+    validations:
+      required: true
+  - type: input
+    id: sdk-version
+    attributes:
+      label: SDK version
+      description: Output of `plurai --version`, or "not installed".
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and CPU
+      description: Output of `uname -a` on macOS or Linux, `ver` on Windows.
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Output of `python3 --version`, and of `pip --version` or `uv --version`.
+    validations:
+      required: true
+  - type: input
+    id: command-run-id
+    attributes:
+      label: Command run id
+      description: The id a failing command printed, if it printed one. Leave empty if there is none.
+  - type: textarea
+    id: bundle
+    attributes:
+      label: Output of `/plurai-diagnose`, and any support reference line, if they run
+      render: text

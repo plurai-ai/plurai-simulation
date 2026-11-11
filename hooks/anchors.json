@@ -1,0 +1,176 @@
+{
+  "README": [
+    "The report guard's LANGUAGE, as data. `report_guard.py` keeps the position/shape machinery",
+    "— anchors count only at the head of a line, sentences are split the same way, tiers are",
+    "decided the same way — and reads every STRING it matches from here.",
+    "",
+    "WHY THIS FILE EXISTS. Every anchor and every lexicon below is English. A final report",
+    "written in another language matches no anchor and no progress word, so it is neither a",
+    "hand-off nor mid-flow: the guard blocks it demanding an anchor it cannot express, three",
+    "times, and then stands down. The regexes do not learn every language; a deployment",
+    "SAYS what its anchors are.",
+    "",
+    "HOW TO ADD A LOCALE. Copy an `en` block under the same command (and under `shared`), give it",
+    "your locale's key, and translate the strings. Every locale present is read: the anchors are",
+    "UNIONED, so an English hand-off and a Hebrew one both land, and a mixed-language session",
+    "keeps working. Nothing here is keyed to the session's language — a locale is accepted, never",
+    "required.",
+    "",
+    "SHAPES. `anchors` and `progress_anchors` are LITERAL strings matched at a LINE HEAD, followed",
+    "by the skeleton's separator — ANY punctuation, so write your locale's own: `スイート: 検証済み。`",
+    "and `…（7件）` land the same way `Run complete —` does. A separator is still required there: an",
+    "anchor running straight on into prose is a sentence, not a skeleton line.",
+    "",
+    "`contact_anchor`, `capacity_anchor` and `unavailable_anchor` are literal strings too, each the WHOLE FIRST SENTENCE,",
+    "final punctuation included, of one of the plugin's three stop texts (the contact hand-off, the capacity stop, the",
+    "unavailable stop), and they are matched by a DIFFERENT rule — do not write them as a skeleton line with a separator.",
+    "Each counts only at a LINE HEAD, after the optional decoration a skeleton line allows (`> `, `**`, `- `) and an",
+    "optional short bold label (`**Stopped:** `), with nothing else before it on the line, case insensitively, and the",
+    "sentence must END there: closing emphasis, then whitespace or the line's end (after a full stop like `。` that takes no",
+    "space, the next sentence may follow at once). A line that opens like the sentence and runs on (`…right now, so I'll",
+    "retry`) is narration, not a stop. What follows the first sentence is not compared, so a linked email or a",
+    "blockquote still lands. A stop text inside a sentence of prose is not a stop, and neither is a message that carries",
+    "its command's report anchor (a finished report that quotes a scenario row; the anchor may sit above or below the text;",
+    "the stop's own done lines and, below the text, a command's `floor_anchors` entry — the line a failed flow's skeleton",
+    "ends on — do not count). The unavailable stop records the same liftable `capacity` halt as the capacity stop. The",
+    "kinds are tried in a fixed order: the capacity sentence, then the unavailable one, then the contact one, then the credit",
+    "substring. A message that prints two stop texts reads as the first kind in that order, and a credit stop that prints",
+    "the contact text at a line head reads as contact unless the run's plan recorded the halt's kind as the stop printed,",
+    "which wins. Write the first sentence of the text your locale's",
+    "stop actually prints. A report that quotes a stop row above its floor line reads as a stop, so a flow whose failure",
+    "skeleton ends on a floor line must not quote a stop text above it.",
+    "",
+    "`credit_anchor` is the sentence that follows every credit kind's own sentence (the kinds' sentences differ, that one does",
+    "not). It keeps the substring rule: lowercased and looked for ANYWHERE in the message. The `credit-unavailable` kind prints the",
+    "contact text alone, so its text reads as the contact stop; the halt the printing script records for it is the",
+    "liftable `capacity` kind.",
+    "",
+    "Everything else is a REGULAR EXPRESSION in",
+    "Python syntax; the shared lexicons are matched case-insensitively, and a command's `stem` is",
+    "matched line-anchored with `stem_ignorecase` deciding its case sensitivity.",
+    "",
+    "WHAT EACH LEXICON DECIDES. `completion` + `stem`: does this message read as the command's",
+    "final hand-off, so it OWES the anchor. `progress`: does it read as live progress, so it earns",
+    "the relaxed mid-flow tier. `abort`: is it a unilateral early stop. `abort_reason`: the part of",
+    "`abort` that names a timing/context/budget REASON — the only part still checked on a failure",
+    "hand-off, whose job 'stopped before it could finish' is the failure itself. `run_integrity`: is it",
+    "doctrine item 4's licensed result line (which the gap and abort rules must NOT catch).",
+    "`eval_fitness_subject` + `eval_fitness_claim`, both required in ONE sentence: is it an",
+    "eval-set fitness caveat, which no anchor licenses. `result_doubt`: does it hand the reader the",
+    "product's confidence in its own result, which stays in the internal files.",
+    "",
+    "An anchor a skill's report skeleton does not render is an anchor no message can carry: change",
+    "the skeleton and this file together."
+  ],
+  "commands": {
+    "generate-suite": {
+      "en": {
+        "anchors": [
+          "Suite: validated",
+          "Suite: qualified",
+          "Suite: qualified (ungated set)",
+          "Suite: not yet qualified"
+        ],
+        "floor_anchors": ["Suite: not yet qualified"],
+        "progress_anchors": [
+          "Suite: in progress"
+        ],
+        "stem": "Suite:\\s",
+        "stem_ignorecase": false
+      }
+    },
+    "analyze": {
+      "en": {
+        "anchors": [
+          "Suite: validated",
+          "Suite: qualified",
+          "Suite: qualified (ungated set)",
+          "Suite: not yet qualified"
+        ],
+        "floor_anchors": ["Suite: not yet qualified"],
+        "progress_anchors": [
+          "Suite: in progress"
+        ],
+        "stem": "Suite:\\s",
+        "stem_ignorecase": false
+      }
+    },
+    "run": {
+      "en": {
+        "anchors": [
+          "Run complete"
+        ],
+        "progress_anchors": [
+          "Run in progress"
+        ],
+        "stem": "Run\\b\\s?(complete|finished|done|:)",
+        "stem_ignorecase": true
+      }
+    },
+    "scan-agent": {
+      "en": {
+        "anchors": [
+          "Environment ready"
+        ],
+        "progress_anchors": [
+          "Environment in progress"
+        ],
+        "stem": "Environment\\b\\s?(ready|:)",
+        "stem_ignorecase": true
+      }
+    },
+    "fixes": {
+      "en": {
+        "anchors": [
+          "Findings"
+        ],
+        "progress_anchors": [
+          "Findings: in progress"
+        ],
+        "stem": "Findings\\b[ \\t]*(?:\\*\\*|__|\\*|_)?[ \\t]*[:—–-]",
+        "stem_ignorecase": true
+      }
+    },
+    "traces": {
+      "en": {
+        "anchors": [
+          "Trace brief ready"
+        ],
+        "progress_anchors": [
+          "Trace brief in progress"
+        ],
+        "stem": "Trace brief\\b",
+        "stem_ignorecase": true
+      }
+    },
+    "simulate": {
+      "en": {
+        "anchors": [
+          "Simulation started"
+        ],
+        "progress_anchors": [
+          "Simulation in progress"
+        ],
+        "stem": "Simulation\\b\\s?(started|:)",
+        "stem_ignorecase": true
+      }
+    }
+  },
+  "shared": {
+    "en": {
+      "contact_anchor": "We hit an issue that needs a closer look from the Plurai team.",
+      "capacity_anchor": "Plurai is in high demand right now and we couldn't fit your run in.",
+      "unavailable_anchor": "Plurai is unavailable right now.",
+      "credit_anchor": "to continue from where it stopped",
+      "completion": "(suite|run|environment|brief|report|findings)[^\\n]{0,60}\\b(ready|complete|generated|rendered|finished|done|built|shipped|created|published)\\b|\\byour next step\\b|\\bnext step:",
+      "abort": "\\bI (stopped|paused|deferred|skipped|did not (run|continue))\\b|\\bstopped (before|short of)\\b|\\breason is (timing|time|context)\\b|\\bran (low|out) o[fn] (time|context|budget)\\b|\\bout of (context|budget)\\b",
+      "abort_reason": "\\breason is (timing|time|context)\\b|\\bran (low|out) o[fn] (time|context|budget)\\b|\\bout of (context|budget)\\b",
+      "progress": "\\bstill\\b|\\bpolling\\b|\\bpoll\\b|\\bwaiting\\b|\\bin flight\\b|\\bin-flight\\b|\\belapsed\\b|\\bseconds_since_progress\\b|\\bphase\\b|\\bretrying\\b|\\bqueued\\b|\\bunderway\\b|\\bnext (poll|check|update)\\b|\\bso far\\b|\\bkicked off\\b|\\bstarted\\b|\\brunning\\b|\\bunreachable\\b",
+      "run_integrity": "\\brun integrity\\b|\\berrored\\b|\\bnever (?:executed|ran)\\b|\\bnot executed\\b|\\bdid not (?:execute|complete)\\b|\\bsubstituted model\\b|\\bmodel (?:was )?substituted\\b|\\bmodel substitution\\b|\\bshipped short\\b|\\bstopped short of\\b|\\bshipped \\d+ of\\b|\\bremaining \\d+\\b|\\b\\d+ of \\d+ (?:shipped|ran|executed|scored|scenarios?|evals?)\\b|\\b(?:was |were )?removed from the (?:suite|set)\\b(?=[^.]*?(?:time budget|complete inside))|\\blanded incomplete\\b|\\bincomplete scenarios?\\b|\\b(?:cannot|can't|could not|will not|won't) complete inside\\b|\\bran out of (?:its|their) (?:per-scenario )?(?:scenario )?time budget\\b",
+      "eval_fitness_subject": "\\b(?:evals?|judges?|polic(?:y|ies)|rubrics?|eval set|scoring criteri(?:on|a))\\b",
+      "eval_fitness_claim": "\\bdiscriminat\\w*|\\bnever proven\\b|\\bunproven\\b|\\bnot proven\\b|\\b(?:proven|shown|demonstrated) (?:to be )?(?:able|unable|capable|incapable)\\b|\\b(?:able|unable) to (?:fail|pass)\\b|\\bnot (?:counted as )?evidence\\b|\\bcarry no (?:information|signal)\\b|\\btreat (?:their|the) (?:greens?|reds?|verdicts?|results?|scores?) with care\\b|\\bmight (?:not )?be (?:broken|wrong|unreliable)\\b",
+      "result_doubt": "(?<![a-z])not the agent'?s verdict|(?<![a-z])(?:treat|read) (?:these|the|this run'?s|its) (?:numbers|scores|results) as\\b|(?<![a-z])as an indication,? not\\b|(?<![a-z])not a gated (?:result|run)\\b|(?<![a-z])gate'?s floor\\b|(?<![a-z])below (?:the )?sample floor\\b|(?<![a-z])power (?:is )?unmeasured\\b|(?<![a-z])unmeasured at this sample size\\b|(?<![a-z])one-sidedness\\b|(?<![a-z])did not redraw\\b|(?<![a-z])auditor-only credits?\\b|(?<![a-z])demoted audit findings?\\b",
+      "quality_loop": "\\bqualification\\b|\\b(?:test|scored|calibration|qualification) conversations?\\b|\\bconversations? (?:are|is) running\\b|\\breviewer\\b|\\bcritic\\b|\\bre-?scor\\w*\\b|\\bscored\\b|\\b(?:fix|fixes|fixing|fixed|sharpen\\w*|tighten\\w*|repair\\w*) (?:the |\\w+ )?(?:scoring rules?|checks?|evals?|scenarios?)\\b"
+    }
+  }
+}

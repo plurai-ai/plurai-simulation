@@ -1,0 +1,191 @@
+{
+  "rule": "An AUTHORED TURN COORDINATE is FLAGGED by this lint on every sandbox-evaluated surface: a scenario deterministic_check, an eval policy expression, and an applicability_guard. Four shapes -- (1) a non-negative absolute index into an indexed transcript projection, reached directly or through a defensive wrapper, (2) a ctx['*_turn'] metadata read anywhere in the expression, (3) a scenario_metadata['*_turn'] / metadata['*_turn'] read anywhere, (4) agent_reply(<non-negative int literal>). A beat id plus its plan order is the only turn coordinate an author writes; the user-turn number is a runtime coordinate that only the simulator writes, through delivered_beats.",
+  "severity": "warn",
+  "severity_note": "WARN means this lint adds no error. It does NOT mean every shape below is passable: a literal non-negative index into one of the five message-shaped bindings (agent_messages[1], agent_messages[0].content, user_messages[1], messages[1], chatbot_messages[2]) is already a gate error from the backend's deterministic-check self-test, which matches a constant index unconditionally, and stays one. agent_states[<i>], agent_reply(<literal>), every *_turn metadata read, the ctx-keyed subscript and the wrapper forms return zero gate errors: that is the warn-only tier. The gates must agree on WHAT is a finding regardless of the tier each reports it at, which is what these vectors pin.",
+  "surface_note": "The shapes are not all reachable on all surfaces. ctx is bound by the success_criteria.deterministic slice only (it is empty for turn-based and end-to-end policies), so a ctx['*_turn'] read inside a policy is inert at grade time (KeyError via [], None via .get) and is flagged as an authoring defect, not as a live coordinate. scenario_metadata and metadata are populated at both scopes and are therefore the only bindings through which a policy or an applicability_guard can author a turn, which is what the policy schema reference prescribes (\"c.get('turn') == scenario_metadata.get('ask_turn') ... reading the turn from scenario_metadata (NOT from ctx, which is {} in a policy)\"). Shape 3 covers that surface.",
+  "shape_signatures": {
+    "absolute-index": "pins an ABSOLUTE turn index",
+    "ctx-turn-key": "carries an authored TURN NUMBER in the check's `ctx` metadata",
+    "metadata-turn-key": "carries an authored TURN NUMBER in the scenario metadata a POLICY reads",
+    "agent-reply-literal": "reads a turn by ABSOLUTE number through `agent_reply`"
+  },
+  "remedy_signatures": {
+    "beat-reply": "Name the BEAT instead:",
+    "user-side": "is the USER's own words",
+    "interleaved": "the index names a POSITION in an interleaved list",
+    "beat-ordering": "Read the turn out of the ledger instead"
+  },
+  "indexed_transcript_bindings": ["agent_messages", "agent_messages_raw", "user_messages", "chatbot_messages", "messages", "agent_states"],
+  "turn_dense_bindings": ["agent_messages", "agent_messages_raw", "user_messages", "agent_states"],
+  "interleaved_bindings": ["chatbot_messages", "messages"],
+  "binding_split_note": "The six bindings are not all dense per-turn lists where entry i belongs to user turn i. The message-shaped set names the message-object shape (items are BaseMessage-like, read through .content) and says nothing about per-turn density. chatbot_messages and messages are bound to the same object, the full interleaved transcript, so agent_messages[k] is the reply to user turn k while chatbot_messages[1] is not (it is the first reply in the interleaved list). They are still flagged (an interleaved position is a superset of the defect, not an exemption); only the remedy differs, which is what remedy_signatures pins per vector.",
+  "authored_metadata_bindings": ["ctx", "scenario_metadata", "metadata"],
+  "refuse": [
+    {
+      "expression": "len(agent_messages) > ctx['probe_turn'] and ctx['expected_name'].lower() in agent_messages[ctx['probe_turn']].content.lower()",
+      "shapes": ["absolute-index", "ctx-turn-key"],
+      "remedies": ["beat-reply", "beat-reply"],
+      "why": "A check that carries the coordinate on two surfaces, once as a bare guard read with no subscript in sight and once as the subscript, so it is two findings, not one: the key and the subscript are two places the author has to edit. The ctx key itself is read twice and counted once. The subscript form passes a matcher that looks only at constant indexes."
+    },
+    {
+      "expression": "agent_reply(5)",
+      "shapes": ["agent-reply-literal"],
+      "remedies": ["beat-reply"],
+      "why": "The sanctioned accessor is the right way to READ one turn and the wrong way to NAME one. The literal is authored, so it moves out from under the behaviour as soon as the run takes a different number of turns. Warn-only tier: the older matcher does not look at call arguments."
+    },
+    {
+      "expression": "user_messages[1]",
+      "shapes": ["absolute-index"],
+      "remedies": ["user-side"],
+      "why": "Per-turn dense (server/finalize binds user_side_messages(live_slice(...)), one entry per driven user turn), so entry 1 IS user turn 1 -- and the datum is the USER's own scripted words, which the scenario authored. reply_to_beat reads the AGENT's reply and is therefore not a substitute here, which is why this vector pins the user-side remedy and not the beat-reply one. ALREADY FATAL: user_messages is in MESSAGE_SHAPED_BINDINGS, so the literal index is one gate ERROR from deterministic_check_defect independently of this lint."
+    },
+    {
+      "expression": "agent_states[2]",
+      "shapes": ["absolute-index"],
+      "remedies": ["beat-reply"],
+      "why": "The non-message per-turn list, and the clearest member of the genuinely warn-only tier: agent_states is NOT in MESSAGE_SHAPED_BINDINGS, so the older rule never looks at it and this lint is the only voice. Its per-turn density is asserted at reconstruction (score_saved_run: len(turns) == len(agent_states) == len(turn_chains) == len(turn_actions)), so index 2 is turn 2."
+    },
+    {
+      "expression": "agent_messages[0].content",
+      "shapes": ["absolute-index"],
+      "remedies": ["beat-reply"],
+      "why": "Turn 0 is first_talk. Flagged like any other absolute index. 'opener' is a real ledger id, so reply_to_beat('opener') is an applicable remedy. Already fatal: one gate error from the backend's deterministic-check self-test."
+    },
+    {
+      "expression": "agent_reply(0)",
+      "shapes": ["agent-reply-literal"],
+      "remedies": ["beat-reply"],
+      "why": "The zero literal is not a special case. Same reason as agent_messages[0], minus the pre-existing error: a call argument is not an index to the older matcher, so this one is warn-only."
+    },
+    {
+      "expression": "ctx.get('storage_turn') and 'knowledge.example.com' in agent_messages[-1].content",
+      "shapes": ["ctx-turn-key"],
+      "remedies": ["beat-reply"],
+      "why": "The defensive .get spelling reads the same authored key that ctx['storage_turn'] does, so it is not a way out. The tail read in the same expression is exempt and must not be what fires."
+    },
+    {
+      "expression": "(ctx or {})['probe_turn']",
+      "shapes": ["ctx-turn-key"],
+      "remedies": ["beat-reply"],
+      "why": "The wrapper form. The ctx base resolves through a wrapper helper that exists so a defensive `or {}` cannot switch a rule off, so the backend and the plugin must both flag it. A byte-identical vector file that never exercises the form protects nothing, which is why this entry exists."
+    },
+    {
+      "expression": "agent_messages[(ctx or {})['probe_turn']]",
+      "shapes": ["absolute-index", "ctx-turn-key"],
+      "remedies": ["beat-reply", "beat-reply"],
+      "why": "The wrapper form inside the subscript: two findings from both gates. The same rule as the entry above, reached through the index rather than through a bare read."
+    },
+    {
+      "expression": "(agent_messages or [])[1]",
+      "shapes": ["absolute-index"],
+      "remedies": ["beat-reply"],
+      "why": "The wrapper on the OTHER side, and the backend's own internal inconsistency: its ctx arm went through the wrapper helper while its shape-1 subscript ROOT did not, so one function caught (ctx or {})['probe_turn'] and missed this. Note this shape is ALSO invisible to deterministic_check_defect, whose base must be a bare ast.Name -- so unlike the plain literal index it is warn-only."
+    },
+    {
+      "expression": "any(c['tool'] == 'ProductSearch' and c.get('turn') == scenario_metadata.get('ask_turn') for c in tool_calls)",
+      "shapes": ["metadata-turn-key"],
+      "remedies": ["beat-ordering"],
+      "why": "The policy surface, which a ctx-only rule scores zero on. This is the idiom the policy schema reference prescribes for every unprompted or sequence target, in the only metadata binding a policy receives. It also pins the remedy split: the beat-reply remedy is inapplicable to this whole class (reply_to_beat and beat_delivered read reply text, which cannot express 'the call happened on the turn the user asked'), so the finding must offer beat_turn, the ledger accessor bound for exactly this, and not the reply accessors."
+    },
+    {
+      "expression": "metadata.get('ask_turn') is not None",
+      "shapes": ["metadata-turn-key"],
+      "remedies": ["beat-reply"],
+      "why": "The alias: code_eval_factory binds both `metadata` and `scenario_metadata` from state['scenario_metadata'], so a rule that covered one and not the other would be a spelling away from blind. This one reads no record `turn` field, so the beat-reply remedy is the right one -- which is what separates it from the vector above."
+    },
+    {
+      "expression": "ctx['turn'] == 3",
+      "shapes": ["ctx-turn-key"],
+      "remedies": ["beat-reply"],
+      "why": "The bare key, in as the identical defect rather than by the suffix rule: WHICH turn a behaviour lands on is written by the simulator alone, so there is no second reading of an authored ctx['turn']. (A record's c['turn'] is NOT this -- see the allow vector.)"
+    },
+    {
+      "expression": "len(agent_messages) > 3 and 'ok' in agent_messages[3].content and agent_messages[-1].content",
+      "shapes": ["absolute-index"],
+      "remedies": ["beat-reply"],
+      "why": "A mixed expression. The absolute index fires; the tail read beside it does not, and the finding names the subscript the author wrote so the remedy is locatable."
+    },
+    {
+      "expression": "chatbot_messages[2]",
+      "shapes": ["absolute-index"],
+      "remedies": ["interleaved"],
+      "why": "The false-fact vector. chatbot_messages is the full interleaved transcript, so index 2 is neither turn 2 nor a known speaker, and the finding must not say it is (it must not describe a dense per-turn list or prescribe reply_to_beat). Flagged, with the interleaved remedy. Already fatal besides: one gate error from the backend's deterministic-check self-test."
+    },
+    {
+      "expression": "messages[1]",
+      "shapes": ["absolute-index"],
+      "remedies": ["interleaved"],
+      "why": "The other name for the same object -- code_eval_factory binds `messages` and `chatbot_messages` to live_chatbot_messages both -- so it gets the interleaved remedy too. A reader who only knew this file would otherwise learn the wrong fact about the commonest-looking binding name in the sandbox."
+    }
+  ],
+  "allow": [
+    {
+      "expression": "agent_messages[-1:]",
+      "why": "The tail idiom, and the commonest correct read in real policy sets. A slice names a window, never a turn, so it cannot be wrong about which turn a behaviour landed on. A false positive here would break a large fraction of every real policy set."
+    },
+    {
+      "expression": "agent_messages[1:]",
+      "why": "'every turn after the opener' -- still a window. The lower bound being a positive literal does not make it a pin: the expression quantifies over the tail, and the tail moves with the run."
+    },
+    {
+      "expression": "reply_to_beat(ctx['beat'])",
+      "why": "The target form. The metadata key is a BEAT ID, not a turn number, so the coordinate is resolved through the delivery ledger at eval time."
+    },
+    {
+      "expression": "reply_to_beat('opener')",
+      "why": "Passes the lint: no literal index, no authored turn key. 'opener' is a real pseudo-beat: reply_to_beat('opener') returns agent_reply(0), beat_turn('opener') is 0 unconditionally, and beat_delivered('opener') answers whether the run produced any agent reply."
+    },
+    {
+      "expression": "beat_delivered('plan-0') and 'knowledge.example.com' in reply_to_beat('plan-0').lower()",
+      "why": "The full sanctioned pairing for a REPLY claim: the guard turns a beat the run never delivered into a not-applicable cell instead of a red, and the expression grades the reply to the turn the beat ACTUALLY landed on."
+    },
+    {
+      "expression": "beat_delivered('plan-0') and any(c['tool'] == 'ProductSearch' and c.get('turn') == beat_turn('plan-0') for c in tool_calls)",
+      "why": "The sanctioned pairing for an ORDERING claim -- the remedy the metadata-turn-key vectors prescribe, asserted here as a form the lint is silent on. `c['turn']` is a RECORD field read off the run and is not an authored coordinate; beat_turn resolves the number out of delivered_beats. Without this vector the remedy the findings teach would be untested in both repos."
+    },
+    {
+      "expression": "agent_messages[-1].content",
+      "why": "A negative literal counts from the end of whatever the run produced, so it moves with the run rather than pinning against it. Mechanism: -1 parses as UnaryOp(USub, Constant(1)) and ast.parse folds nothing, so it never reaches the non-negative-literal branch at all; the `>= 0` guard is not what exempts it."
+    },
+    {
+      "expression": "agent_reply(-1)",
+      "why": "The same reasoning through the accessor."
+    },
+    {
+      "expression": "any('x' in m.content for m in agent_messages[-1:])",
+      "why": "The comprehension spelling the authoring recipe teaches. The iteration variable is not a subscript at all."
+    },
+    {
+      "expression": "any('x' in agent_messages[i].content for i in [0, 1])",
+      "why": "A NAME index. The lint keys on the index being an authored literal or an authored metadata turn key; a variable is neither, and policing it would need to trace the domain. The literals in the domain list are a different lint's business if they are anyone's."
+    },
+    {
+      "expression": "turn_tool_events[0]",
+      "why": "turn_tool_events is bound and is a MAPPING, not a list -- an int subscript of it is a key lookup, not a turn coordinate. Exempt by the binding set rather than by a carve-out."
+    },
+    {
+      "expression": "ctx['beat'] and ctx['expected_name'].lower() in reply_to_beat(ctx['beat']).lower()",
+      "why": "Other ctx keys are ordinary authored ground truth. Only the turn-number keys are flagged."
+    },
+    {
+      "expression": "scenario_metadata.get('max_turns_target', 8) >= len(agent_messages)",
+      "why": "A metadata key that is a budget, not a coordinate: `max_turns_target` does not end in `_turn`, and a cap on how long the arc may run names no turn. The suffix rule is what keeps shape 3 from firing on every metadata read; this vector proves it."
+    },
+    {
+      "expression": "any(c['tool'] == 'A' and c['turn'] > 0 for c in tool_calls)",
+      "why": "A RECORD's `turn` field, read off the run. `c['turn']` is data the simulator wrote, not a coordinate the author wrote, so the authored-metadata-binding test (ctx / scenario_metadata / metadata) is what separates it from ctx['turn'] -- and it must stay separate, because this is the field every legitimate ordering assertion compares. (Pinning it to an int LITERAL is a different rule's refusal: _check_absolute_turn_pins.)"
+    },
+    {
+      "expression": "agent_states[-1].get('status') == 'ok'",
+      "why": "The tail read on the non-message per-turn list, exempt for the same reason the message tail read is."
+    },
+    {
+      "expression": "len(agent_messages) > 2",
+      "why": "A length comparison against a literal is a depth assertion about the run, not a coordinate into it: it names no turn. The guard half of a coordinate check is flagged for the ctx key it reads, never for comparing a length."
+    },
+    {
+      "expression": "entities_of_type('order') and find_entity('order-1')",
+      "why": "A control vector: the world-state surface authors no turn coordinate and must stay silent."
+    }
+  ]
+}

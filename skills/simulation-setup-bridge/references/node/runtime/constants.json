@@ -1,0 +1,130 @@
+{
+  "$comment": "Shared facts of bridge protocol 1, read by the Python host (bridge/host.py), the Node child (runtime/*.mjs) and the plugin's bridge scripts. Copied verbatim into plurai_sim/bridge/runtime/. The normative text is skills/simulation-setup-bridge/references/bridge-contract.md; a value here and a value there must never differ. Finding and refusal CODES are not here: each script declares the codes it emits in its own enum (the finding-code registry rule).",
+  "protocol": 1,
+  "map_schema": "plurai.bridge.map/1",
+  "children": ["node"],
+  "node_floor": [22, 15, 0],
+  "env": {
+    "fd": "PLURAI_BRIDGE_FD",
+    "map": "PLURAI_BRIDGE_MAP",
+    "protocol": "PLURAI_BRIDGE_PROTOCOL",
+    "allow_hosts": "PLURAI_BRIDGE_ALLOW_HOSTS",
+    "ready_timeout": "PLURAI_BRIDGE_READY_TIMEOUT",
+    "start_timeout": "PLURAI_BRIDGE_START_TIMEOUT"
+  },
+  "child_env_prefix": "PLURAI_BRIDGE_",
+  "map_env_forbidden": ["NODE_OPTIONS"],
+  "timeouts_s": {
+    "ready": 30,
+    "start": 90,
+    "route_probe": 60,
+    "shutdown_grace": 1,
+    "sigterm_grace": 1,
+    "exit_poll": 0.2
+  },
+  "max_line_bytes": 67108864,
+  "log_tail_lines": 60,
+  "log_dir": "artifacts/bridge",
+  "id_prefix": {"host": "r", "child": "x"},
+  "messages": {
+    "host_to_child": ["ping", "turn", "seed", "route_probe", "ext_result", "shutdown"],
+    "child_to_host": ["ready", "pong", "ext_call", "event", "turn_done", "seed_done", "route_probe_done", "error"],
+    "terminal_for": {
+      "ping": "pong",
+      "turn": "turn_done",
+      "seed": "seed_done",
+      "route_probe": "route_probe_done"
+    }
+  },
+  "ext_call_via": ["package", "module", "http"],
+  "event_via": ["package", "module", "http", "socket"],
+  "event_kinds": ["egress_refused", "unmapped_call", "unsupported_shape", "sink"],
+  "faulting_event_kinds": ["egress_refused", "unmapped_call", "unsupported_shape"],
+  "error_kinds": ["entry_failed", "agent_raised", "seed_unsupported", "protocol"],
+  "error_owners": ["agent", "other"],
+  "ext_error_kinds": ["mock_error", "harness"],
+  "trail_statuses": ["ok", "error", "not_dispatchable", "denied"],
+  "ledger_keys": ["ext_calls", "out_of_turn", "refused_egress", "unmapped", "sink"],
+  "provider_statuses": [401, 403, 404, 429],
+  "unsupported_shapes": [
+    "builder_chain",
+    "raw_sql_driver",
+    "command_dispatch",
+    "sync_client_call",
+    "async_iteration",
+    "subclass",
+    "worker_threads",
+    "multi_instance",
+    "yarn_pnp"
+  ],
+  "refused_packages": {
+    "raw_sql_driver": ["pg", "pg-pool", "mysql", "mysql2", "postgres", "better-sqlite3", "sqlite3", "mssql", "oracledb"],
+    "builder_chain": ["knex", "drizzle-orm", "kysely", "@supabase/supabase-js", "@supabase/postgrest-js"],
+    "command_dispatch_prefix": ["@aws-sdk/"]
+  },
+  "provider_hosts": [
+    "api.anthropic.com",
+    "api.openai.com",
+    "*.openai.azure.com",
+    "*.cognitiveservices.azure.com",
+    "*.services.ai.azure.com",
+    "generativelanguage.googleapis.com",
+    "aiplatform.googleapis.com",
+    "*-aiplatform.googleapis.com",
+    "oauth2.googleapis.com",
+    "bedrock-runtime.*.amazonaws.com",
+    "api.mistral.ai",
+    "api.groq.com",
+    "api.cohere.com",
+    "api.cohere.ai",
+    "api.deepseek.com",
+    "api.x.ai",
+    "openrouter.ai",
+    "api.together.xyz",
+    "api.fireworks.ai",
+    "api.perplexity.ai"
+  ],
+  "sink_hosts": [
+    "api.smith.langchain.com",
+    "eu.api.smith.langchain.com",
+    "cloud.langfuse.com",
+    "us.cloud.langfuse.com",
+    "*.ingest.sentry.io",
+    "*.ingest.us.sentry.io",
+    "api.honeycomb.io",
+    "us.i.posthog.com",
+    "eu.i.posthog.com"
+  ],
+  "sink_env": [
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+    "LANGFUSE_HOST",
+    "LANGFUSE_BASEURL",
+    "LANGSMITH_ENDPOINT",
+    "LANGCHAIN_ENDPOINT"
+  ],
+  "sink_status": 202,
+  "probe_host": "plurai-egress-probe.invalid",
+  "paths": {
+    "bridge_dir": "bridge",
+    "map": "bridge/bridge.map.json",
+    "entry": "bridge/entry.mjs",
+    "replace_dir": "bridge/replace",
+    "host": "bridge/host.py",
+    "runtime_dir": "bridge/runtime",
+    "runtime_files": [
+      "register.mjs",
+      "child.mjs",
+      "pipe.mjs",
+      "loader.mjs",
+      "proxy.mjs",
+      "egress.mjs",
+      "adapters/ai_sdk.mjs",
+      "constants.json",
+      "package.json",
+      "package-lock.json"
+    ],
+    "never_copied": ["bridge/runtime/node_modules"]
+  },
+  "install_argv": ["npm", "ci", "--prefix", "plurai_sim/bridge/runtime", "--ignore-scripts", "--no-audit", "--no-fund"]
+}

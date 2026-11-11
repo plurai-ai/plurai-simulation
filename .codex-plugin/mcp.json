@@ -1,0 +1,152 @@
+{
+  "mcpServers": {
+    "plurai": {
+      "command": "python3",
+      "args": [
+        "-I",
+        "scripts/mcp_bridge.py",
+        "--harness",
+        "codex"
+      ],
+      "cwd": ".",
+      "env_vars": [
+        "PLURAI_URL",
+        "PLURAI_TOKEN"
+      ],
+      "tools": {
+        "attach_run_report": {
+          "approval_mode": "approve"
+        },
+        "backend_identity": {
+          "approval_mode": "approve"
+        },
+        "deploy_env": {
+          "approval_mode": "approve"
+        },
+        "diagnose_mock": {
+          "approval_mode": "approve"
+        },
+        "edit_scenario_gt": {
+          "approval_mode": "approve"
+        },
+        "edit_session_start": {
+          "approval_mode": "approve"
+        },
+        "edit_session_turn_status": {
+          "approval_mode": "approve"
+        },
+        "end_edit_session": {
+          "approval_mode": "approve"
+        },
+        "end_scenarios_session": {
+          "approval_mode": "approve"
+        },
+        "end_session": {
+          "approval_mode": "approve"
+        },
+        "eval_coverage_audit": {
+          "approval_mode": "approve"
+        },
+        "fetch_artifact": {
+          "approval_mode": "approve"
+        },
+        "generate_env_start": {
+          "approval_mode": "approve"
+        },
+        "generate_evals_start": {
+          "approval_mode": "approve"
+        },
+        "generate_scenarios_start": {
+          "approval_mode": "approve"
+        },
+        "get_artifact_meta": {
+          "approval_mode": "approve"
+        },
+        "get_scenario": {
+          "approval_mode": "approve"
+        },
+        "get_trace_brief_meta": {
+          "approval_mode": "approve"
+        },
+        "get_trace_failures": {
+          "approval_mode": "approve"
+        },
+        "get_upload_meta": {
+          "approval_mode": "approve"
+        },
+        "ground_workspace_start": {
+          "approval_mode": "approve"
+        },
+        "interact_edit_session": {
+          "approval_mode": "approve"
+        },
+        "interact_with_scenario_request": {
+          "approval_mode": "approve"
+        },
+        "job_status": {
+          "approval_mode": "approve"
+        },
+        "list_artifacts": {
+          "approval_mode": "approve"
+        },
+        "list_uploads": {
+          "approval_mode": "approve"
+        },
+        "optimize_eval_adopt": {
+          "approval_mode": "approve"
+        },
+        "optimize_eval_revert": {
+          "approval_mode": "approve"
+        },
+        "optimize_eval_start": {
+          "approval_mode": "approve"
+        },
+        "prewarm_dimension_graph_start": {
+          "approval_mode": "approve"
+        },
+        "refine_scenarios_start": {
+          "approval_mode": "approve"
+        },
+        "release_verdict_recompute": {
+          "approval_mode": "approve"
+        },
+        "relink_eval_scenario_set": {
+          "approval_mode": "approve"
+        },
+        "revert_edited_policies": {
+          "approval_mode": "approve"
+        },
+        "score_run": {
+          "approval_mode": "approve"
+        },
+        "score_sampled_replies": {
+          "approval_mode": "approve"
+        },
+        "solvability_check_start": {
+          "approval_mode": "approve"
+        },
+        "stash_input_doc": {
+          "approval_mode": "approve"
+        },
+        "suite_diagnostics_start": {
+          "approval_mode": "approve"
+        },
+        "upload_doc_examples_start": {
+          "approval_mode": "approve"
+        },
+        "upload_eval_labels": {
+          "approval_mode": "approve"
+        },
+        "upload_red_cell_audit": {
+          "approval_mode": "approve"
+        },
+        "upload_run_artifacts_start": {
+          "approval_mode": "approve"
+        },
+        "upload_scenario_bundle_start": {
+          "approval_mode": "approve"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,245 @@
+{
+  "description": "Plurai simulation hooks for claude, generated from hooks/registry.py by scripts/dev/generate_harness_files.py. Edit the registry, not this file.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^mcp__plugin_plurai-simulation_plurai__(generate_env_start|generate_evals_start|generate_scenarios_start|ground_workspace_start|optimize_eval_start|prewarm_dimension_graph_start|release_verdict_recompute|solvability_check_start|suite_diagnostics_start|upload_doc_examples_start|upload_run_artifacts_start|upload_scenario_bundle_start)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude --bundle regen_gate,command_run_id,halt_gate",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" skill -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude flow_autoarm",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude ask_guard",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" token -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude plugin_root",
+            "timeout": 10,
+            "if": "Bash(*CLAUDE_PLUGIN_ROOT*)"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" token -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude plugin_root",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude cron_gate",
+            "timeout": 10,
+            "if": "Bash(*flow-window.sh*)"
+          }
+        ]
+      },
+      {
+        "matcher": "CronCreate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude cron_gate",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude shell_syntax_guard",
+            "timeout": 10,
+            "if": "Bash(*${(*)"
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__plugin_plurai-simulation_plurai__(edit_session_start|interact_edit_session|interact_with_scenario_request)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude placeholder_guard",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^mcp__plugin_plurai-simulation_plurai__generate_scenarios_start$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude regen_spent",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Agent|Task|Monitor|CronCreate|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude pending_register",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude ask_answered",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__plugin_plurai-simulation_plurai__.*|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude failure_notice",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude --bundle session_glossary,session_pin",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" prompt -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude --bundle flow_arm,pending_register,flow_heartbeat",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude --bundle flow_cleanup,session_pin",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude pending_register",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude pending_register",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude report_guard",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude flow_interrupt",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "matcher": "Bash|CronCreate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude denial_watch",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "^mcp__plugin_plurai-simulation_plurai__.*|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness claude failure_notice",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

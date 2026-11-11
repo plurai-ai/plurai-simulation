@@ -1,0 +1,635 @@
+{
+  "$defs": {
+    "ComplicationArchetype": {
+      "description": "One archetype in the pool of typical scenario complications the complexity prompt samples from.\n\nThe optional typed effect fields (the ``bool | None`` flags + the ``language`` license) are\nthe TYPED replacement for the old English keyword classifiers: they let\nthe sampler and the authoring-language gate act deterministically without sniffing the free-text\ndescription (language-dependent, false-positive-prone). Set them when the complication is\nauthored (the ``extract-scenario-variables`` skill / env-generator). ``None`` = \"not declared\" \u2192\nthe sampler falls back to the legacy keyword classifier for the knowledge case and treats the\nmemory/anchor cases as absent (the extraction session's scoped drop remains the backstop). An\nexplicit ``False`` means \"declared off\" and is never overridden. The scenario sampler reads these\nfields.",
+      "properties": {
+        "name": {
+          "description": "Short identifier, e.g. \"ambiguous_labels\".",
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "description": "What goes wrong or gets in the way of the agent succeeding.",
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "empties_knowledge_base": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "True iff enacting this complication makes the knowledge base / retrieval empty, missing, or unreachable (e.g. \"the corpus returns nothing\", \"the brain is down\"). Such a complication turns a knowledge scenario into an empty-world test, so it is kept out of corpus-grounded scenarios. This is about the agent's RETRIEVAL failing \u2014 an out-of-scope or off-topic ASK does not empty the knowledge base (the knowledge is still there; the user asked about something else), and an agent whose knowledge is INLINED in its prompt has no retrieval to fail, so the flag stays null for every complication on such an agent. Leave null if it does not affect retrieval availability.",
+          "title": "Empties Knowledge Base"
+        },
+        "curtails_conversation": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "True iff enacting this complication makes the user END the conversation early / after one answer (e.g. \"early goodbye\", \"abrupt exit\"). Such a complication cannot coexist with a scenario that must run long (an elliptical memory probe that refers back much later), so it is kept out of those. Leave null if it does not shorten the conversation.",
+          "title": "Curtails Conversation"
+        },
+        "needs_distance": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "True iff enacting this complication needs at least two user turns AFTER the opening \u2014 it plants something early and pays it off later (a memory probe, a mind-change, a callback to an earlier answer). Such a complication cannot be dealt beside a conversation-CURTAILING one: the two design opposite arcs and the authoring session flails on the contradiction. The built-in elliptical memory complication is the canonical case. Leave null for a complication enacted inside the turns that already exist (a tone, an ambiguity, a single interruption).",
+          "title": "Needs Distance"
+        },
+        "negates_anchor": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "True iff enacting this complication removes / invalidates a specific record the scenario pins as present (e.g. an \"out of stock\" complication on a scenario built around a specific in-stock product). Kept out of scenarios pinned to that anchor. Leave null if it does not negate a pinned record.",
+          "title": "Negates Anchor"
+        },
+        "declined_by_design": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "True iff the ask this complication puts in the user's mouth is one the agent must DECLINE by design \u2014 it is out of scope, or asks the agent to act on the user's behalf when it has no such tool (e.g. \"do it for me\", \"out of scope request\", \"asks the assistant to recite its own instructions\"). The stage that voices such an ask must carry `expects_decline: true`, and the authoring gate refuses a fulfilment-polarity plan that is dealt one of these and tags no stage. Untagged, the simulated user reads the correct refusal as a non-answer, spends its one push-back on it and gives up, so every stage after it never plays. This is about the ASK, not the outcome: a complication that merely makes the agent's job harder (an ambiguity, a false premise it should correct) is still fulfillable and stays null. Leave null if the agent can satisfy the ask.",
+          "title": "Declined By Design"
+        },
+        "untrusted_instruction": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "True iff enacting this complication plants an instruction aimed at the assistant INSIDE content a tool returns \u2014 a message, email, document, web page, ticket or log written by a third party. The agent must treat it as data. Eval generation owes such a complication a judge that declares it in `target_complications` and fails a reply or call that follows the instruction or cites its content as a source; that declaration is also what deals it into the final draw. Leave null otherwise \u2014 an instruction the USER gives is not this.",
+          "title": "Untrusted Instruction"
+        },
+        "presses_after_refusal": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "True iff this complication is the user PRESSING after the agent has correctly refused: the claim, authority or urgency it voices only makes sense once a refusal was given. The stage that enacts it must wait for that refusal (`contingent_on`) and expect the agent to decline again (`expects_decline`), after an earlier stage the agent declines. Leave null for a push-back that does not depend on a prior refusal.",
+          "title": "Presses After Refusal"
+        },
+        "variant_carriers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For an `untrusted_instruction` complication with `variants`: maps a variant (its exact text) to the agent tool whose returned record carries the planted instruction in that variant. Choose a record the agent reads to act on (a message or document it opens), not a listing it only routes on. Leave null when the variants do not name where the content arrives. A key that is not one of `variants`, or a tool the agent does not have, is dropped with a warning.",
+          "title": "Variant Carriers"
+        },
+        "anchor_requires": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Field constraints a PINNED ANCHOR entity must satisfy for this complication to be enactable (e.g. {availability: out_of_stock}). Keys/values are the customer's entity-schema vocabulary; the backend only equality-matches them against candidate entities at pin time (casefolded, whitespace-stripped scalar comparison). Meaningful with negates_anchor: a declared anchor_requires upgrades the complication from \"never dealt to pinned scenarios\" to \"dealt, with the pin constrained to a matching record\" \u2014 the scenario is pinned to a real entity that already satisfies the complication, so enacting it negates nothing. Leave null when the complication places no constraint on the pinned record.",
+          "title": "Anchor Requires"
+        },
+        "families": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The PRD's declared scenario family labels (its `## Scenario design constraints` `Family <label>` / `Families: (<label>) \u2026` entries) this archetype realises, each spelled exactly as declared. It is the typed link the complication-pool coverage check reads: a declared family no archetype lists is reported as uncovered. Leave null when the PRD declares no families or this archetype realises none.",
+          "title": "Families"
+        },
+        "variants": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Each outcome this archetype folds, one per entry, written as the world condition or ask that MAKES it happen (not just the field that permits it), in the order to test: the ones an ordinary request would not reach first. Code deals them in that order: every dealt copy gets the next variant not yet spent by a sibling or by the predecessor set, so the folded outcomes are tested in turn instead of the most obvious one every time. Leave null when the archetype folds a single outcome.",
+          "title": "Variants"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "THE SPECIFIC LANGUAGE this complication licenses the persona / first_talk to be authored in (e.g. 'he' for a Hebrew-speaker complication) \u2014 an ISO-639 code or plain language name, the same vocabulary as the set-level ``ScenarioVariables.language``. Distinct from that field: the set-level one declares the language every scenario is authored in by default; this one licenses a deviation, for exactly the scenarios enacting this complication, into exactly this language. The deterministic authoring-language gate verifies a deviating persona/first_talk against this language's script (a licensed language unknown to the script tables skips the check for those fields). MANDATORY on any complication whose semantics involve another language: the licence check is typed-field-only by design, so a language named only in the prose description licenses nothing and every enactment hard-fails the authoring-language gate. Leave null if the complication says nothing about language.",
+          "title": "Language"
+        },
+        "language_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "throughout",
+                "switches_to"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "HOW the licensed ``language`` enters the conversation \u2014 the two flavours want OPPOSITE slot languages, so declaring it is what lets the generator place the complication on a slot where it can actually be enacted. 'throughout': the user speaks the licensed language from the first message (enactable when the scenario IS authored in that language, so it steers its slot toward it). 'switches_to': the user starts in the scenario's language and moves INTO the licensed one mid-conversation (structurally unenactable when the slot is already that language \u2014 there is nothing to switch from \u2014 so it steers its slot away from it). MANDATORY whenever ``language`` is set; meaningless without it (rejected). Null on a legacy file falls back to a prose-shape classifier, a migration shim only \u2014 re-extract to declare the mode.",
+          "title": "Language Mode"
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ],
+      "title": "ComplicationArchetype",
+      "type": "object"
+    },
+    "EntitySummary": {
+      "description": "Compact per-entity-type summary used by enrichment / complexity / subtlety prompts.",
+      "properties": {
+        "name": {
+          "description": "Entity type name (e.g., \"ticket\", \"customer_record\", \"appointment\").",
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "description": "What this entity represents.",
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "key_fields": {
+          "description": "The most important field names for this entity.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Key Fields",
+          "type": "array"
+        },
+        "typical_states": {
+          "description": "Common lifecycle states or status values this entity takes (if applicable).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Typical States",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "description"
+      ],
+      "title": "EntitySummary",
+      "type": "object"
+    },
+    "ToolSummary": {
+      "description": "Compact per-tool summary used by the enrichment, complexity, and intervention prompts.",
+      "properties": {
+        "name": {
+          "description": "Tool identifier (matches the descriptor in plurai.config.yaml).",
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "description": "What this tool does in one sentence.",
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "when_used": {
+          "description": "When the agent typically invokes this tool.",
+          "minLength": 1,
+          "title": "When Used",
+          "type": "string"
+        },
+        "output_fields": {
+          "description": "The fields each returned record exposes \u2014 the agent's RETRIEVABLE SURFACE for this tool (e.g. a search tool returning {name, score, domain, grade_numeric} exposes exactly those, NOT entity fields it projects out like percentile or private names). Captured from the tool's declared return shape in the agent contract. Knowledge-plan generation injects this so it never plants questions whose answer the agent cannot retrieve. Empty for tools that return no records (deflectors / pure side-effect tools) and for pre-field variables files (back-compat \u2192 no boundary is injected, same as today).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Output Fields",
+          "type": "array"
+        },
+        "mode": {
+          "default": "mock",
+          "description": "Execution mode from plurai.config.yaml: 'mock' (intercepted via /mock/execute \u2014 emits a tool_call event the harness can observe) or 'real' (runs against a real adapter \u2014 emits NO tool_call event; its effect is only visible in the agent's response text / world-state). Generators MUST NOT assert tool_call presence for 'real' tools. A Literal (not a free str) so a typo is rejected at validation time rather than silently degrading to mock-treatment and disabling the mode:real check. Defaults to mock for back-compat with pre-field variables files.",
+          "enum": [
+            "mock",
+            "real"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "reads": {
+          "anyOf": [
+            {
+              "enum": [
+                "world_state",
+                "live"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where this tool's records come from at run time \u2014 the tool's EFFECTIVE read strategy in plurai.config.yaml, independent of `mode`: 'world_state' for `mode: mock`, or `mode: real` whose effective `read_strategy` is `mocked` / `stub` (the real body runs over the seeded world); 'live' for `mode: real` with `read_strategy: real` (or no read strategy at all), and for `observe`. `world_grounding` is derived from this, never from `mode`. Null only on pre-field files, where `mode` stands in for it.",
+          "title": "Reads"
+        },
+        "invocation": {
+          "anyOf": [
+            {
+              "enum": [
+                "fixed",
+                "agent"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who decides that this tool is called \u2014 copied from `tools.<name>.invocation` in plurai.config.yaml. 'fixed': the agent's own control flow calls it on EVERY run, unconditionally, whatever the model or the data decide (a pipeline's fixed first step). 'agent': a model selects it, or code calls it conditionally. Null (absent) means 'agent'. A check whose only positive clause asserts that a 'fixed' tool fired grades nothing, because that call happens on every run; a check that asserts an agent-selected tool fired grades a real decision.",
+          "title": "Invocation"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "when_used"
+      ],
+      "title": "ToolSummary",
+      "type": "object"
+    },
+    "UserProfileArchetype": {
+      "description": "One archetype in the pool of typical users the persona prompt samples from.\n\n``language`` is the archetype's one TYPED trait, and it is typed for the same reason a\ncomplication's ``language`` licence is: the user-context deal and the language deal are two\npermutations over the same slots, and a trait that lives only in the free-text ``style`` (\"asks\nin Hebrew\") is invisible to both \u2014 so it was silently overridden by the slot's assigned\nlanguage. With the field declared, the user-context deal seats the\narchetype on a slot authored in that language, or drops it with a typed conflict record; it\nnever sniffs the prose for one.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "An optional stable label for the archetype, e.g. \"impatient_returner\": a wording edit to the profile keeps it, and trace analysis classifies production conversations under it (under the style when it is absent).",
+          "title": "Name"
+        },
+        "style": {
+          "description": "Voice / persona descriptor, e.g. \"skeptical engineer who wants the reasoning shown\".",
+          "minLength": 1,
+          "title": "Style",
+          "type": "string"
+        },
+        "context": {
+          "description": "The standing DISPOSITION this user brings (experience level, what they already know, how they read an answer, what they insist on) \u2014 never a plot: no concrete prop, named or counted third party, deadline, or specific past episode. See `typical_user_profiles` in the extract-scenario-variables skill.",
+          "minLength": 1,
+          "title": "Context",
+          "type": "string"
+        },
+        "motivations": {
+          "description": "The standing goal they are trying to accomplish, in the same disposition register as `context`.",
+          "minLength": 1,
+          "title": "Motivations",
+          "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The SPECIFIC language this user speaks THROUGHOUT the conversation (a language name or tag, e.g. \"Hebrew\", \"he\"), when the archetype is defined by it. REQUIRED-NULLABLE: write the key on every archetype, with `null` when the user speaks whatever language the scenario is authored in. Required so the trait cannot be left IMPLICIT \u2014 an omitted key and a declared `null` are the same value to the deal and different facts about the author, and the omitted one is how a language named only in prose came to be dropped silently. The batch deal seats an archetype carrying a language only on a scenario slot authored in that language (reseating it against a slot that is), and DROPS it \u2014 with a typed conflict on the census \u2014 when no such slot exists in the batch: a language named only in `style` prose is overridden by the slot's assignment silently, which this field exists to prevent. Never a mid-conversation switch; that is a complication's `language` licence with `language_mode: switches_to`.\n\nTYPE IT WHENEVER THE PROSE IMPLIES A LANGUAGE, INCLUDING WHEN NO LANGUAGE IS NAMED: \"Hebrew-speaking first-day user\" -> type it; \"would rather not work in a second language\" -> ALSO type it, with the language she would work in, because a language requirement stated as a preference is still one; \"a Tel Aviv franchise owner\" -> do NOT, since nationality, location and market are not languages. No check can draw that line \u2014 a prose advisory matches language NAMES and is blind to the second case, while a blanket \"undeclared\" advisory fires on the third too \u2014 so the judgement is the author's. Getting it wrong is costly BOTH ways: a language typed that is not the trait makes the batch deal seat and drop on a requirement nobody made, and a real one left untyped is silently overridden by the slot's assigned language.",
+          "title": "Language"
+        },
+        "families": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The PRD's declared scenario family labels this user profile DELIVERS (a family defined by who the user is \u2014 their language, say), spelled exactly as declared. Read with `ComplicationArchetype.families` by the complication-pool coverage check. Leave null when the profile delivers no declared family.",
+          "title": "Families"
+        },
+        "cannot_supply": {
+          "default": [],
+          "description": "Inputs this archetype WOULD NOT PROVIDE, by construction \u2014 the thing that makes her this person rather than a generic user (\"a framework list\", \"her account number\", \"prior usage history\"). EMPTY for almost every archetype \u2014 declare it only where NOT supplying the input is the archetype's defining trait, never as a list of things she merely has not mentioned.\n\nWHAT READS IT: the FLOW EXTRACTOR, as evidence. It is shown the declared archetypes beside the PRD and names, per flow, the archetype styles that flow `cannot_be_served_by`; the batch deal then acts on that typed cross-reference. So these entries steer a judgement rather than being matched against anything \u2014 phrase them in the words the PRD uses for the input, but a near-miss costs nothing here because nothing is compared string-to-string.\n\nTyped for the reason `language` is: the deal is flow-blind on its own, so an archetype whose whole definition is \"talks in product terms, not methodology\" gets paired with a flow whose mandated tool requires a methodology list purely by luck of the draw, and nothing notices. A drafting session stays faithful to the archetype and does not supply the input, so an unsteered pairing is flagged, repaired against the same wall and quarantined. When a flow names her, the deal reseats her onto a slot whose flows do not \u2014 and when no such slot exists the pairing is KEPT with a steering directive, never dropped: sometimes the pairing is the point, and scripting \"she gives it once asked\" is a better scenario than either half alone.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Cannot Supply",
+          "type": "array"
+        }
+      },
+      "required": [
+        "style",
+        "context",
+        "motivations",
+        "language"
+      ],
+      "title": "UserProfileArchetype",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "Static per-agent context the canonical scenario-generation prompts reference.\n\nProduced once per agent by the plurai-simulation-plugin's\n``extract-scenario-variables`` skill. Consumed by the scenario generator's prompt provider\nat scenario-generation time and validated before use.\n\nExtensibility: ``model_config = {'extra': 'allow'}`` \u2014 a domain that wants to\ninject a custom variable in a custom prompt can put it in the YAML and it\npasses through the prompt provider's format-string substitution.",
+  "properties": {
+    "agent_domain": {
+      "description": "Short domain label, e.g. \"customer-support\", \"fraud-detection\", \"appointment-scheduling\".",
+      "minLength": 1,
+      "title": "Agent Domain",
+      "type": "string"
+    },
+    "agent_purpose": {
+      "description": "1-2 sentence summary of what the agent does and its core value.",
+      "minLength": 1,
+      "title": "Agent Purpose",
+      "type": "string"
+    },
+    "agent_tools": {
+      "description": "Tools the agent can invoke. Required for prompts that need to reference tool usage.",
+      "items": {
+        "$ref": "#/$defs/ToolSummary"
+      },
+      "title": "Agent Tools",
+      "type": "array"
+    },
+    "control_messages": {
+      "description": "The exact chat messages the product's UI sends for the user when a control is pressed (a tab, chip or button whose click posts a fixed message) and that the agent matches as the whole message, read from the UI code. One entry per literal value: a template over a closed set (`Size [<size>]` over S / M / L) is listed as each value. A scenario stage whose text is exactly one of them is sent unchanged by the simulated user; a stage that wraps one in other words is sent back to be rewritten. Empty when the UI sends none.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Control Messages",
+      "type": "array"
+    },
+    "currency_aliases": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Currency spellings CLDR does NOT carry, keyed by ISO-4217 code \u2014 ``currency_aliases: {ILS: ['\u05e9\"\u05d7', '\u05e9\u05f4\u05d7', 'NIS']}``. It sits beside ``language`` because it is the same kind of declaration: what the people this suite simulates actually write.\n\nIt is read at GRADE time. A ``kind: money`` fact is expanded into the renderings a reply may state it in, paired with the fact's OWN currency and no other, and the spellings of that currency come from CLDR (Babel) plus this table. Babel has no ILS spelling for ``\u05e9\"\u05d7`` / ``\u05e9\u05f4\u05d7`` / ``NIS`` \u2014 measured \u2014 so without the row a correct Hebrew retail reply reds; with it, and with no other currency paired, a reply naming the right NUMBER in the wrong CURRENCY reds, which it did not before.\n\nLeaving it unset means the backend's shipped default (the ILS row). Declaring it REPLACES the default wholesale \u2014 including ``currency_aliases: {}``, which turns aliasing off entirely. Keys are ISO-4217 codes, so this never keys on a customer, a language or a key name; a French suite that wants ``\u20acuro`` accepted declares ``{EUR: ['\u20acuro']}`` by the same route.",
+      "title": "Currency Aliases"
+    },
+    "entity_schemas": {
+      "description": "Data entity types the agent manipulates. Required for prompts that need entity grounding.",
+      "items": {
+        "$ref": "#/$defs/EntitySummary"
+      },
+      "title": "Entity Schemas",
+      "type": "array"
+    },
+    "greets_first": {
+      "default": false,
+      "description": "True when the agent opens with a greeting / scope-gathering turn before doing substantive work (so turn 1 makes no progress toward success_criteria). Used to widen the turn budget.",
+      "title": "Greets First",
+      "type": "boolean"
+    },
+    "interaction_style_hints": {
+      "default": "",
+      "description": "Short description of how conversations with this agent typically unfold.",
+      "title": "Interaction Style Hints",
+      "type": "string"
+    },
+    "knowledge_extraction_policy": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      ],
+      "default": "",
+      "description": "The agent's KNOWLEDGE-EXTRACTION POLICY: the contract rules a CORRECT answer must obey when surfacing knowledge \u2014 disclosure / aggregation / anonymization / redaction / required-format constraints (e.g. 'answer only in aggregate; never tie a grade or metric to a named/identifiable individual entity; anonymize codenames'). Distinct from a tool's output_fields (the per-tool RETRIEVABLE surface): this is what is DISCLOSEABLE and HOW. Knowledge-plan generation injects it into the knowledge plan so it never plants a question whose only correct answer would break the policy. Captured from the PRD / command output rules; empty for agents with no such constraints (back-compat \u2192 no policy injected, behavior unchanged).\n\nEITHER SHAPE, and the TYPED one is a list. A prose blob is the shape every variables file carries today and reads back as ONE UNCONDITIONAL rule, so nothing changes for it. A list of ``{rule, applies_when?}`` entries (bare strings for the unconditional ones) says WHEN each rule binds, which prose has no place to state \u2014 and a conditional clause in the customer's own contract (\"If asked to do something\u2026\") arriving as an unconditional obligation is what made the answer-contract fence ADD a disclaimer to answers whose question never triggered it, reddening a compliant agent on four of four turns. This field was declared ``str``, so the typed shape was REFUSED at validation and the whole remedy was unreachable from the input side; one parser owns every shape question.",
+      "title": "Knowledge Extraction Policy"
+    },
+    "language": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The language(s) every scenario's persona / first_talk is AUTHORED in. Three shapes, all accepted: a single value (``language: he``) authors the WHOLE set in that language; a list (``language: [he, en]``) spreads the set evenly across them; a weight map (``language: {he: 0.6, en: 0.4}``) spreads it in the declared proportion. A list entry repeated is an implicit weight. Values are ISO-639 codes or plain language names ('en', 'hebrew').\n\nSetting this field is the ONLY way the language is supplied. It turns ON the deterministic script-level authoring gate in the extraction repair loop, and \u2014 for a list or a map \u2014 assigns each scenario one language at seed time, deterministically, so the batch actually contains the mix (7 scenarios over two languages is 4/3, never 7/0). Every declared language gets at least one scenario whenever the scenario count is at least the number of languages. The assignment is persisted per scenario as ``target_language``.\n\nLeaving it unset means UNCONSTRAINED, which is NOT the same as varied. With no declaration the gate is off and each scenario is authored blind, so a set will usually come out in ONE language \u2014 the model's default for the agent. If you want variety you must declare it here; asking for it in ``interest``, in the PRD, or in prose anywhere else is unenforced (a PRD-only \"exclusively Hebrew\" constraint shipped three language-switching scenarios, one mixing scripts inside a single message). Never defaulted to 'en': assuming English for a variables file that predates this field would make every scenario of a non-English agent fail the gate and be repaired INTO English.\n\nA complication's own ``language`` field is a separate, ADDITIVE lever: it licenses a deviation into that specific language for the scenarios enacting it, on top of whatever language they were assigned.",
+      "title": "Language"
+    },
+    "read_only": {
+      "default": false,
+      "description": "True when the agent never mutates world-state (e.g. a RAG / research / classification agent that only reads). Signals that a zero-entity final world snapshot is EXPECTED, not a seeding/crash failure.",
+      "title": "Read Only",
+      "type": "boolean"
+    },
+    "success_criteria_hints": {
+      "default": "",
+      "description": "What it looks like when the agent succeeds at its task \u2014 used by intervention_point / first_talk prompts.",
+      "title": "Success Criteria Hints",
+      "type": "string"
+    },
+    "target_rulings": {
+      "description": "Audited obligations a scenario target may NOT require \u2014 each one a red-cell audit found FALSE because the target graded something the agent's contract never asks it to produce, or that the judge cannot observe. Written by `scripts/record_target_rulings.py` at the suite's landing; do not author it here. The backend tells the scenario author not to require it and has the grounding auditor block a target that does, citing the row's `id`.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "contract_quote": {
+            "default": "",
+            "description": "The contract's own clause the ruling rests on, verbatim; required on a `not_in_contract` ruling.",
+            "type": "string"
+          },
+          "flow_id": {
+            "default": "",
+            "description": "The flow the obligation was graded under; empty for every flow.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Stable id the auditor cites back.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "obligation": {
+            "description": "The ruled-out requirement, as the target clause stated it.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "ruling": {
+            "enum": [
+              "not_in_contract",
+              "unobservable"
+            ],
+            "type": "string"
+          },
+          "source": {
+            "default": "",
+            "description": "Where the ruling came from (the audit that made it).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "obligation",
+          "ruling"
+        ],
+        "type": "object"
+      },
+      "title": "Target Rulings",
+      "type": "array"
+    },
+    "typical_complications": {
+      "description": "8-12 complication archetypes the complexity prompt picks from when evolving scenarios.",
+      "items": {
+        "$ref": "#/$defs/ComplicationArchetype"
+      },
+      "title": "Typical Complications",
+      "type": "array"
+    },
+    "typical_opening_scenarios": {
+      "description": "3-5 example opening lines users commonly say to the agent. Used by first_talk.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Typical Opening Scenarios",
+      "type": "array"
+    },
+    "typical_user_profiles": {
+      "description": "3-5 archetypes describing typical users of this agent. Used by the persona prompt.",
+      "items": {
+        "$ref": "#/$defs/UserProfileArchetype"
+      },
+      "title": "Typical User Profiles",
+      "type": "array"
+    },
+    "world_grounding": {
+      "description": "Where the agent's retrievable data actually lives, at the granularity of the WHOLE tool contract \u2014 REQUIRED, no default, must AGREE with agent_tools[].reads (a coherence check enforces it at load). 'seeded' \u2014 no record-returning tool reads live: the seeded world-state IS the whole world, so absence from the seed is absence from the world. 'live' \u2014 EVERY record-returning tool reads live: any seed shown is only an ILLUSTRATIVE EXCERPT of a much larger live backend, so absence from the seed proves nothing. 'hybrid' \u2014 a MIX: some record-returning tools read live, others the world state. Declared, not inferred, so a plugin regression that stops setting reads=live is caught at load (a hard validation error) instead of silently reverting to mock-world semantics and reproducing the all-real-bench mass-quarantine incident this field exists to prevent.",
+      "enum": [
+        "seeded",
+        "live",
+        "hybrid"
+      ],
+      "title": "World Grounding",
+      "type": "string"
+    }
+  },
+  "required": [
+    "agent_purpose",
+    "agent_domain",
+    "world_grounding"
+  ],
+  "title": "ScenarioVariables",
+  "type": "object"
+}

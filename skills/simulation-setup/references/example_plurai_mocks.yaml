@@ -1,0 +1,34 @@
+version: '0.1'
+tools:
+  get_user_profile:
+    description: Fetch user profile from DB
+    reads_from: Postgres
+    stateful: false
+    returns:
+      type: dict
+      fields:
+        name:
+          type: str
+        plan:
+          type: str
+          enum:
+          - free
+          - pro
+          - enterprise
+    args:
+      user_id:
+        type: Any
+  process_refund:
+    description: Process refund via Stripe
+    writes_to: Stripe + Postgres
+    stateful: true
+    business_rules:
+    - Balance >= amount
+    - 'Premium: up to $500'
+    state_transitions:
+      user.balance: decremented
+    args:
+      user_id:
+        type: Any
+      amount:
+        type: Any

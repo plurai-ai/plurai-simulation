@@ -1,0 +1,47 @@
+{
+  "version": "0.56.10",
+  "plugin": "0.55",
+  "tag": "simulation-report@0.56.10",
+  "fetched_at": "2026-11-10T22:04:38Z",
+  "sha256": {
+    "index.html": "6aefc964697642a1152647534539975a8eb520cc2ce4df17d8d95acb0b4cf648",
+    "schema.json": "7fcabcad0458ce3f5c64c4495030d6962ff6c309e96d555d559c962a58e50558",
+    "fill_report.py": "3c7cd18ab5fbee3202478380f9cee080c30f5180957e38f37676981fab15d90f",
+    "manifest.json": "95b4ec8f7dc0184ba19fb1cccf74296be665535a51d98123c43897cc4039f527"
+  },
+  "manifest": {
+    "version": "0.56.10",
+    "plugin": "0.55",
+    "sha256": {
+      "index.html": "6aefc964697642a1152647534539975a8eb520cc2ce4df17d8d95acb0b4cf648",
+      "fill_report.py": "3c7cd18ab5fbee3202478380f9cee080c30f5180957e38f37676981fab15d90f",
+      "schema.json": "7fcabcad0458ce3f5c64c4495030d6962ff6c309e96d555d559c962a58e50558"
+    },
+    "schema_hash": "7fcabcad0458ce3f5c64c4495030d6962ff6c309e96d555d559c962a58e50558",
+    "anchors": [
+      "scan",
+      "traces",
+      "suite",
+      "run",
+      "gaps",
+      "fixes",
+      "knowledge",
+      "scenario-{scenario id}",
+      "eval-{eval id}",
+      "gap-{gap id}",
+      "{stage}.gap-{gap id}",
+      "{stage}.eval-{eval id}",
+      "{stage}.drawer-{scenario id}.run-{run folder}.attempt-{attempt}.turn-{turn}",
+      "{stage}.knowledge-{passage id}"
+    ],
+    "python": "3.9",
+    "soft_payload_bytes": 6291456,
+    "max_payload_bytes": 12582912,
+    "sidecar": "report.data.js",
+    "update_hook": "__reportUpdate",
+    "capabilities": [
+      "preliminary_findings",
+      "run_warnings"
+    ]
+  }
+}

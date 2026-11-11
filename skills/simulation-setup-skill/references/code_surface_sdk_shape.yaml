@@ -1,0 +1,20 @@
+# code_surface.yaml — SDK sub-mode (authored by plugin into plurai.config.yaml; projected by the SDK)
+version: 1
+modules:
+  resend:
+    language: python                      # from agent.code_languages
+    methods:
+      Emails.send:                        # original_function shared by 2 ops
+        discriminator:                    # from the authored per-descriptor `when:`
+          field: template                 #   the key-presence field
+          present: send_with_template     #   `when: template present`
+          absent: send_email              #   `when: template absent`
+        return_envelope: python_dict      # from language
+      Emails.get:
+        tool: get_email
+        positional: [id]                  # from original_positional_args
+        return_envelope: python_dict
+      Templates.publish:
+        tool: publish_template
+        positional: [id]
+        return_envelope: python_dict

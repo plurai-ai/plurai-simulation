@@ -1,0 +1,246 @@
+# This file belongs to you. Plurai generated it from your agent as a starting point;
+# review it, change it and keep it with your code.
+"""simulate.py — skill-agent harness ({command} from {plugin}), `tools` channel."""
+from __future__ import annotations
+import json, os, sys
+from pathlib import Path
+
+# Subscription auth only — drop a stray key so billing can't silently switch.
+_had_api_key = os.environ.pop('ANTHROPIC_API_KEY', None) is not None
+
+import plurai
+from langchain_core.messages import AIMessage
+import _skill_tools
+
+_MOCK_CFG = {'<tool_a>': 'mock', '<tool_b>': 'mock', '<raw_deflector>': 'mock'}
+plurai.apply_mocks(_skill_tools, _MOCK_CFG)
+# apply_mocks SILENTLY skips a name that isn't a callable on the module, leaving it
+# un-mocked — the raw body would then `raise` inside the MCP tool handler, the SDK
+# would feed that to the model as a tool error, and the run would score as "agent
+# never used tool X" with no signal that it was a config typo. Fail loud instead.
+_unmapped = [n for n in _MOCK_CFG if not callable(getattr(_skill_tools, n, None))]
+if _unmapped:
+    raise RuntimeError(
+        f'apply_mocks could not patch {_unmapped}: name mismatch between simulate.py '
+        f'and _skill_tools.py. Fix the names before running.'
+    )
+
+from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient,
+                              ResultError, ResultMessage, TextBlock, create_sdk_mcp_server, tool)
+
+_DIR = Path(__file__).resolve().parent
+_PROMPT = (_DIR / 'skill_prompt.md').read_text(encoding='utf-8')
+
+def _result(payload) -> dict:
+    # `payload` is the tool's return (apply_mocks already selected a success's `content`): a str verbatim.
+    text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False, default=str)
+    return {'content': [{'type': 'text', 'text': text}]}
+
+@tool('<tool_a>', '<descriptor description>', {'<arg>': str})
+async def _tool_a(args: dict) -> dict:
+    return _result(_skill_tools.<tool_a>(**args))
+# ... one @tool per surface tool, including the deflector ...
+
+_SERVER = create_sdk_mcp_server('<mcp-server-name>', tools=[_tool_a, ...])
+_ALLOWED = ['mcp__<mcp-server-name>__<tool_a>', ...]
+_client: ClaudeSDKClient | None = None
+
+_RESUME_ROLE = {'human': 'user', 'ai': 'assistant', 'tool': 'tool', 'system': 'system'}
+
+#: What ``seed_state`` returns after a resumed scenario. The SDK passes this value through
+#: VERBATIM into the run record, where ``None`` reads as a full-fidelity resume — so a lane
+#: that restores the transcript and nothing else has to say so, or the run is scored as though
+#: the agent resumed from state it never saw. The transcript IS this lane's ceiling: the nested
+#: session holds no store outside its own conversation, so every ``agent_state`` key the seed
+#: carries is skipped and named under ``resume_state_dropped``.
+_MESSAGES_ONLY_FIDELITY = {'fidelity': 'reduced', 'restored': ['messages'], 'not_restored': ['agent_state']}
+
+def _resume_transcript(resume_seed: dict) -> str:
+    """Render a resumed scenario's pinned transcript (minimal message dicts) as a
+    system-prompt block, injected AT CONSTRUCTION — `seed_state` is where the nested
+    session is built, and the context it opens on is the only place history can go.
+    That is messages fidelity, and also the ceiling: the agent has no state outside
+    its own conversation, so ``agent_state`` is not read here — ``seed_state`` names
+    its keys in the fidelity report instead. A ``resume_point`` is refused: it
+    names a graph node to start turn 1 at, and this lane has no nodes, so there is
+    nothing to honour and nothing to reduce — starting from the top instead would
+    redo the very steps the trace already took. (IDENTICAL across all three
+    variants.)
+    """
+    point = resume_seed.get('resume_point')
+    if point is not None:
+        raise RuntimeError(
+            f'resume_seed pins a start node — resume_point={point!r} — and a skill-lane '
+            'harness has no graph node to start from — the nested session begins where its '
+            'context begins. Re-convert the trace without --start-node, or target a graph '
+            'harness. Refusing rather than starting from the top, which would redo the steps '
+            'the trace already took and score that as the pinned resume.')
+    messages = resume_seed.get('messages') or []
+    if not messages:
+        raise RuntimeError(
+            'resume_seed.messages is empty — seeding nothing would run the scenario on '
+            'a blank session and score a conversation the agent never had')
+    lines = []
+    for m in messages:
+        role = _RESUME_ROLE.get(m.get('type'))
+        if role is None:
+            # Raise, never skip: a silently dropped exchange is a transcript that no
+            # longer explains itself.
+            raise RuntimeError(f'resume_seed message {m.get("id")!r} has unrenderable '
+                               f'type {m.get("type")!r}')
+        content = m.get('content')
+        text = content if isinstance(content, str) else json.dumps(
+            content, ensure_ascii=False, default=str)
+        if role == 'tool':
+            # tool_call_id is the in-transcript join between a call and its result.
+            # Message ids are not rendered: the byte-for-byte resume seed this
+            # session was handed (resume_seed.yaml, in the scenario folder) keeps
+            # the join back to the source trace.
+            lines.append(f'[tool result for {m.get("tool_call_id")}] {text}')
+            continue
+        lines.append(f'[{role}] {text}'.rstrip())
+        for call in m.get('tool_calls') or []:
+            args = json.dumps(call.get('args') or {}, ensure_ascii=False, default=str)
+            lines.append(f'[{role} tool call {call.get("id")}] {call.get("name")}({args})')
+    return (
+        '\n\n## Resumed conversation (this session, before this point)\n\n'
+        'This session continues a conversation already in progress. The transcript\n'
+        'below already happened between you and the user — treat it as your own prior\n'
+        'turns: do not greet the user afresh, do not redo the tool calls shown, and\n'
+        'rely on it for context as the conversation continues.\n\n'
+        + '\n'.join(lines) + '\n')
+
+async def seed_state(
+    initial_agent_context: dict,
+    initial_world_state: dict,
+    resume_seed: dict | None = None,
+) -> dict | None:
+    """Create the persistent skill session (world seeding is server-side).
+
+    ``resume_seed`` is always passed — the child calls this hook with three
+    positional arguments, ``None`` for a fresh scenario, so a two-parameter
+    signature is a TypeError at init. Fresh scenarios are untouched by it. On a
+    resumed scenario the pinned transcript is folded into the session AT
+    CONSTRUCTION below — the sanctioned mechanism for this lane: the session is
+    created inside ``seed_state``, so history goes in at construction, at messages
+    fidelity. A seed's ``agent_state`` keys are skipped and named in the report
+    (``resume_state_dropped``) — the nested agent has no state outside its
+    conversation to restore them into — and a ``resume_point``, which pins a graph
+    node this lane cannot start at, is refused in ``_resume_transcript``.
+
+    On a resumed scenario this returns the harness's own fidelity report — the
+    transcript went in, the agent state did not — which the SDK carries verbatim into
+    the run record. A fresh scenario returns ``None``, the value that means full
+    fidelity, so nothing changes for a run that never resumes.
+    """
+    global _client
+    prompt = _PROMPT.replace('{room_state}',
+        str(initial_agent_context.get('room_state') or 'No context yet.'))
+    fidelity = None
+    if resume_seed is not None:
+        # Resumed scenario: fold the pinned transcript into the context the session
+        # opens on — construction happens right below.
+        prompt += _resume_transcript(resume_seed)
+        fidelity = _MESSAGES_ONLY_FIDELITY.copy()
+        # The seed's state has no slot here: skipped, and named so the replay says so.
+        if dropped := sorted(resume_seed.get('agent_state') or {}):
+            fidelity['resume_state_dropped'] = dropped
+    # What the agent reads becomes trail, and the trail leaves the machine: its reads are scoped.
+    _scope = plurai.host_read_scope(run_dir=_DIR, repo=_DIR.parent, harness=_DIR)
+    _client = ClaudeSDKClient(ClaudeAgentOptions(
+        system_prompt=prompt,
+        mcp_servers={'<mcp-server-name>': _SERVER},
+        allowed_tools=_ALLOWED,
+        # The surface is an ALLOWLIST: no built-ins, and none of the operator's settings,
+        # plugins or MCP servers (claude.ai connectors included). All three are needed.
+        tools=[],
+        setting_sources=[],
+        strict_mcp_config=True,
+        permission_mode='bypassPermissions',   # safe: the three lines above leave only the mock tools
+        model=os.environ.get('PLURAI_SKILL_MODEL', 'sonnet'),
+        cwd=str(_DIR),
+        env=_scope.agent_shell_env(cli_env=os.environ),  # its shell gets a home of the scenario's own; the CLI keeps your login
+        hooks=plurai.cli_hooks(_scope, trail=None),  # its reads gated; a turn the CLI ends in error typed by the SDK
+    ))
+    try:
+        await _client.connect()
+    except Exception as exc:
+        # No-auth is the common cause when we removed an ANTHROPIC_API_KEY above: the
+        # nested CLI then signs in with the operator's Claude login. Surface that
+        # instead of an opaque SDK auth stack trace.
+        hint = ' (this harness drops ANTHROPIC_API_KEY; the nested CLI signs in with your Claude login — run `claude` and sign in)' if _had_api_key else ''
+        raise RuntimeError(f'nested skill session failed to start{hint}: {exc}') from exc
+    return fidelity
+
+def _reply_message(reply: str, models: list[str], result: ResultMessage | None) -> AIMessage:
+    """The turn's one AIMessage, carrying the model and token usage the nested session reported.
+
+    The turn is one consolidated message, so its usage is the query's own total (`ResultMessage.usage`) and
+    its model is the one every assistant message named. A turn that named several, or a session that
+    reported no counts, leaves that field off: a trace sink shows a missing value as missing.
+    """
+    metadata = {'model_name': models[0]} if len(models) == 1 else {}
+    usage = (result.usage if result is not None else None) or {}
+    tokens_in, tokens_out = usage.get('input_tokens'), usage.get('output_tokens')
+    if isinstance(tokens_in, int) and isinstance(tokens_out, int):
+        counts = {'input_tokens': tokens_in, 'output_tokens': tokens_out, 'total_tokens': tokens_in + tokens_out}
+        return AIMessage(content=reply, response_metadata=metadata, usage_metadata=counts)
+    return AIMessage(content=reply, response_metadata=metadata)
+
+async def invoke_agent(payload: dict, config: dict | None = None) -> dict:
+    if _client is None:
+        raise RuntimeError('seed_state was not called — skill session missing')
+    # PAYLOAD CONTRACT: payload['messages'] holds THIS turn's user side only —
+    # ONE message normally, [] on the opening call at a bench declaring
+    # agent.io: {may_open: true} (so never index [-1] blind), and still one
+    # message whose content is a parts list when the turn carries an attachment.
+    # It holds only
+    # the NEW user message — never the conversation so far. History lives in the
+    # persistent _client session here (keyed implicitly by process lifetime; a
+    # framework harness must key its own store on config['configurable']['thread_id']).
+    # A harness that rebuilds history from payload['messages'] runs stateless and
+    # nothing flags it — every memory/continuity verdict is then meaningless.
+    # The last HUMAN message, never blindly messages[-1]: a payload whose trailing
+    # element is not the user turn (tool/system residue from a prior exchange) would
+    # otherwise feed the wrong text to the session — and mis-attributed words are
+    # graded as the conversation's content.
+    m = next(
+        (x for x in reversed(payload['messages'])
+         if str(getattr(x, 'type', None) or (x.get('type') or x.get('role') if isinstance(x, dict) else '') or '').lower().removesuffix('message') in ('human', 'user')),
+        payload['messages'][-1],
+    )
+    await _client.query(m.content if hasattr(m, 'content') else str(m))
+    texts: list[str] = []
+    models: list[str] = []
+    result: ResultMessage | None = None
+    async for msg in _client.receive_response():
+        if isinstance(msg, AssistantMessage):
+            texts.extend(b.text for b in msg.content if isinstance(b, TextBlock))
+            if msg.model and msg.model not in models:
+                models.append(msg.model)
+        if isinstance(msg, ResultMessage):
+            result = msg
+    reply = '\n\n'.join(t for t in texts if t.strip())
+    if result is not None and result.is_error:
+        # The nested CLI ended the turn in error, and any text is the CLI's, not the agent's
+        # reply: raised as the SDK's typed error, with the failing call's HTTP status. The
+        # stop's type (the StopFailure hook of plurai.cli_hooks) says whose it is: a provider
+        # or sign-in stop is never scored as the agent; its model's reply hitting its output
+        # budget is the agent's failed trial.
+        raise ResultError(
+            f'the nested skill session ended in error (subtype={result.subtype!r}, '
+            f'api_error_status={result.api_error_status!r})',
+            data=vars(result),
+        )
+    if not reply:
+        # Empty output almost always means the nested turn BROKE (it errored
+        # mid-tool-chain), not that the model chose silence. Returning a
+        # '(no response)' sentinel here would score as a completed-but-unhelpful
+        # turn and hide the breakage; raise so plurai records an AgentError instead.
+        raise RuntimeError(
+            f'skill session produced no assistant text '
+            f'(result subtype={getattr(result, "subtype", None)!r}, '
+            f'is_error={getattr(result, "is_error", None)}); '
+            f'likely the nested session errored mid-tool-chain'
+        )
+    return {'messages': [_reply_message(reply, models, result)]}

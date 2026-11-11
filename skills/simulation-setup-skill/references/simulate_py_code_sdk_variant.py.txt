@@ -1,0 +1,332 @@
+# This file belongs to you. Plurai generated it from your agent as a starting point;
+# review it, change it and keep it with your code.
+"""simulate.py — skill-agent harness ({command} from {plugin}), `code` channel.
+
+The skill writes real SDK snippets and runs them via Bash; a generic plurai
+import-hook (installed in the grandchild via sitecustomize) shadows the vendor
+SDK and routes each call over /mock/execute. No per-customer shim is generated.
+"""
+from __future__ import annotations
+import contextlib, json, os, sys
+from pathlib import Path
+
+# Subscription auth only — drop a stray key so billing can't silently switch.
+_had_api_key = os.environ.pop('ANTHROPIC_API_KEY', None) is not None
+
+import plurai
+from langchain_core.messages import AIMessage
+from claude_agent_sdk import (AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient,
+                              ResultError, ResultMessage, TextBlock)
+
+_DIR = Path(__file__).resolve().parent
+_PROMPT = (_DIR / 'skill_prompt.md').read_text(encoding='utf-8')
+
+_CONFIG = _DIR / 'plurai.config.yaml'
+_CODE_SURFACE = _DIR / 'code_surface.yaml'
+
+# code_surface.yaml is the `code`-channel data contract. The backend does not emit it;
+# the SDK projects it from plurai.config.yaml. Ensure it exists next to this bench before the
+# hook reads it via PLURAI_CODE_SURFACE.
+if not _CODE_SURFACE.exists():
+    import plurai
+    plurai.emit_code_surface(_CONFIG, _CODE_SURFACE)
+
+# Vendor creds that MUST NOT reach the snippet subprocess. The hook shadows the
+# real SDK so it can't authenticate anyway, but withholding the creds means a real
+# send cannot authenticate even if the shadow is bypassed.
+# List EVERY vendor secret the customer .env carries (resend: RESEND_API_KEY).
+_VENDOR_CRED_VARS = ('RESEND_API_KEY',)   # ← fill from the customer's vendor SDK(s)
+# Withheld from the agent's shell on any plurai: the vendor creds, and the backend key's second
+# spelling, which no interception hook reads.
+_WITHHELD_ENV = (*_VENDOR_CRED_VARS, 'NETWORK__API_KEY')
+
+
+@contextlib.contextmanager
+def _withheld_env(names: tuple[str, ...]):
+    """Withhold `names` from the environment the nested CLI starts with, and only then.
+
+    claude_agent_sdk starts the CLI with this process's environment and lays `options.env` OVER it,
+    so a key left out of `options.env` still reaches the agent's shell: the only way to withhold one is
+    to take it out of this process's environment while the CLI starts. Put back after, for this
+    process's own calls. Race-free: this process runs one scenario and handles its envelopes one at
+    a time, so nothing else reads the environment while the CLI starts. A child factory that ran
+    scenarios concurrently in one process would reopen that race.
+    """
+    held = {name: os.environ.pop(name) for name in names if name in os.environ}
+    try:
+        yield
+    finally:
+        os.environ.update(held)
+
+
+def _isolated_agent_cwd() -> str:
+    """Give the nested session a working directory that holds ONLY the production
+    skill surface the real user drives — never the harness files (simulate.py,
+    code_surface.yaml, sitecustomize.py, simulation_env/mocks.py, plurai.config.yaml).
+
+    OPACITY: a Bash-bearing nested agent whose cwd is (or neighbours) the harness
+    dir can `cat` the mock source / channel config and discover it is in a
+    simulation — then it reverse-engineers the mock instead of exercising the real
+    skill. We copy the sibling `skills/` tree into a fresh tempdir and run the
+    agent from `<tmp>/work` (a clean, writable dir where it authors + runs its
+    snippet). `sitecustomize.py` loads via PYTHONPATH=<shim> (a clean shim dir,
+    outside cwd — see `_relocate_harness_paths`), so the import-hook is unaffected
+    by the cwd change.
+
+    The env-var path pivot is CLOSED by `_relocate_harness_paths` / `_nested_env`:
+    `$PLURAI_CODE_SURFACE` and `$PYTHONPATH` point at a clean per-session shim dir
+    (a SEPARATE tempdir root from this cwd), never into `_DIR`, so
+    `cat "$(dirname "$PLURAI_CODE_SURFACE")"/simulation_env/mocks.py` does not
+    reach the customer's mock answers.
+
+    RESIDUAL — NOT closed here (Option-D tier, an out-of-trust-domain runner): a
+    Bash-bearing agent can still env-dump and `cat` the shim's `sitecustomize.py` /
+    the installed plurai runtime / the surface YAML (learning "this is a plurai
+    sim" but NOT the customer's specific mock answers), dump a grandchild's
+    `os.environ` / `/proc/<pid>/environ`, or hit the localhost mock URL. Blocking
+    the `Read` tool is cosmetic while Bash is present.
+    """
+    import atexit
+    import shutil
+    import tempfile
+    root = Path(tempfile.mkdtemp(prefix='plurai_agent_'))
+    atexit.register(shutil.rmtree, root, ignore_errors=True)  # bounded: one dir per session
+    skills_src = _DIR.parent / 'skills'                  # the vendored production skill(s)
+    if skills_src.is_dir():
+        shutil.copytree(skills_src, root / 'skills')     # keep ../skills/<name>/... resolvable
+    workdir = root / 'work'
+    workdir.mkdir()
+    return str(workdir)
+
+
+_client: ClaudeSDKClient | None = None
+
+
+def _relocate_harness_paths() -> tuple[str, str]:
+    """Relocate the code-channel paths OUT of the customer harness dir (`_DIR`),
+    so no env value's dirname/PYTHONPATH chain reaches `simulation_env/mocks.py`.
+
+    Creates a clean per-session shim dir — its OWN `tempfile.mkdtemp` root, kept
+    SEPARATE from `_isolated_agent_cwd`'s root (else the cwd opacity gate would RED
+    on the shim's `sitecustomize.py`) — then: (1) drops `sitecustomize.py` into the
+    shim via `plurai.write_sitecustomize` (PYTHONPATH heads with the shim, not
+    `_DIR`); (2) copies `code_surface.yaml` to `<shim>/surface.yaml` (neutral name,
+    re-readable per shadowed import). Called from `seed_state` AFTER the module-level
+    `emit_code_surface` block, so `_CODE_SURFACE` exists before the copy.
+
+    Returns `(shim_dir, shim_surface)`. The shim is atexit-cleaned like the cwd.
+
+    HONEST SCOPE: this closes the CUSTOMER-mocks.py pivot only. The shim still holds
+    a plurai `sitecustomize.py` + the surface YAML; env-dumping and `cat`-ing those
+    (generic-plurai detection) is an Option-D residual, not closed here.
+
+    The shim's content is recorded once written (`plurai.watch_interception`): an agent that rewrites
+    it switches the shadow off, and the run then reports which file changed.
+    """
+    import atexit
+    import shutil
+    import tempfile
+    shim = tempfile.mkdtemp(prefix='plurai_shim_')          # SEPARATE root from the isolated cwd
+    atexit.register(shutil.rmtree, shim, ignore_errors=True)  # bounded: one dir per session
+    plurai.write_sitecustomize(shim)                        # sitecustomize.py in the shim, NOT _DIR
+    shim_surface = str(Path(shim) / 'surface.yaml')         # neutral name (no `code_surface`/`plurai` tell in basename)
+    shutil.copyfile(_CODE_SURFACE, shim_surface)            # surface exists (emitted at import) — re-readable copy
+    plurai.watch_interception(shim)                         # sitecustomize.py + surface.yaml as written
+    return shim, shim_surface
+
+
+def _nested_env(sid: str, mock_url: str, shim_dir: str, shim_surface: str) -> dict[str, str]:
+    """Env for the nested session's Bash subprocesses: ONLY what the import-hook needs.
+
+    claude_agent_sdk lays this over the environment the CLI starts with, so the rest of this
+    process's environment reaches the agent's shell as it is, less `_WITHHELD_ENV`
+    (`_withheld_env` around `connect()`). PYTHONPATH is headed
+    by the clean shim dir (`_relocate_harness_paths`) — which holds the relocated
+    `sitecustomize.py` (calling plurai.install_code_hook_from_env()) — so the hook
+    loads in every `python` grandchild BEFORE `import resend`, WITHOUT rooting any
+    path in the customer harness `_DIR`. `PLURAI_CODE_SURFACE` likewise points at the
+    shim's surface copy, so `dirname $PLURAI_CODE_SURFACE` is the shim, never
+    `plurai_sim/`. Both `sid` and `mock_url` come from the LIVE session (resolved in
+    seed_state via plurai accessors; `mock_url` is `plurai.mock_service_url()`, the mock url this
+    harness dials, and the bearer rides beside it), NOT from this harness's env — the orchestrator
+    spawns this process with env=None, so neither value is on `os.environ`; they
+    arrive over IPC and are read back through the SDK.
+
+    HONEST SCOPE: relocating the paths closes the CUSTOMER-mocks.py dirname pivot. It
+    does NOT make the run undetectable — `env` in the persistent shell still shows
+    `PLURAI_*`, a grandchild `os.environ` dump still returns these values, and the
+    shim/installed-plurai runtime + surface YAML are still `cat`-able (generic-plurai
+    detection). Those are Option-D residuals (out-of-trust-domain runner).
+    """
+    env = {}
+    env['PLURAI_SESSION_ID'] = sid                       # live session (read in seed_state)
+    env['PLURAI_MOCK_URL'] = mock_url                    # the mock base url the agent's processes dial (read in seed_state)
+    env['PLURAI_CODE_SURFACE'] = shim_surface            # shim copy — dirname is the shim, NOT plurai_sim/
+    env['PYTHONPATH'] = os.pathsep.join(                 # shim's sitecustomize.py FIRST (outside _DIR)
+        [shim_dir] + ([os.environ['PYTHONPATH']] if os.environ.get('PYTHONPATH') else []))
+    # The mock's bearer, the one this harness's own mock client sends: the agent's processes dial the
+    # mock url directly, and the interception hooks read the bearer from their environment.
+    if os.environ.get('PLURAI_TOKEN'):
+        env['PLURAI_TOKEN'] = os.environ['PLURAI_TOKEN']
+    # The grandchild's `python`/`python3` MUST be THIS bench interpreter — it carries
+    # `plurai` (so the shim sitecustomize's `import plurai` resolves) + the vendor module
+    # the hook shadows. A system python lacking them makes `import <vendor>` miss the
+    # shadow → the snippet hits the REAL API (or the agent builds its own venv). Head PATH
+    # with the running interpreter's bindir so the grandchild resolves it first.
+    env['PATH'] = os.pathsep.join(
+        [os.path.dirname(sys.executable)] + ([os.environ['PATH']] if os.environ.get('PATH') else []))
+    # The agent's shell is not network-sandboxed: what keeps its vendor calls on the mock is the
+    # shadow (the real SDK is not importable) and the withheld creds (a bypass cannot authenticate).
+    return env
+
+_RESUME_ROLE = {'human': 'user', 'ai': 'assistant', 'tool': 'tool', 'system': 'system'}
+
+#: What ``seed_state`` returns after a resumed scenario. The SDK passes this value through
+#: VERBATIM into the run record, where ``None`` reads as a full-fidelity resume — so a lane
+#: that restores the transcript and nothing else has to say so, or the run is scored as though
+#: the agent resumed from state it never saw. The transcript IS this lane's ceiling: the nested
+#: session holds no store outside its own conversation, so every ``agent_state`` key the seed
+#: carries is skipped and named under ``resume_state_dropped``.
+_MESSAGES_ONLY_FIDELITY = {'fidelity': 'reduced', 'restored': ['messages'], 'not_restored': ['agent_state']}
+
+def _resume_transcript(resume_seed: dict) -> str:
+    """Render a resumed scenario's pinned transcript (minimal message dicts) as a
+    system-prompt block, injected AT CONSTRUCTION — `seed_state` is where the nested
+    session is built, and the context it opens on is the only place history can go.
+    That is messages fidelity, and also the ceiling: the agent has no state outside
+    its own conversation, so ``agent_state`` is not read here — ``seed_state`` names
+    its keys in the fidelity report instead. A ``resume_point`` is refused: it
+    names a graph node to start turn 1 at, and this lane has no nodes, so there is
+    nothing to honour and nothing to reduce — starting from the top instead would
+    redo the very steps the trace already took. (IDENTICAL across all three
+    variants.)
+    """
+    point = resume_seed.get('resume_point')
+    if point is not None:
+        raise RuntimeError(
+            f'resume_seed pins a start node — resume_point={point!r} — and a skill-lane '
+            'harness has no graph node to start from — the nested session begins where its '
+            'context begins. Re-convert the trace without --start-node, or target a graph '
+            'harness. Refusing rather than starting from the top, which would redo the steps '
+            'the trace already took and score that as the pinned resume.')
+    messages = resume_seed.get('messages') or []
+    if not messages:
+        raise RuntimeError(
+            'resume_seed.messages is empty — seeding nothing would run the scenario on '
+            'a blank session and score a conversation the agent never had')
+    lines = []
+    for m in messages:
+        role = _RESUME_ROLE.get(m.get('type'))
+        if role is None:
+            # Raise, never skip: a silently dropped exchange is a transcript that no
+            # longer explains itself.
+            raise RuntimeError(f'resume_seed message {m.get("id")!r} has unrenderable '
+                               f'type {m.get("type")!r}')
+        content = m.get('content')
+        text = content if isinstance(content, str) else json.dumps(
+            content, ensure_ascii=False, default=str)
+        if role == 'tool':
+            # tool_call_id is the in-transcript join between a call and its result.
+            # Message ids are not rendered: the byte-for-byte resume seed this
+            # session was handed (resume_seed.yaml, in the scenario folder) keeps
+            # the join back to the source trace.
+            lines.append(f'[tool result for {m.get("tool_call_id")}] {text}')
+            continue
+        lines.append(f'[{role}] {text}'.rstrip())
+        for call in m.get('tool_calls') or []:
+            args = json.dumps(call.get('args') or {}, ensure_ascii=False, default=str)
+            lines.append(f'[{role} tool call {call.get("id")}] {call.get("name")}({args})')
+    return (
+        '\n\n## Resumed conversation (this session, before this point)\n\n'
+        'This session continues a conversation already in progress. The transcript\n'
+        'below already happened between you and the user — treat it as your own prior\n'
+        'turns: do not greet the user afresh, do not redo the tool calls shown, and\n'
+        'rely on it for context as the conversation continues.\n\n'
+        + '\n'.join(lines) + '\n')
+
+async def seed_state(
+    initial_agent_context: dict,
+    initial_world_state: dict,
+    resume_seed: dict | None = None,   # always passed (None when fresh); folded in at construction below
+) -> dict | None:
+    """Create the persistent skill session (world seeding is server-side).
+
+    The active session id AND the mock service url are both populated here
+    (plurai.start_session + plurai.configure ran before seed_state — see
+    code-channel-spike-findings.md §1), so read them now and bake them into the
+    nested env. Do NOT read either at import time — both are None outside an active
+    session. Neither is on `os.environ`: the orchestrator spawns this harness with
+    env=None and the mock url arrives over IPC onto the SDK's configured client, so
+    we read it back through `plurai.mock_service_url()` (the configured mock url, which the agent's
+    processes dial with the same bearer), never `os.environ['PLURAI_MOCK_URL']`.
+    A non-None ``resume_seed`` is folded into the session's opening context at
+    construction below (messages fidelity, this lane's ceiling); a seed's
+    ``agent_state`` keys are skipped and named in the report
+    (``resume_state_dropped``), and a ``resume_point`` pinning a graph node this
+    lane cannot start at is refused in ``_resume_transcript``.
+
+    On a resumed scenario this returns the harness's own fidelity report — the
+    transcript went in, the agent state did not — which the SDK carries verbatim into
+    the run record. A fresh scenario returns ``None``, the value that means full
+    fidelity, so nothing changes for a run that never resumes.
+    """
+    global _client
+    sid = plurai.active_session_id()
+    if not sid:
+        raise RuntimeError('no active plurai session id at seed_state — code channel '
+                           'cannot inject PLURAI_SESSION_ID into the snippet env')
+    mock_url = plurai.mock_service_url()                 # the mock url the agent's processes dial
+    if not mock_url:
+        raise RuntimeError('no plurai mock service url at seed_state — code channel '
+                           'cannot inject PLURAI_MOCK_URL into the snippet env (the '
+                           'mock url comes from the live IPC-configured session, not '
+                           'this harness env; ensure plurai.configure ran)')
+    prompt = _PROMPT.replace('{room_state}',
+        str(initial_agent_context.get('room_state') or 'No context yet.'))
+    fidelity = None
+    if resume_seed is not None:
+        # Resumed scenario: fold the pinned transcript into the context the session
+        # opens on — construction happens right below.
+        prompt += _resume_transcript(resume_seed)
+        fidelity = _MESSAGES_ONLY_FIDELITY.copy()
+        # The seed's state has no slot here: skipped, and named so the replay says so.
+        if dropped := sorted(resume_seed.get('agent_state') or {}):
+            fidelity['resume_state_dropped'] = dropped
+    # Relocate the code-channel paths to a clean shim BEFORE building the env, so no
+    # injected value's dirname/PYTHONPATH reaches the customer harness (`_DIR`).
+    shim_dir, shim_surface = _relocate_harness_paths()
+    cwd = _isolated_agent_cwd()
+    # What the agent reads becomes trail, and the trail leaves the machine: its reads are scoped,
+    # and its shell starts from none of the operator's startup files.
+    _scope = plurai.host_read_scope(run_dir=Path(cwd).parent, repo=_DIR.parent, harness=_DIR)  # work/ and its ../skills copy
+    _client = ClaudeSDKClient(ClaudeAgentOptions(
+        system_prompt=prompt,
+        # `code` channel: an ALLOWLIST of Bash (+ Write so the skill can author+run the
+        # snippet) and no other built-in; none of the operator's settings, plugins or
+        # MCP servers. The snippet's vendor call is intercepted by the hook, not by an
+        # in-process MCP tool. Leaving out `Read` is cosmetic while Bash+cat exist; the
+        # load-bearing isolation is the harness-free cwd + relocated env paths below.
+        tools=['Bash', 'Write'],
+        setting_sources=[],
+        strict_mcp_config=True,
+        permission_mode='bypassPermissions',   # creds withheld + vendor SDK shadowed
+        model=os.environ.get('PLURAI_SKILL_MODEL', 'sonnet'),
+        cwd=cwd,                               # ← isolated skill surface, NOT the harness dir (opacity)
+        env={**_nested_env(sid, mock_url, shim_dir, shim_surface), **_scope.agent_shell_env(cli_env=os.environ)},  # ← code-channel injection w/ relocated paths
+        hooks=plurai.cli_hooks(_scope, trail=None),  # its reads gated; a turn the CLI ends in error typed by the SDK
+    ))
+    try:
+        with _withheld_env(_WITHHELD_ENV):     # the CLI, and every shell it runs, starts without them
+            await _client.connect()
+    except Exception as exc:
+        hint = ' (this harness drops ANTHROPIC_API_KEY; the nested CLI signs in with your Claude login — run `claude` and sign in)' if _had_api_key else ''
+        raise RuntimeError(f'nested skill session failed to start{hint}: {exc}') from exc
+    return fidelity
+
+async def invoke_agent(payload: dict, config: dict | None = None) -> dict:
+    # IDENTICAL to the `tools` variant above — reproduce that body verbatim. (One
+    # consolidated AIMessage per turn; the evidence lives in the mock's tool_events
+    # recorded by the hook's /mock/execute calls, not in LangChain tool_calls; raise
+    # on empty output so a broken nested turn surfaces as an AgentError. The `code`
+    # channel changes only `seed_state` / `_nested_env`, never `invoke_agent`.)
+    ...

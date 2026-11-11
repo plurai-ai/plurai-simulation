@@ -1,0 +1,267 @@
+{
+  "run_name": "catalog-final",
+  "agent_version": "a3f1c20",
+  "dataset_name": "CatalogAgent · sim-b27ffc97",
+  "eval_set_id": "a9aca94b7fe04e329531afac1ecfbfd2",
+  "gt_revision": 0,
+  "local_only": true,
+  "totals": {
+    "scenarios": 2,
+    "goals_achieved": 2,
+    "goals_measurable": 2,
+    "goals_unverdicted": 0,
+    "passed": 0,
+    "failed": 1,
+    "incomplete": 1,
+    "errored": 0,
+    "suite_score": 78.0,
+    "agent_verdict": "no_verdict",
+    "scenarios_failed": 1,
+    "policy_violations": 3,
+    "tool_calls": 5,
+    "tool_errors": 1,
+    "tool_refusals": 1,
+    "zero_result_tool_calls": 1,
+    "tool_calls_recovered": 0
+  },
+  "evals": [
+    {
+      "id": "catalog_fact_grounding",
+      "passed": 2,
+      "failed": 0,
+      "inconclusive": 0,
+      "errored": 0,
+      "skipped": 0,
+      "total": 2,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "stock_status_disclosure",
+      "passed": 2,
+      "failed": 0,
+      "inconclusive": 0,
+      "errored": 0,
+      "skipped": 0,
+      "total": 2,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "catalog_scope_boundary",
+      "passed": 0,
+      "failed": 2,
+      "inconclusive": 0,
+      "errored": 0,
+      "skipped": 0,
+      "total": 2,
+      "pass_rate": 0.0
+    },
+    {
+      "id": "reply_shape_contract",
+      "passed": 0,
+      "failed": 1,
+      "inconclusive": 1,
+      "errored": 0,
+      "skipped": 0,
+      "total": 1,
+      "pass_rate": 0.0,
+      "inconclusive_reasons": {
+        "not_measured": 1
+      }
+    },
+    {
+      "id": "reply_language",
+      "passed": 2,
+      "failed": 0,
+      "inconclusive": 0,
+      "errored": 0,
+      "skipped": 0,
+      "total": 2,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "scenario_goal_attainment",
+      "passed": 2,
+      "failed": 0,
+      "inconclusive": 0,
+      "errored": 0,
+      "skipped": 0,
+      "total": 2,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "conversation_memory_judge",
+      "passed": 2,
+      "failed": 0,
+      "inconclusive": 0,
+      "errored": 0,
+      "skipped": 0,
+      "total": 2,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "ledger_money_voiced_by_agent",
+      "passed": 0,
+      "failed": 0,
+      "inconclusive": 0,
+      "errored": 0,
+      "skipped": 2,
+      "total": 0
+    },
+    {
+      "id": "ledger_identifier_voiced_by_agent",
+      "passed": 0,
+      "failed": 0,
+      "inconclusive": 0,
+      "errored": 0,
+      "skipped": 2,
+      "total": 0
+    },
+    {
+      "id": "knowledge_coverage",
+      "passed": 1,
+      "failed": 0,
+      "inconclusive": 0,
+      "errored": 0,
+      "skipped": 1,
+      "total": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "knowledge_accuracy",
+      "passed": 1,
+      "failed": 0,
+      "inconclusive": 0,
+      "errored": 0,
+      "skipped": 1,
+      "total": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "knowledge_correctness_judge",
+      "passed": 1,
+      "failed": 0,
+      "inconclusive": 0,
+      "errored": 0,
+      "skipped": 1,
+      "total": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "synthesis_quality_judge",
+      "passed": 1,
+      "failed": 0,
+      "inconclusive": 1,
+      "errored": 0,
+      "skipped": 0,
+      "total": 1,
+      "pass_rate": 1.0
+    },
+    {
+      "id": "retrieval_recall",
+      "passed": 0,
+      "failed": 0,
+      "inconclusive": 1,
+      "errored": 0,
+      "skipped": 1,
+      "total": 0
+    },
+    {
+      "id": "absence_probe_RENDER_ACTIONS.omits",
+      "passed": 0,
+      "failed": 0,
+      "inconclusive": 0,
+      "errored": 0,
+      "skipped": 2,
+      "total": 0
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "scenario_03_scenarios_b27ffc97_scenario_03",
+      "result": "fail",
+      "goal": {
+        "status": "passed",
+        "goal_status": "passed",
+        "goal_achieved": true,
+        "passed": true,
+        "goal_source": "target_judge",
+        "score": 0.78,
+        "catastrophic_violations": [],
+        "decisive_violations": [],
+        "measurement_clean": true,
+        "reason": "goal achieved (owner: target_judge)"
+      },
+      "score": 0.78,
+      "turns": 4,
+      "tool_calls": 2,
+      "tool_errors": 0,
+      "tool_refusals": 0,
+      "tool_calls_recovered": 0,
+      "deterministic": {
+        "status": "passed",
+        "label": "page_product_quoted_from_catalog",
+        "detail": "Expression evaluated to True."
+      },
+      "failing_evals": [
+        "catalog_scope_boundary",
+        "reply_shape_contract (turns 1,2 · 0-based)"
+      ],
+      "needs_review": [
+        "synthesis_quality_judge (2/3 agreement)"
+      ],
+      "inconclusive_evals": [
+        "synthesis_quality_judge (2/3 agreement)",
+        "retrieval_recall (1/3 agreement)"
+      ],
+      "skipped_evals": [
+        "ledger_money_voiced_by_agent",
+        "ledger_identifier_voiced_by_agent",
+        "absence_probe_RENDER_ACTIONS.omits"
+      ]
+    },
+    {
+      "id": "scenario_05_scenarios_b27ffc97_scenario_05",
+      "result": "incomplete",
+      "goal": {
+        "status": "passed",
+        "goal_status": "passed",
+        "goal_achieved": true,
+        "passed": true,
+        "goal_source": "target_judge",
+        "score": 0.86,
+        "catastrophic_violations": [],
+        "decisive_violations": [],
+        "measurement_clean": true,
+        "reason": "goal achieved (owner: target_judge)"
+      },
+      "score": 0.86,
+      "turns": 5,
+      "tool_calls": 3,
+      "tool_errors": 1,
+      "tool_refusals": 1,
+      "tool_calls_recovered": 0,
+      "deterministic": null,
+      "ended_early": {
+        "reason": "time_budget_exhausted",
+        "user_turns": 5,
+        "max_turns": 14
+      },
+      "failing_evals": [
+        "catalog_scope_boundary"
+      ],
+      "needs_review": [],
+      "inconclusive_evals": [
+        "reply_shape_contract (n/a — not measured (see the cell's own reason))"
+      ],
+      "skipped_evals": [
+        "ledger_money_voiced_by_agent",
+        "ledger_identifier_voiced_by_agent",
+        "absence_probe_RENDER_ACTIONS.omits",
+        "knowledge_coverage",
+        "knowledge_accuracy",
+        "knowledge_correctness_judge",
+        "retrieval_recall"
+      ]
+    }
+  ]
+}

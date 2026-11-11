@@ -1,0 +1,561 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "plurai.bridge.map/1",
+  "title": "plurai bridge map",
+  "description": "The per-agent mapping a bridge child applies: which package, module and HTTP calls the agent makes are routed to which mock tool. Written by the model at plurai_sim/bridge/bridge.map.json; normative text in skills/simulation-setup-bridge/references/bridge-contract.md. This schema is the reference for the stdlib validator in skills/simulation-setup-bridge/scripts/bridge_map.py (a CI test keeps the two in parity); runtime rules this schema cannot express (refused packages, a missing replace file, evidence lines) are the validator's.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "child",
+    "agent_root",
+    "entry"
+  ],
+  "properties": {
+    "schema": {
+      "const": "plurai.bridge.map/1"
+    },
+    "child": {
+      "const": "node"
+    },
+    "agent_root": {
+      "description": "Relative to plurai_sim/. Holds the agent's package.json; the child's cwd.",
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "pattern": "^/"
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "resume"
+      ],
+      "properties": {
+        "path": {
+          "description": "Relative to plurai_sim/bridge/.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_./-]+\\.mjs$",
+          "not": {
+            "pattern": "(^/|\\.\\./)"
+          }
+        },
+        "resume": {
+          "description": "\"seed\" when the entry exports seed; otherwise the declared reason it cannot resume.",
+          "oneOf": [
+            {
+              "const": "seed"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "unsupported"
+              ],
+              "properties": {
+                "unsupported": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "env": {
+      "description": "Applied to the CHILD only: inert values for configuration the agent reads at import.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+        "not": {
+          "anyOf": [
+            {
+              "pattern": "^PLURAI_BRIDGE_"
+            },
+            {
+              "const": "NODE_OPTIONS"
+            }
+          ]
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "value",
+          "reason",
+          "evidence"
+        ],
+        "properties": {
+          "value": {
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/$defs/reason"
+          },
+          "evidence": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "packages": {
+      "description": "Key = bare npm specifier.",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/specifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/package"
+      }
+    },
+    "modules": {
+      "description": "Key = agent-relative source path (extension variants match).",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "not": {
+          "pattern": "(^/|^\\.\\./|/\\.\\./)"
+        }
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "evidence",
+              "proxy"
+            ],
+            "properties": {
+              "evidence": {
+                "$ref": "#/$defs/evidence"
+              },
+              "proxy": {
+                "$ref": "#/$defs/proxy"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "evidence",
+              "replace"
+            ],
+            "properties": {
+              "evidence": {
+                "$ref": "#/$defs/evidence"
+              },
+              "replace": {
+                "$ref": "#/$defs/replaceFile"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "http": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/route"
+      }
+    },
+    "passthrough_hosts": {
+      "description": "Beyond the contract's provider table and the config's egress.allow_hosts.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/hostRow"
+      }
+    },
+    "sink_hosts": {
+      "description": "Beyond the contract's sink table.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/hostRow"
+      }
+    },
+    "keep_real": {
+      "description": "Documentation only.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/reason"
+      }
+    }
+  },
+  "$defs": {
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "description": "<agent-relative file>:<line>",
+      "type": "string",
+      "pattern": "^[^\\s:][^:]*:[1-9][0-9]*$"
+    },
+    "specifier": {
+      "type": "string",
+      "pattern": "^(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*(/[A-Za-z0-9._~-]+)*$"
+    },
+    "ident": {
+      "type": "string",
+      "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*$"
+    },
+    "tool": {
+      "description": "A mode: mock tool of the config, in simulate.py's dispatch table.",
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "path": {
+      "description": "<export> | <export>.<m>[.<m>…] | <export>#<m>[.<m>…] ('#' = a member of an instance of a ctor export; the default export is 'default').",
+      "type": "string",
+      "pattern": "^[A-Za-z_$][A-Za-z0-9_$]*(#[A-Za-z_$][A-Za-z0-9_$]*)?(\\.[A-Za-z_$][A-Za-z0-9_$]*)*$"
+    },
+    "exportKind": {
+      "enum": [
+        "ctor",
+        "fn",
+        "object",
+        "real"
+      ]
+    },
+    "revive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dates"
+      ],
+      "properties": {
+        "dates": {
+          "description": "Keys revived into Date, recursively, by name.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "param": {
+      "description": "Positional argument i -> kwarg. \"...x\" spreads that argument's own keys into kwargs; \"*x\" (last only) collects the rest as a list.",
+      "type": "string",
+      "pattern": "^(\\.\\.\\.|\\*)?[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "call": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "params"
+      ],
+      "properties": {
+        "tool": {
+          "$ref": "#/$defs/tool"
+        },
+        "params": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/param"
+          }
+        },
+        "revive": {
+          "$ref": "#/$defs/revive"
+        },
+        "probe_args": {
+          "description": "Route-probe arguments by kwarg; default null per param.",
+          "type": "object"
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        }
+      }
+    },
+    "local": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "const"
+          ],
+          "properties": {
+            "const": true
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "self"
+          ],
+          "properties": {
+            "self": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "await_all"
+          ],
+          "properties": {
+            "await_all": {
+              "const": true
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "callback_self"
+          ],
+          "properties": {
+            "callback_self": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "impl"
+          ],
+          "properties": {
+            "impl": {
+              "type": "string",
+              "pattern": "^replace/[A-Za-z0-9_.-]+\\.mjs#[A-Za-z_$][A-Za-z0-9_$]*$"
+            }
+          }
+        }
+      ]
+    },
+    "proxyBody": {
+      "type": "object",
+      "required": [
+        "exports"
+      ],
+      "properties": {
+        "exports": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/ident"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/exportKind"
+          }
+        },
+        "calls": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/path"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/call"
+          }
+        },
+        "local": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/path"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/local"
+          }
+        },
+        "revive": {
+          "$ref": "#/$defs/revive"
+        }
+      },
+      "anyOf": [
+        {
+          "required": [
+            "calls"
+          ],
+          "properties": {
+            "calls": {
+              "minProperties": 1
+            }
+          }
+        },
+        {
+          "properties": {
+            "exports": {
+              "additionalProperties": {
+                "const": "real"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "proxy": {
+      "$ref": "#/$defs/proxyBody",
+      "unevaluatedProperties": false
+    },
+    "package": {
+      "$ref": "#/$defs/proxyBody",
+      "type": "object",
+      "required": [
+        "evidence"
+      ],
+      "properties": {
+        "evidence": {
+          "description": "An agent file:line that imports the specifier.",
+          "$ref": "#/$defs/evidence"
+        },
+        "subpaths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/specifier"
+          },
+          "uniqueItems": true
+        }
+      },
+      "unevaluatedProperties": false
+    },
+    "replaceFile": {
+      "type": "string",
+      "pattern": "^replace/[A-Za-z0-9_.-]+\\.mjs$"
+    },
+    "hostPattern": {
+      "description": "A hostname, '*.' + suffix, or a '*' standing for one label; never a port.",
+      "type": "string",
+      "pattern": "^(\\*\\.)?[A-Za-z0-9*-]+(\\.[A-Za-z0-9*-]+)*$"
+    },
+    "envRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "env"
+      ],
+      "properties": {
+        "env": {
+          "description": "A variable holding a URL; its host is used. Unset or empty: the row is inert.",
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        }
+      }
+    },
+    "hostRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reason",
+        "evidence"
+      ],
+      "properties": {
+        "host": {
+          "$ref": "#/$defs/hostPattern"
+        },
+        "env": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "reason": {
+          "$ref": "#/$defs/reason"
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "host"
+          ]
+        },
+        {
+          "required": [
+            "env"
+          ]
+        }
+      ]
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "host",
+        "path",
+        "tool",
+        "evidence"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE",
+            "*"
+          ]
+        },
+        "host": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/hostPattern"
+            },
+            {
+              "$ref": "#/$defs/envRef"
+            }
+          ]
+        },
+        "path": {
+          "description": ":name binds one path segment.",
+          "type": "string",
+          "pattern": "^/[^\\s?#]*$"
+        },
+        "match": {
+          "description": "All must equal (exact string).",
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^(query|body|header)\\.[^\\s]+$"
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "tool": {
+          "$ref": "#/$defs/tool"
+        },
+        "params": {
+          "description": "Default: path params ∪ query ∪ top-level JSON body keys (a key clash is a map error).",
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^(path\\.[A-Za-z_][A-Za-z0-9_]*|query\\.[^\\s]+|body\\.[^\\s]+|body)$"
+          }
+        },
+        "status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "error_status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "evidence": {
+          "$ref": "#/$defs/evidence"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "plurai-eval-intent/2",
+  "title": "eval_intent.yaml — the TYPED intent",
+  "description": "The machine-readable half of skills/extract-eval-intent/references/eval_intent_schema.md, which is the prose owner. WHY IT IS TYPED: two intents authored from the same PRD, one night apart, carried 4 goals / 7 bare-label must_catch / 10 custom_metrics and 7 / 8 / 0 respectively, with 5 names in BOTH lists and only 6 policy names shared between the two eval sets that came out. The PRDs were the same size. That swing is one-shot authoring variance on an untyped document, and the gate downstream can only bound the damage — the schema is what makes the author consistent. The unit is the AXIS (one failure axis, one owner), each of whose failure modes must trace to a NAMED source, because the item that shipped flagged 'customer-supplied (not in inputs) — never verified' is the one that produced the census's stable contradicting pairs.",
+  "type": "object",
+  "required": ["schema", "axes"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "plurai-eval-intent/2",
+      "description": "Version tag. A document without it is a v1 intent (goals / must_catch / custom_metrics) and is READ, never mixed — see the migration note in the .md."
+    },
+    "axes": {
+      "type": "array",
+      "minItems": 1,
+      "description": "One entry per FAILURE AXIS. The axis is the unit of the eval set: the recipe folds policies that share a guard, a scope and a surface, and coverage is credited by (policy, failure-mode) row — so an axis with three failure modes is one judge with three obligations, not three judges.",
+      "items": {
+        "type": "object",
+        "required": ["id", "axis", "failure_modes"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "description": "snake_case, UNIQUE across the document, so each axis has one name. The eval set's typed ledger (`out/obligations.yaml`) answers an axis by its position (`axes[i]`), not by this id."
+          },
+          "axis": {
+            "type": "string",
+            "description": "What a violation of this axis IS, in a few words — the same sentence that becomes the policy's `AXIS:` line. 'the agent should be helpful' is not an axis; 'a figure asserted without a tool result behind it' is."
+          },
+          "failure_modes": {
+            "type": "array",
+            "minItems": 1,
+            "description": "The observable shapes this axis fails in. Each is a coverage row the ledger credits by obligation_id, which is what makes folding cost nothing.",
+            "items": {
+              "type": "object",
+              "required": ["id", "describes", "traced_to"],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9_]*$",
+                  "description": "snake_case, UNIQUE across the WHOLE document (not just within its axis). The night intent named five things in two different lists; one id space is what stops that."
+                },
+                "describes": {
+                  "type": "string",
+                  "description": "The concrete, observable failure shape — what a reader could point at in a transcript, a tool_events array or a world state. Abstract phrasing here is what produces a vacuous eval."
+                },
+                "traced_to": {
+                  "type": "array",
+                  "minItems": 1,
+                  "description": "REQUIRED, and the item this schema exists for. Every failure mode names where it came from; a mode nobody can trace is a mode nobody verified.",
+                  "items": {
+                    "type": "object",
+                    "required": ["source", "ref"],
+                    "additionalProperties": false,
+                    "allOf": [
+                      {
+                        "if": { "properties": { "source": { "enum": ["prd", "corpus"] } }, "required": ["source"] },
+                        "then": { "required": ["source", "ref", "quote"] }
+                      }
+                    ],
+                    "properties": {
+                      "source": {
+                        "enum": ["prd", "scan", "trace", "corpus", "customer"],
+                        "description": "`customer` is legal and is the ONLY unverifiable one — it means the customer asked for this and no input document says it. It is declared, never disguised as a `prd` reference, because the backend's provenance tier decides on exactly this value."
+                      },
+                      "ref": {
+                        "type": "string",
+                        "minLength": 3,
+                        "description": "A NAME a reader can resolve: a PRD section heading, a scan finding id, a trace-brief section, a corpus doc id, or the customer's own question. Never a page number and never 'the PRD'."
+                      },
+                      "quote": {
+                        "type": "string",
+                        "minLength": 10,
+                        "description": "Verbatim from the source. REQUIRED for `prd` and `corpus` (a paraphrase of a term the judge grades is how one document comes to define 'resolved' differently from the other); optional elsewhere."
+                      }
+                    }
+                  }
+                },
+                "catcher": {
+                  "type": "string",
+                  "description": "One of the canonical catcher tags when the shape matches an existing backend recipe — the backend lifts those verbatim. Omit rather than force-fit: a tag whose recipe grades a premise this suite never plants binds nothing."
+                }
+              }
+            }
+          },
+          "surface": {
+            "enum": ["reply", "tool_calls", "world_state", "knowledge", "memory", "pipeline"],
+            "description": "Where a violation of this axis is OBSERVABLE. Optional, but it is what lets the recipe fold two axes that share a guard and a scope, and what lets the co-binding bound count absolutes per reply surface."
+          },
+          "notes": {
+            "type": "string",
+            "description": "Anything the author wants the eval recipe to know that is not a failure mode."
+          }
+        }
+      }
+    },
+    "preferences": {
+      "type": "object",
+      "description": "Global authoring biases, unchanged from v1.",
+      "additionalProperties": false,
+      "properties": {
+        "rejection_handling": { "type": "string" },
+        "metric_shapes": { "type": "string" }
+      }
+    }
+  }
+}

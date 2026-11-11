@@ -1,0 +1,116 @@
+{
+  "agent": {
+    "name": "BillingSupportAgent",
+    "framework": "LangGraph · ReAct",
+    "state": "AgentState",
+    "entry": "fetch_context"
+  },
+  "rag": [
+    {
+      "name": "Help-center KB",
+      "subtitle": "RAG · retrieval",
+      "status": "live",
+      "why": "live: retrieval runs against the real help-center index so the agent's grounding is tested faithfully",
+      "backend": "help-center index"
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_user_profile",
+      "status": "mocked",
+      "why": "avoid side-effects: reads the production users table; served from the simulated store instead",
+      "writes": "none",
+      "description": "Fetch user profile from production Postgres users table"
+    },
+    {
+      "name": "get_transactions",
+      "status": "live",
+      "why": "live: deterministic read against the simulated store; no side-effects",
+      "writes": "none",
+      "effects": ["none"],
+      "runs": "in_process",
+      "backend": "none",
+      "description": "Get transaction history from Postgres transactions table"
+    },
+    {
+      "name": "process_refund",
+      "status": "mocked",
+      "why": "avoid side-effects: moves real money through the payment provider; the refund lands in world-state instead",
+      "writes": "world",
+      "description": "Process a refund through Stripe payment gateway"
+    },
+    {
+      "name": "update_transaction_status",
+      "status": "live",
+      "why": "live: a status write against the simulated store; deterministic, isolated per session",
+      "writes": "world",
+      "effects": ["none"],
+      "runs": "in_process",
+      "backend": "none",
+      "description": "Set a transaction's status"
+    },
+    {
+      "name": "send_notification",
+      "status": "mocked",
+      "why": "avoid side-effects: sends a real SMS; the message is recorded as a delivery row instead",
+      "writes": "world",
+      "description": "Send SMS notification via Twilio"
+    },
+    {
+      "name": "rag_search",
+      "status": "live",
+      "why": "live: read-only search over the help-center index; results captured for the judges",
+      "writes": "none",
+      "effects": ["none"],
+      "runs": "in_process",
+      "backend": "help-center index",
+      "description": "Search internal knowledge base via RAG endpoint"
+    }
+  ],
+  "subagents": [
+    {
+      "name": "EligibilityChecker",
+      "status": "live",
+      "why": "live: deterministic rule evaluation over the seeded account and transactions",
+      "call": null
+    },
+    {
+      "name": "ReplyDrafter",
+      "status": "mocked",
+      "why": "test control: LLM drafting is non-deterministic; pinned so assertions are repeatable",
+      "call": null
+    }
+  ],
+  "skills": [
+    {
+      "name": "Dispute-Summary",
+      "status": "mocked",
+      "why": "save resources: a long multi-document summarisation; too heavy to run per test"
+    }
+  ],
+  "store": {
+    "label": "BillingStore · Postgres (user / transaction / notification)",
+    "edge": "writes"
+  },
+  "probes": [
+    {
+      "name": "lookup_fee_schedule",
+      "why_eligible": "read-only over a bundled JSON fee table in the repo"
+    },
+    {
+      "name": "format_statement",
+      "why_eligible": "pure post-tool formatter — runs on a result, touches nothing"
+    }
+  ],
+  "grounding": {
+    "needs_corpus": true,
+    "surfaces": [
+      "rag_search"
+    ],
+    "why": "retrieval tool over the help-center articles — its answers are the thing under test",
+    "sources": [
+      "docs/help_center",
+      "docs/refund_policy"
+    ]
+  }
+}

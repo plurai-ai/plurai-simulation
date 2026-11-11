@@ -1,0 +1,18 @@
+{
+  "name": "plurai",
+  "owner": {
+    "name": "Plurai AI",
+    "url": "https://plurai.ai"
+  },
+  "metadata": {
+    "description": "Plurai simulation tooling for Claude Code: set up, generate and diagnose agent simulations.",
+    "homepage": "https://github.com/plurai-ai/plurai-simulation#readme"
+  },
+  "plugins": [
+    {
+      "name": "plurai-simulation",
+      "source": "./",
+      "description": "Set up Plurai simulation for any AI agent. Analyzes agent code, stubs production dependencies, generates simulate.py, and drives scenario, eval and mock-environment generation and diagnosis on the Plurai backend."
+    }
+  ]
+}

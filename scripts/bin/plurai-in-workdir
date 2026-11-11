@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# plurai-in-workdir — run ONE command with the workdir already resolved and exported.
+#
+# CALLING CONVENTION (skill snippets depend on it — the path and the argv shape are a contract):
+#
+#     "${CLAUDE_PLUGIN_ROOT}/scripts/bin/plurai-in-workdir" <cmd> [args...]
+#
+# <cmd> containing no `/` that names a file in scripts/ runs THAT file — a `.py` under
+# `python3`, a `.sh` under `bash`, so the executable bit is never load-bearing
+# (a script without the executable bit would not exec). Anything else runs as given, on $PATH.
+#
+# $PLURAI_DIR / $WORKDIR / $ART / $FLOWDIR are exported before the command starts, exactly as
+# `source resolve-workdir.sh` would have done — including its refusal, which points the agent
+# paths at an unwritable sentinel so a wrong-agent write fails instead of landing somewhere.
+#
+# WHY: the harness resets the shell's cwd AND its variables between tool calls, so every snippet
+# that touches a marker carries `source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; `
+# ahead of its real command. The ones that forgot wrote to `/` and reported success. A prefix
+# that must be repeated is a prefix that will eventually be dropped; this makes the resolution
+# part of invoking the command instead of a line beside it.
+#
+# NOT for snippets that interpolate $ART / $WORKDIR into shell text of their own: those need the
+# VALUES in their own shell, so they still source resolve-workdir.sh directly.
+#
+# `set -u` and no `-e`, matching flow-window.sh — the other consumer of resolve-workdir.sh. Its
+# refusal path is a set of exported values, not a non-zero exit, and `-e` would turn any benign
+# non-zero inside it into a silent no-run of the command this script exists to run.
+set -u
+
+if [ "$#" -eq 0 ]; then
+  echo "plurai-in-workdir: usage: plurai-in-workdir <cmd> [args...]" >&2
+  exit 64
+fi
+
+_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../resolve-workdir.sh
+. "$_HERE/resolve-workdir.sh"
+
+_CMD="$1"
+shift
+case "$_CMD" in
+  */*) ;;  # an explicit path — run it as given
+  *.py)
+    if [ -f "$_HERE/$_CMD" ]; then exec python3 "$_HERE/$_CMD" "$@"; fi
+    ;;
+  *.sh)
+    if [ -f "$_HERE/$_CMD" ]; then exec bash "$_HERE/$_CMD" "$@"; fi
+    ;;
+esac
+exec "$_CMD" "$@"

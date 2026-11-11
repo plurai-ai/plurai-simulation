@@ -1,0 +1,14 @@
+{
+  "name": "plurai-bridge-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The plurai bridge child for Node agents (bridge contract protocol 1). Installed with npm ci into plurai_sim/bridge/runtime; never into the agent's own package.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "dependencies": {
+    "@mswjs/interceptors": "0.45.7",
+    "tsx": "4.23.15"
+  }
+}

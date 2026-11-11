@@ -1,0 +1,810 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "plurai-bench-manifest/1",
+  "title": "Plurai bench manifest \u2014 the bench's typed self-description and the checks that prove it",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "agent",
+    "surfaces",
+    "harness",
+    "sources",
+    "consent",
+    "checks",
+    "provenance"
+  ],
+  "properties": {
+    "schema": {
+      "const": "plurai-bench-manifest/1"
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "language",
+        "shape",
+        "dispatch_shape",
+        "module_path"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "framework": {
+          "type": "string"
+        },
+        "language": {
+          "description": "from the bench's files, never the config's free text: node when the workdir holds bridge/bridge.map.json, else python (claude-skill is the analysis's)",
+          "enum": [
+            "python",
+            "node",
+            "claude-skill"
+          ]
+        },
+        "shape": {
+          "description": "what plurai.config.yaml DECLARES; `undeclared` is the absence, never a default",
+          "enum": [
+            "dialog",
+            "pipeline",
+            "undeclared"
+          ]
+        },
+        "dispatch_shape": {
+          "description": "what the runner will DRIVE it as: the declaration, else dialog. Checks key on this, never on `shape`",
+          "enum": [
+            "dialog",
+            "pipeline"
+          ]
+        },
+        "entry": {
+          "type": "string",
+          "description": "the entry point the analysis named, e.g. initiateNextTurn"
+        },
+        "entry_symbol": {
+          "description": "the typed entry the smoke witnesses: the function whose start means the agent's turn logic ran, or external when it runs outside the harness interpreter. Checked by bench_manifest.py (this walker reads no oneOf)",
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "executes",
+                "ref"
+              ],
+              "properties": {
+                "executes": {
+                  "const": "in_harness"
+                },
+                "ref": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z_][\\w.]*:[A-Za-z_][\\w.]*$"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "executes",
+                "why"
+              ],
+              "properties": {
+                "executes": {
+                  "const": "external"
+                },
+                "launched_by": {
+                  "const": "harness",
+                  "description": "the harness itself starts this process (a child it hands its pinned environment)"
+                },
+                "why": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          ]
+        },
+        "module_path": {
+          "type": "string",
+          "description": "agent module dir, relative to the repo root"
+        },
+        "smoke_inputs": {
+          "type": "array",
+          "description": "pipeline, or mocked dialog whose turn 1 opens a record by a request key: one smoke_pipeline pass per entry on the local mock (absent on a pipeline bench, smoke_pipeline is not_run); smoke_turn Inits with the FIRST entry's world, its inputs merged over the planted request keys",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "world",
+              "inputs"
+            ],
+            "properties": {
+              "world": {
+                "type": "object",
+                "required": [
+                  "entities"
+                ],
+                "properties": {
+                  "entities": {
+                    "type": "object"
+                  }
+                }
+              },
+              "inputs": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "surfaces": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tools",
+        "render_actions",
+        "knowledge",
+        "agent_context"
+      ],
+      "properties": {
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "mode"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "mode": {
+                "enum": [
+                  "mock",
+                  "real",
+                  "observe"
+                ]
+              },
+              "reads_from": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "writes_to": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "stateful": {
+                "type": "boolean"
+              },
+              "credentials": {
+                "type": "boolean",
+                "description": "true when the tool carries a credentials block \u2014 never probed"
+              }
+            }
+          }
+        },
+        "render_actions": {
+          "type": "array",
+          "description": "client-side verbs the model emits; mirrors plurai.config.yaml render_actions, with the arg contract the scan observed or read",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "args": {
+                "type": "object",
+                "description": "arg name -> JSON-schema-ish type string or object",
+                "additionalProperties": true
+              },
+              "args_source": {
+                "enum": [
+                  "observed",
+                  "code",
+                  "unknown"
+                ]
+              },
+              "arg_classes": {
+                "type": "object",
+                "description": "arg path -> closed-set fact subject it must draw from (feeds the typed-facts work; unread until the checker supports it)",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "knowledge": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "kind"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "prompt_inlined",
+                  "retrieval",
+                  "tool_backed",
+                  "none"
+                ]
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "paths relative to the repo root"
+              },
+              "declared_complete": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "host_effects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "live tools that act on the host or reach an external service (scripts/host_effects.py); each runs for real only on a grant in .host_effects_consent"
+        },
+        "host_effects_map_sha256": {
+          "type": "string",
+          "description": "sha256 of the map's `writes:` facts host_effects was derived from (rewire_agentforce.map_writes_sha256); the hosted rewire refuses up when it is not the current map's"
+        },
+        "host_effects_tools_sha256": {
+          "type": ["string", "null"],
+          "description": "sha256 of the plurai.config.yaml `tools:` block host_effects was derived from (rewire_agentforce.tools_block_sha256); the hosted rewire refuses up when it is not the current block's"
+        },
+        "agent_context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "seedable"
+          ],
+          "properties": {
+            "seedable": {
+              "type": "boolean"
+            },
+            "finding": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "the STATELESS finding, with the search that established it, or null when ungoverned"
+            }
+          }
+        },
+        "inputs": {
+          "type": "array",
+          "description": "C2: every input the agent's source accepts (scripts/agent_inventory.py), modelled by a matching agent.io.input part or agent.io.channels entry, or waived with a typed reason the agent never receives it. `init` copies the reader's entries; `validate` re-reads the source and refuses one unaccounted (input_channel_unaccounted)",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "kind", "source", "status"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "kind": {
+                "enum": ["text", "image", "file_content_part", "file_by_path", "file_by_reference", "structured_context", "between_turn_action", "host_injected_message"]
+              },
+              "source": {"type": "string", "description": "<path>:<line> in the agent's repository"},
+              "status": {"enum": ["modelled", "waived"]},
+              "waived": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["because"],
+                "description": "required with waived: why the AGENT never receives this input (bench_manifest.WAIVER_BECAUSE). What the harness drives or chooses is never a reason (input_channel_unaccounted)",
+                "properties": {
+                  "because": {"type": "string", "pattern": "^(not_reachable_in_production|internal_field|tool_argument|transport_only|harness_session_state|operator_answer:.+)$"},
+                  "cite": {"type": "string", "description": "<path>:<line> in the agent's own files (never plurai_sim/) that shows it; not needed with operator_answer:<id>"},
+                  "detail": {"type": "string"}
+                }
+              },
+              "evidence": {"type": "string", "description": "what the reader saw at `source`"},
+              "reaches": {"type": "string", "description": "<path>:<line> (what) where the reader saw it steer the agent (a branch, the prompt): never transport_only / harness_session_state / internal_field"},
+              "sent_by": {"type": "string", "description": "<path>:<line> of an in-repo caller that sends it: never not_reachable_in_production"},
+              "channel": {"type": "string", "description": "the agent.io.channels name that models it, when its name and field differ from this entry's name"}
+            }
+          }
+        },
+        "production_tools": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["loader", "count", "names"],
+          "description": "C3: the agent's tools under its production defaults (every capability switch at its default) = static ∪ live, copied from artifacts/agent_inventory.json. The harness never narrows it: a tool missing from the map or the live set needs a harness.capability_overrides entry naming its switch (production_tool_dropped); a tool the bench carries that C3 does not account for is production_inventory_incomplete",
+          "properties": {
+            "loader": {"type": ["string", "null"], "description": "<path>:<line> where the tool set is assembled; null when the reader found no assembly site (never a synthesized cite)"},
+            "count": {"type": "integer"},
+            "names": {"type": "array", "items": {"type": "string"}, "description": "C3 = static ∪ live"},
+            "static": {"type": "array", "items": {"type": "string"}, "description": "the tools the source defines at its production defaults (the reader's static read)"},
+            "live": {"type": "array", "items": {"type": "string"}, "description": "the tools the setup smoke enumerated with every switch at its production default (`agent_inventory.py record-live`); absent until enumerated. An empty list is a recorded tool-less enumeration only with `live_enumerated_by`"},
+            "live_enumerated_by": {"type": "string", "description": "<path>:<line> of the call that built the live list (`record-live --enumerated-by`): what makes `live: []` a recorded state rather than an unrecorded one"},
+            "dynamic": {
+              "type": "array",
+              "description": "registrars whose tool names exist only at run time (a computed name, an installed tool class the reader could not read): production_inventory_incomplete until `live` is recorded",
+              "items": {"type": "object", "additionalProperties": false, "required": ["source", "why"], "properties": {"source": {"type": "string"}, "why": {"type": "string"}}}
+            },
+            "backends": {
+              "type": "array",
+              "description": "installed tool classes the agent's own code calls (never handed to a model): a bench entry mocking one is no production tool",
+              "items": {"type": "object", "additionalProperties": false, "required": ["class", "source"], "properties": {"class": {"type": "string"}, "name": {"type": ["string", "null"]}, "source": {"type": "string"}}}
+            },
+            "pauses": {"type": "array", "items": {"type": "string"}, "description": "<path>:<line> where the agent stops for the user's answer (interrupt, a mid-turn Command(goto=END)): a card render_actions must declare (input_scope_cut)"},
+            "inventory_sha256": {"type": "string", "description": "agent_inventory.digest of artifacts/agent_inventory.json — the ONE inventory the validator, the map and lint_prd read"},
+            "not_loaded": {
+              "type": "array",
+              "description": "C11: tools the reader counted that the production default does not load, typed. A world precondition is never a reason: the scan seeds it",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["names", "because"],
+                "properties": {
+                  "names": {"type": "array", "items": {"type": "string"}},
+                  "because": {"enum": ["default_off_switch", "provider_variant", "separate_surface"]},
+                  "switch": {"type": "string", "description": "default_off_switch: a production_tools.switches[].switch whose default is OFF"},
+                  "selector": {"type": "string", "description": "provider_variant: the switch choosing the variant; covered per value or answered in harness.capability_overrides"},
+                  "surface": {"type": "string", "description": "separate_surface: <path>:<line> of the other entry point, inside agent_root and outside bench_overlay"},
+                  "detail": {"type": "string"}
+                }
+              }
+            },
+            "switches": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["switch", "source", "gates"],
+                "properties": {
+                  "switch": {"type": "string"},
+                  "source": {"type": "string"},
+                  "declared": {"type": "string"},
+                  "default": {"type": "string"},
+                  "default_on": {"type": ["boolean", "null"]},
+                  "gates": {"type": "array", "items": {"type": "string"}},
+                  "condition": {"type": "string", "description": "a platform guard's test (`available when`)"},
+                  "overridden_by": {"type": "string", "description": "<path>:<line> of an enable-all path defaulting ON, so a class default OFF is no off switch"},
+                  "kind": {"enum": ["selector"], "description": "a mode selector: a payload field choosing between the task types the production host registers; its production default is every value"},
+                  "field": {"type": "string", "description": "selector: the payload key the agent compares"},
+                  "values": {
+                    "type": "array",
+                    "description": "selector: every value the production host offers, each cited at its registration",
+                    "items": {"type": "object", "additionalProperties": false, "required": ["value", "source"], "properties": {"value": {"type": "string"}, "source": {"type": "string"}}}
+                  },
+                  "selects": {"type": "object", "description": "selector: value -> the inputs only that value's branch reaches (`*` = a branch on any other value)"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "harness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_mode",
+        "language"
+      ],
+      "properties": {
+        "run_mode": {
+          "enum": [
+            "mock",
+            "mockless"
+          ]
+        },
+        "language": {
+          "description": "the harness is always simulate.py on the Python SDK; a non-Python agent runs behind it in a bridge child (harness.bridge)",
+          "enum": [
+            "python"
+          ]
+        },
+        "bridge": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["child", "map"],
+          "properties": {
+            "child": {"enum": ["node"]},
+            "map": {"const": "bridge/bridge.map.json"}
+          },
+          "description": "present when the workdir holds bridge/bridge.map.json: simulate.py drives the agent in its own runtime through a bridge child (skills/simulation-setup-bridge/references/bridge-contract.md); derived from the files on every init"
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "provider whose key the agent needs at run time (name only, never the key)"
+        },
+        "env_file": {
+          "type": "string",
+          "description": "the env file the harness loads, relative to the agent module or absolute (default: the nearest .env up to the repository top); only key NAMES are checked for presence"
+        },
+        "provider_env": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "env var names that carry the agent provider key; presence only is ever checked"
+        },
+        "model_env": {
+          "type": "string",
+          "description": "the env var that selects the agent's main model at run time; a provider-prefixed value (<provider>/<model> or <provider>:<model>) decides which provider key is checked, otherwise `provider` (the code's default model) does. The value is never recorded"
+        },
+        "resume": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": {"enum": ["replay", "unsupported"]},
+            "reason": {"enum": ["history_not_writable"], "description": "required with mode unsupported: the agent's conversation lives in a session the harness cannot write (a hosted session that opens empty, or a bridge entry with no seed export)"},
+            "evidence": {"type": "string", "description": "required with mode unsupported: <path>:<line> of the refusal"}
+          },
+          "description": "whether seed_state replays a resume seed (dialog benches). A fresh init writes {mode: replay}, or the bridge map's {mode: unsupported} when its entry cannot seed; a refresh never adds it, so its absence marks a manifest that predates the field"
+        },
+        "capability_overrides": {
+          "type": "array",
+          "description": "a capability switch the harness sets away from its production default, each on an operator answer naming it; never a harness_differs fact. The tools that switch gates may then be absent from the map and the live set",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["switch", "value", "answer_id"],
+            "properties": {
+              "switch": {"type": "string", "minLength": 1, "description": "a surfaces.production_tools.switches[].switch"},
+              "value": {"description": "the value the harness sets"},
+              "tools": {"type": "array", "items": {"type": "string"}, "description": "the tools it switches off, when the reader found no gates for the switch"},
+              "answer_id": {"type": "string", "minLength": 1, "description": "the operator answer that disabled it: the ask's gate, as the run driver record files it"}
+            }
+          }
+        },
+        "tool_interception": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["at"],
+          "properties": {
+            "at": {"enum": ["harness", "agent_host"]},
+            "why": {"type": "string"},
+            "route_smoke": {"type": "string", "description": "the command that proves the host-side route, run before any paid turn"}
+          },
+          "description": "where the mocked tools are intercepted; absent means `harness`. `agent_host`: the agent's own host calls the mock, so the harness wraps nothing and its local checks record not_run"
+        },
+        "host_requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "kind", "evidence"],
+            "properties": {
+              "name": {"type": "string"},
+              "kind": {"enum": ["executable", "python_module", "node_module"]},
+              "evidence": {"type": "string", "description": "<path>:<line> of the agent's own file that declares it; that line names it"},
+              "probe": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"type": "string"},
+                "description": "kind: executable only, with probe_evidence — an argv (no shell) running the invocation that line documents, headed by the program itself or by the agent's own route to it, with the line's own words before a route, its options and its operands (each the line's word or a host_probes/ fixture), never the program alone; `{agent}/<path>` names the agent's own file, shown on the line; a fixture it reads ships in plurai_sim/host_probes/. Run where the agent runs the program; a non-zero exit is `fails_sandboxed` or `broken`, by where it ran"
+              },
+              "probe_evidence": {"type": "string", "description": "required with probe — <path>:<line> of the agent's own file documenting the invocation the probe runs; that line names the requirement"},
+              "install": {"type": "string", "minLength": 1, "description": "with install_evidence — the command the agent's own install docs give for it, verbatim (never one you write); run-gate prints it, in one copy-paste block, for a requirement measured missing; nothing runs it"},
+              "install_evidence": {"type": "string", "description": "required with install — <path>:<line> of the agent's own install docs carrying that command verbatim"}
+            }
+          },
+          "description": "what the agent's own files declare it needs on this host outside its interpreter's in-process imports; run-gate resolves each one live where the agent uses it (present / missing / fails_sandboxed / broken / unverified / not checked — no probe is unverified); a measured gap (missing / broken / fails_sandboxed) is NOT RUNNABLE until the plugin repairs it or overrules its finding, and an unmeasured one ships with its finding"
+        }
+      }
+    },
+    "agent_root": {"type": "string", "description": "C11: the root of the agent's upstream tree, relative to the repository root ('.' for all of it): a cite outside it is a harness choice"},
+    "bench_overlay": {"type": "array", "items": {"type": "string"}, "description": "C11: files inside agent_root git says are not the customer's (untracked/modified, or changed with the harness); a cite into one is a harness choice that needs an operator-answered harness.capability_overrides"},
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "corpus_roots",
+        "suffixes"
+      ],
+      "properties": {
+        "corpus_roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "suffixes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]+$"
+          },
+          "description": "EXTRA suffixes beyond the checker's default set"
+        }
+      }
+    },
+    "consent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "probes",
+        "live",
+        "unsandboxed"
+      ],
+      "properties": {
+        "probes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "granted",
+                "declined",
+                "unasked"
+              ]
+            },
+            "names": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "asked_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "live": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state"
+          ],
+          "properties": {
+            "state": {
+              "enum": [
+                "granted",
+                "declined",
+                "unasked"
+              ]
+            },
+            "max_messages": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "asked_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "unsandboxed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state"
+          ],
+          "description": "the declared programs (harness.host_requirements, kind: executable) the operator let run outside the Bash sandbox; only `granted` lets any out. A granted program runs outside the sandbox, with full read, write and network access to the machine and any arguments, and a Bash command leaves the sandbox only when every command in it is a granted program",
+          "properties": {
+            "state": {
+              "enum": [
+                "granted",
+                "declined",
+                "unasked"
+              ]
+            },
+            "names": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$"
+              }
+            },
+            "asked_at": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "description": "every check the runner may execute; each names the manifest field paths it VERIFIES. A field no check verifies is reported declared_only.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "verifies",
+          "runner"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "kind": {
+            "enum": [
+              "verifier",
+              "smoke",
+              "surface",
+              "probe",
+              "contract",
+              "egress",
+              "mock",
+              "live"
+            ]
+          },
+          "verifies": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "description": "JSON-pointer-ish field paths, e.g. surfaces.render_actions, surfaces.tools[get_order]"
+          },
+          "witnesses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "fields this check proves by the runtime witness it returns: agent.entry for a builtin smoke (a witness-only field, refused in any verifies), surfaces.tools[<name>] of a mocked tool for mock_contract. Checked by bench_manifest.py"
+          },
+          "runner": {
+            "enum": [
+              "builtin",
+              "python",
+              "node",
+              "bash"
+            ]
+          },
+          "script": {
+            "type": "string",
+            "description": "path relative to $WORKDIR for python/node/bash runners"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requires": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "provider_key",
+                "node",
+                "dist",
+                "checker",
+                "corpus_roots",
+                "consent:probes",
+                "consent:live",
+                "no_real_tools",
+                "smoke_inputs",
+                "mock_built",
+                "seeded_world"
+              ]
+            },
+            "description": "prerequisites; a missing one yields not_run with that reason, never a fabricated result. corpus_roots empty and seeded_world absent (no .seed_probe_world.json, a null one, or no seed_state) are not_applicable"
+          },
+          "policy": {
+            "enum": [
+              "always",
+              "on_change",
+              "on_mode"
+            ],
+            "default": "always",
+            "description": "always: every scan. on_change: re-run when derived_from hash or script hash moved, else reused. on_mode: run only when mode_rule holds"
+          },
+          "mode_rule": {
+            "type": "string",
+            "description": "for policy on_mode, e.g. agent.dispatch_shape == dialog"
+          },
+          "derived_from": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "paths"
+            ]
+          },
+          "expect": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "for kind surface: {equals: <manifest path>}"
+          },
+          "feeds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "typed-fact ids this check's observation supports (probe_report P-ids or fact subjects)"
+          },
+          "credentials": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "description": "kind live: the environment variable NAMES the service's client signs in with that have no working default (never a value); names the missing ones when the check fails"
+          },
+          "blocking": {
+            "type": "boolean",
+            "default": false,
+            "description": "a failed/not_run blocking check turns the hand-off into the failure hand-off"
+          }
+        }
+      }
+    },
+    "coverage_holes": {
+      "type": "array",
+      "description": "INTERNAL ONLY, never on a customer artifact: production behaviour the harness accepts it does not run. Every `seam: tool_body` mock's `skipped_code` cite is one (`mechanism: seam:tool_body:<tool>`, derived by `init`); a gap the suite accepts is added with `bench_manifest.py coverage-hole`, never as a loop-log note",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mechanism", "source", "reason"],
+        "properties": {
+          "mechanism": {"type": "string", "minLength": 1, "description": "what does not run: `seam:tool_body:<tool>`, or the guard / middleware / path the gap is in"},
+          "source": {"type": "string", "minLength": 1, "description": "`<path>:<line>` (or `<path>:<start>-<end>`) of the agent code that does not run"},
+          "reason": {"type": "string", "minLength": 1, "description": "why it is accepted: the tool_body `seam_reason`, or the suite's ruling"}
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "created_at",
+        "plugin_version"
+      ],
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "plugin_version": {
+          "type": "string"
+        },
+        "skill": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

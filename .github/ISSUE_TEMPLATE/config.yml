@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Email the Plurai team
+    url: mailto:support@plurai.ai
+    about: Reach Plurai support directly, for a problem or a question that does not fit a form.
+  - name: Plurai Discord
+    url: https://discord.gg/bg34gh76uJ
+    about: Ask the Plurai team and other users on Discord.

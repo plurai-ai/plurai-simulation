@@ -1,0 +1,255 @@
+{
+  "schema": "plurai-suite/1",
+  "scenario_set_id": "b27ffc9740664d73bfa4afb180a75f32",
+  "eval_set_id": "a9aca94b7fe04e329531afac1ecfbfd2",
+  "requested_count": 2,
+  "short_by": 0,
+  "coverage": {
+    "count": 2,
+    "total_flows": 14,
+    "covered": [
+      "search_by_criteria_flow",
+      "product_question_flow",
+      "compare_products_flow",
+      "check_availability_flow",
+      "knowledge_query_flow",
+      "store_hours_flow",
+      "warranty_question_flow",
+      "size_guide_flow"
+    ],
+    "covered_unverified": [
+      "delivery_question_flow",
+      "return_policy_flow",
+      "gift_card_flow"
+    ],
+    "uncovered": [
+      "order_status_flow",
+      "loyalty_points_flow",
+      "out_of_scope_flow"
+    ],
+    "cards": [
+      {
+        "label": "valid paths covered",
+        "value": 79,
+        "unit": "%",
+        "accent": "blue",
+        "verified": 57,
+        "declared": 22,
+        "auditor_only": 1,
+        "advisory_blind": 0
+      },
+      {
+        "label": "core components exercised",
+        "value": 85,
+        "unit": "%",
+        "accent": "cyan"
+      }
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "scenario_03_scenarios_b27ffc97_scenario_03",
+      "title": "Answering a product question from the catalog without overselling",
+      "summary": "Noa is on a product page and asks whether the item fits her setup and how it compares with a second-hand listing she found. The agent has to answer from the catalog record and the help articles, and must not push other products she did not ask about.",
+      "source": "spec",
+      "likelihood": 11.63,
+      "complexity": 3.1,
+      "complexity_unit": "bits",
+      "path": [
+        {
+          "from": "product_question_flow",
+          "to": "knowledge_query_flow",
+          "p": 0.4
+        },
+        {
+          "from": "knowledge_query_flow",
+          "to": "compare_products_flow",
+          "p": 0.29
+        }
+      ],
+      "stars": 2,
+      "persona": {
+        "name": "Noa",
+        "information": "Noa is buying for her own flat and has already read the product page once.",
+        "temperament": "practical and a little impatient",
+        "speaking_style": "Short questions, one fact at a time.",
+        "sample_dialogue": "Does this one fit the standard frame, or do I need the adapter?"
+      },
+      "ground_truth": "When Noa asks whether the product fits a standard frame, the agent must answer from the catalog record and say whether the adapter is required; it must not recommend other catalog products she did not ask about.",
+      "world_state_note": "Seeded: 1 product, 2 inventory(s)."
+    },
+    {
+      "id": "scenario_05_scenarios_b27ffc97_scenario_05",
+      "title": "Narrowing a search by budget and size when stock is uneven",
+      "summary": "Daniel asks for a product under a budget in a specific size; two candidates match but only one is in stock nearby. The agent has to say which one is available before recommending it, and must not offer actions its tools cannot perform.",
+      "source": "spec",
+      "likelihood": 0.76,
+      "complexity": 7.04,
+      "complexity_unit": "bits",
+      "stars": 4,
+      "persona": "Daniel is comparing options on his phone during a lunch break and wants one clear answer.",
+      "ground_truth": "The agent must name the in-stock candidate under the stated budget in the requested size, say that the other is out of stock, and must not offer to reserve or hold an item.",
+      "world_state_note": "Seeded: 4 product(s), 4 inventory(s)."
+    }
+  ],
+  "evals": [
+    {
+      "id": "catalog_fact_grounding",
+      "type": "llm",
+      "scope": "end-to-end",
+      "score": "pass / fail",
+      "checks": "Every product fact the agent states (price, stock, specification) matches the catalog record it read."
+    },
+    {
+      "id": "stock_status_disclosure",
+      "type": "llm",
+      "scope": "end-to-end",
+      "score": "pass / fail",
+      "checks": "When a product is out of stock, the agent says so before recommending it."
+    },
+    {
+      "id": "catalog_scope_boundary",
+      "type": "llm",
+      "scope": "end-to-end",
+      "score": "pass / fail",
+      "checks": "The agent offers only actions its tools can perform, and declines the rest plainly."
+    },
+    {
+      "id": "reply_shape_contract",
+      "type": "llm",
+      "scope": "per-turn",
+      "score": "pass / fail",
+      "checks": "Each reply answers the question first and stays within the requested length."
+    },
+    {
+      "id": "reply_language",
+      "type": "code",
+      "scope": "per-turn",
+      "score": "pass / fail",
+      "checks": "Each reply is written in the language of the user's last message."
+    },
+    {
+      "id": "scenario_goal_attainment",
+      "type": "llm",
+      "scope": "end-to-end",
+      "score": "pass / fail",
+      "checks": "Did the agent accomplish the scenario target, verified against the tool trail rather than its own prose?"
+    },
+    {
+      "id": "conversation_memory_judge",
+      "type": "llm",
+      "scope": "end-to-end",
+      "score": "pass / fail",
+      "checks": "A preference the user stated earlier is honoured later without being asked again."
+    },
+    {
+      "id": "ledger_money_voiced_by_agent",
+      "type": "code",
+      "scope": "end-to-end",
+      "score": "pass / fail",
+      "checks": "Every amount the agent quotes appears in a tool result of this conversation."
+    },
+    {
+      "id": "ledger_identifier_voiced_by_agent",
+      "type": "code",
+      "scope": "end-to-end",
+      "score": "pass / fail",
+      "checks": "Every product or order id the agent quotes appears in a tool result of this conversation."
+    },
+    {
+      "id": "knowledge_coverage",
+      "type": "knowledge beat",
+      "scope": "end-to-end",
+      "score": "threshold 1",
+      "checks": "The share of the scenario's planted knowledge questions the agent answered."
+    },
+    {
+      "id": "knowledge_accuracy",
+      "type": "knowledge beat",
+      "scope": "end-to-end",
+      "score": "threshold 0.8",
+      "checks": "The share of answered knowledge questions whose answer matches the source document."
+    },
+    {
+      "id": "knowledge_correctness_judge",
+      "type": "llm",
+      "scope": "end-to-end",
+      "score": "pass / fail",
+      "checks": "Knowledge answers state the source fact without contradicting or overstating it."
+    },
+    {
+      "id": "synthesis_quality_judge",
+      "type": "llm",
+      "scope": "end-to-end",
+      "score": "pass / fail",
+      "checks": "An answer drawn from several documents combines them without dropping a qualifier."
+    },
+    {
+      "id": "retrieval_recall",
+      "type": "retrieval",
+      "scope": "end-to-end",
+      "score": "threshold 0.6",
+      "checks": "Recall of the planted source chunks among the chunks the search tool returned."
+    },
+    {
+      "id": "absence_probe_RENDER_ACTIONS.omits",
+      "type": "knowledge beat",
+      "scope": "end-to-end",
+      "score": "pass / fail",
+      "checks": "Asked about an action the product does not offer, the agent says it is not available instead of inventing it."
+    }
+  ],
+  "environment": {
+    "schema": [
+      {
+        "entity": "product",
+        "cardinality": "rows per scenario",
+        "fields": [
+          {
+            "name": "id",
+            "type": "string",
+            "note": "catalog id; equal to the entity key"
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "note": ""
+          },
+          {
+            "name": "price",
+            "type": "number",
+            "note": "list price in the store currency"
+          },
+          {
+            "name": "size",
+            "type": "string",
+            "note": "one of the size guide values"
+          }
+        ]
+      },
+      {
+        "entity": "inventory",
+        "cardinality": "one per product and store",
+        "fields": [
+          {
+            "name": "product_id",
+            "type": "string",
+            "note": "→ product.id"
+          },
+          {
+            "name": "store",
+            "type": "string",
+            "note": ""
+          },
+          {
+            "name": "in_stock",
+            "type": "boolean",
+            "note": ""
+          }
+        ]
+      }
+    ],
+    "bounds": [],
+    "noise": []
+  }
+}

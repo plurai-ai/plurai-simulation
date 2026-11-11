@@ -1,0 +1,212 @@
+<!-- This file belongs to you. Plurai generated it from your agent as a starting point; review it, change it and keep it with your code. -->
+# Running the simulation against <rewired-copy-developer-name>
+
+The agent under test runs in a Salesforce org, so a simulation run has three parts:
+bring a rewired copy of the agent up against the mock env, run the suite, take the copy
+down again. This file is the whole sequence. Nothing here needs Claude Code.
+
+Every path below is relative to `<agent-root>`, the Agentforce project root. The
+simulation workdir is `<workdir>`.
+
+## What the rewired copy is
+
+`<rewired-copy-developer-name>` is a SECOND agent, generated from your bundle. Its
+mockable actions are repointed at generated Apex that calls the Plurai mock service
+instead of your real org actions. Your own agent, `<agent-developer-name>`, is never
+edited and never driven by a run.
+
+Three files in `<workdir>` do the work, and all three are yours to keep:
+`rewire_agentforce.py` generates the copy, `agentforce_mock_path.sh` deploys, deactivates
+and deletes it, and `resolve-plurai-urls.sh` turns the environment below into the base URL
+both of them use. None of them needs the plugin installed, so teardown still works in a
+checkout that has none. The resolver sends your token only to the hosted Plurai server, your
+own machine, or the one server `.plurai_backend_origin` beside it names, recorded at setup.
+
+## What you provide
+
+Seven values. You already hold every one of them from setting the org up; the plugin mints
+none of them.
+
+| Value | Where it comes from | Where it lives |
+|---|---|---|
+| `SF_MY_DOMAIN_URL` | your org's My Domain, in Setup or from `sf org display` | `.env` at `<agent-root>`, or exported before Claude Code starts |
+| `SF_CLIENT_ID` | the consumer key of the External Client App that issues Agent API tokens | `.env` at `<agent-root>`, or exported before Claude Code starts |
+| `SF_CLIENT_SECRET` | that same app's consumer secret | `.env` at `<agent-root>`, or exported before Claude Code starts |
+| `SF_AGENT_ID` | your own agent's Agent API id | nothing on this path reads it |
+| `SF_ORG_ALIAS` | the alias you gave `sf org login web` | this shell only |
+| `PLURAI_URL` | the Plurai server your other Plurai commands already speak to | this shell only |
+| `PLURAI_TOKEN` | the token those same commands use | this shell only |
+
+The first three are the harness's. It opens one Agent API session per scenario with the
+client-credentials grant, so a missing one stops the run before its first turn, naming the
+value it wants.
+
+`SF_ORG_ALIAS` targets every `sf` command the lifecycle script runs. Unset, the CLI's own
+default target org is used, and a bring-up against the wrong org deploys Apex and a
+permission set there — check `sf org display` before the first one.
+
+`SF_AGENT_ID` names `<agent-developer-name>`, your own agent, and nothing on the mock path
+reads it: a run drives `<rewired-copy-developer-name>` through the id the bring-up records in
+`<workdir>/.mock_agent_id`. It is listed because an org already wired to the Agent API has it
+set, and it is the one value that looks like it should point a run at an agent and does not.
+
+Two more settings reach the harness, and neither is on the table because neither is yours to
+obtain: `SF_MOCK_AGENT_ID` overrides the copy's id from `<workdir>/.mock_agent_id`, and
+`SF_AGENT_API_BASE` overrides the Agent API host the harness talks to. Both have working
+defaults. Set either only to point a run somewhere other than where the bring-up left it.
+
+## Before the first run
+
+1. **A mock env.** The copy is deployed against exactly one, and its id must be in
+   `<workdir>/.env_id`. The plugin's env generation writes it.
+2. **The two Plurai values, in the shell.** These are the same pair every other Plurai
+   command uses; there is nothing new to obtain. They stay in the shell for the whole
+   sequence, and neither belongs on a command line, in a file, or in a commit. The token
+   is the org bearer the named credential carries into every callout.
+
+```bash
+export PLURAI_URL=<Plurai backend URL>
+export PLURAI_TOKEN=<Plurai backend token>
+```
+
+3. **An org login.** `sf org login web -a <org-alias>` if you do not have one. Set
+   `SF_ORG_ALIAS=<org-alias>` so every command below targets that org; unset, the `sf`
+   CLI's own default target org is used.
+4. **Org connection settings for the harness**: `SF_MY_DOMAIN_URL`, `SF_CLIENT_ID`,
+   `SF_CLIENT_SECRET`, exported in the environment Claude Code passes to commands or set in
+   `.env` at `<agent-root>` (or the file you named for them at the start); one place is enough. These are the connected app's
+   client-credentials settings the harness opens Agent API sessions with. `.env` is
+   gitignored; keep it that way.
+5. **Named-user JWT enabled on that app**, in its global OAuth settings. The token endpoint
+   validates none of what the Agent API needs: without this flag a token still mints, still
+   reports the `sfap_api chatbot_api api` scopes, and every `POST /agents/{agentId}/sessions`
+   answers a bare 404 with no body and no header naming a cause. Setup reaches it, and so
+   does a metadata deploy of `ExtlClntAppGlobalOauthSettings` with
+   `<isNamedUserJwtEnabled>true</isNamedUserJwtEnabled>`.
+6. **Your grant for the bring-up.** `up` deploys and activates a copy of your agent in your
+   org, so it runs only when `<workdir>/.host_effects_consent` lists `route_smoke` on its
+   `granted:` line (for example `granted: route_smoke`).
+7. **The `sf` CLI at 2.133.4 or later** (with its bundled `@salesforce/plugin-agent`
+   1.34.0 or later): the lifecycle's flags are checked against that release.
+
+## 1. Bring the mock path up
+
+```bash
+bash <workdir>/agentforce_mock_path.sh up
+```
+
+It regenerates the copy for the current mock env, health-checks the server and the env,
+pushes the org token to the credential principal, deploys the Apex and the permission
+set, grants that set to both the CLI user and the agent's own user, runs an Apex health
+callout as the verdict, then publishes and activates the copy. It ends by recording the
+copy's id in `<workdir>/.mock_agent_id`, which is how the harness finds it.
+
+The bring-up prints the actions it left real. Those run against your live org data during
+a run and are not recorded as tool events — read that list before the first run.
+
+`up --skip-complex-types` leaves an action real when its schema declares a type Apex
+cannot carry, instead of passing the value as JSON text.
+
+## 2. Run the suite
+
+Through Claude Code, `/simulation-run` drives it and scores every eval.
+
+Without Claude Code, the SDK's own runner is the same thing:
+
+```bash
+source <workdir>/resolve-plurai-urls.sh
+plurai-run-simulation \
+  --scenario-set-id "$(cat <workdir>/.scenario_set_id)" \
+  --scenario-id <id_1> --scenario-id <id_2> \
+  --agent-module-path <workdir>/simulate.py \
+  --mock-service-url "$(cat <workdir>/.mock_service_url)" \
+  --eval-set-id "$(cat <workdir>/.eval_set_id)" \
+  --out <workdir>/runs/$(date +%Y%m%d-%H%M%S)
+```
+
+**Every turn and every action is metered against your Flex Credits.** Name the scenarios
+you want. Dropping `--scenario-id` entirely runs the whole set, which is the expensive
+path — take it deliberately.
+
+Start the runner with `<agent-root>` as the working directory. The SDK walks up from the
+cwd for the nearest `.env` and treats it as the client's; from a repo root it finds the
+wrong one.
+
+As each scenario ends it appends one JSON line to `<workdir>/session_ids.jsonl`, carrying
+its Agent API session id, its external session key, its plurai session id, and a pair of
+timestamps that bracket the org session: `started_at` is stamped before the session is
+opened and `ended_at` after it is closed, so the round trip sits inside that window rather
+than at its edges. Your org keys its own agent traces by the Agent API id; the run keys its
+transcripts by the plurai one, which the runner writes as `thread_id` in each scenario's
+`transcript.json` (and in `error.json` when the scenario failed). This line is the only
+place the two meet — keep it if you want to read what the platform recorded for a scenario.
+A scenario whose closing turn failed writes its line too.
+A turn whose reply the harness could not fully read (no text and no act, or a message type it
+has no reading for) appends that reply's raw `messages`, with its plurai session id and turn,
+to `<workdir>/agent_api_replies.jsonl`.
+A turn that hands your agent a file uploads it into your org as a file shared with your agent's
+user, only when `<workdir>/.host_effects_consent` grants `file_uploads`, and appends its ids to
+`<workdir>/uploaded_files.jsonl` before the message is sent. Each scenario deletes its files
+when it ends; the next scenario deletes any that a scenario which crashed left behind. Salesforce
+keeps a deleted file in your org's Recycle Bin for 15 days; empty the bin to remove them sooner.
+
+## 3. Take it down
+
+```bash
+bash <workdir>/agentforce_mock_path.sh down
+```
+
+Deactivates the copy and leaves everything in place, so `up` brings it straight back.
+This is the end of an ordinary run.
+
+```bash
+bash <workdir>/agentforce_mock_path.sh clean
+```
+
+Deletes the copy from the org, removes the generated tree and drops the recorded id. The
+records publishing minted for the copy (its Bot, planner, topics and actions) are found by
+retrieving `Agent:<copy>` into a scratch directory and deleted in the same deploy, ahead
+of the generated classes they call. It prints every deleted record by type, and names any
+retrieved record it keeps (a namespaced one belongs to the platform, not the copy).
+
+## When something is wrong
+
+| What you see | What it means |
+|---|---|
+| `the mock env has no live deployment` | the env id in `.env_id` has no deployment; regenerate the env, then `up` again |
+| `the Plurai backend never answered 200 on /healthz` | `PLURAI_URL` points somewhere else, or the server is down |
+| `is not the backend this session is bound to` | `PLURAI_URL` is not the server `.plurai_backend_origin` records; export that one, or re-run the Plurai setup against the other |
+| the Apex health callout fails | the callout never left the org — usually the permission-set grant or the credential push |
+| `no id for the rewired copy` at run time | the copy is not up; run `up`, or export `SF_MOCK_AGENT_ID` to pin an id |
+| a run answers but no tool events appear | the run drove your own agent rather than the copy — check `SF_MOCK_AGENT_ID` |
+
+## What the harness checks each turn
+
+The agent runs inside Salesforce, so the runner never sees the actions it takes. A rewired
+action posts to the mock service from inside the org, and that callout carries no turn of its
+own: the mock service stamps whichever turn its session is holding. The runner pushes the open
+turn there before every agent call, and reports the same turn in `PLURAI_TURN_INDEX`.
+
+After each turn `simulate.py` reads the session's event log and checks every tool event the
+turn added against `PLURAI_TURN_INDEX`. A mismatch ends the run.
+
+A mismatch is not an agent fault. It means the turn push did not reach the mock env, so the
+actions of one turn are filed under another. Every per-turn eval then grades the wrong turn,
+and the results look ordinary. Check that the `PLURAI_URL` exported in this shell is
+the one the run was configured against and that the Plurai backend behind it is up, then run the
+scenario again.
+
+The same refusal covers the cases where the check cannot be made at all: `PLURAI_TURN_INDEX`
+unset, which is a harness driven outside the runner, and an event log the mock service will not
+serve. Neither degrades to a warning, because a run that cannot place its own actions in time
+grades green on evidence it never had.
+
+One shape stays outside the check: the mock service answers a session id it never opened with an
+empty event list rather than a refusal, so "this turn made no callouts" and "the org filed them
+under another session" read the same. The harness reads the log for the same id it hands the org,
+and a rewired action carrying a session the service never opened fails in Apex rather than being
+filed somewhere else, so no run scores clean by that route.
+
+That refusal is a `plurai.HarnessFault`, so the scenario is recorded `not_valid` and never scored
+against the agent, on the closing turn too: the SDK lets finalize still run past an agent's failed
+closing turn, never past a harness fault.

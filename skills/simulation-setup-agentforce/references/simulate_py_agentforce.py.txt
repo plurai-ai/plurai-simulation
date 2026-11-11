@@ -1,0 +1,1279 @@
+# This file belongs to you. Plurai generated it from your agent as a starting point;
+# review it, change it and keep it with your code.
+"""simulate.py — hosted Agentforce harness; drives the rewired copy over the Agent API."""
+
+from __future__ import annotations
+
+import atexit
+import base64
+import importlib.util
+import json
+import mimetypes
+import os
+import re
+import sys
+import types
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import quote
+
+import plurai
+import requests
+from langchain_core.messages import AIMessage, ToolMessage
+
+# This file sits IN the simulation workdir — `plurai_sim/`, or `plurai_sim/envs/<name>` under the
+# named-env layout — so there is no workdir to resolve here: the markers the mock-path bring-up
+# writes are siblings of this file.
+_DIR = Path(__file__).resolve().parent
+
+# The name the mock-path bring-up gives the simulation workdir. Under both layouts the
+# Agentforce project root is that directory's parent, which is what makes the root findable
+# by name instead of by a counted number of parents.
+_WORKDIR_NAME = 'plurai_sim'
+
+# The org session ids this run opened, one JSON line per scenario. It sits beside this file
+# because that is the one directory the harness can name: the runner's `--out` folder is a CLI
+# argument the orchestrator never passes down to a scenario's process.
+_SESSION_IDS_FILE = _DIR / 'session_ids.jsonl'
+
+# The files this harness uploaded into the org, one JSON line per upload (written BEFORE the message
+# naming the file is sent) and one per delete. A scenario deletes its own at close; `seed_state` sweeps
+# what a scenario whose process died left behind.
+_UPLOADS_FILE = _DIR / 'uploaded_files.jsonl'
+
+
+def _project_root() -> Path:
+    """The Agentforce project root: the parent of the simulation workdir.
+
+    The workdir is `plurai_sim/` in the bare layout and a named-env folder under
+    `plurai_sim/envs/` otherwise, so the two layouts put the root at different depths. A copy
+    of this file moved out of that layout has no workdir to anchor on and treats its own
+    parent as the root.
+    """
+    for candidate in (_DIR, *_DIR.parents):
+        if candidate.name == _WORKDIR_NAME:
+            return candidate.parent
+    return _DIR.parent
+
+
+# The env file the user named for this agent's settings (the bench's `harness.env_file`), relative to
+# the project root or absolute; None reads the project's own `.env`, found by the walk below.
+_ENV_FILE: str | None = None
+
+
+def _dotenv_path() -> Path | None:
+    """The `.env` holding the org connection settings.
+
+    `_ENV_FILE` when set. Otherwise it belongs to the Agentforce project root: the nearest one at
+    or above this file is taken, and the walk stops at that root, so an unrelated `.env` further
+    up the filesystem is never read as this project's — a stray one there carries another org's
+    credentials, and a run that picked it up would drive a different org while reporting nothing
+    amiss. A setting already exported wins over either file.
+    """
+    root = _project_root()
+    if _ENV_FILE is not None:
+        named = root / Path(_ENV_FILE).expanduser()
+        return named if named.is_file() else None
+    for candidate in (_DIR, *_DIR.parents):
+        env_file = candidate / '.env'
+        if env_file.is_file():
+            return env_file
+        if candidate == root:
+            break
+    return None
+
+
+# python-dotenv is optional: an exported environment is just as good, and a harness that refuses
+# to start because a convenience library is missing is a worse failure than the clear
+# "missing SF_..." message a few lines down.
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    pass
+else:
+    _dotenv = _dotenv_path()
+    if _dotenv is not None:
+        load_dotenv(_dotenv)
+
+# The rewired copy — a SECOND agent whose mockable actions post to the mock service. The
+# customer's own agent (the one `SF_AGENT_ID` names) is never driven here: its actions run
+# against real org data, so a run would spend Flex Credits on tool calls the mock service
+# never sees and grade the scenario against a world state nothing seeded.
+_COPY_NAME = '<rewired-copy-developer-name>'
+
+# Agent Script variables filled from the scenario's `agent_context`, as {context key: variable}.
+# A variable is settable at session start only if the bundle marks it `visibility: "External"`;
+# the rewrite marks the session id and nothing else, so this is empty unless the customer's own
+# bundle declares more.
+_CONTEXT_VARIABLES: dict[str, str] = {}
+
+# The Agent Script variable a document the user hands over reaches the agent through: the bundle's
+# External Text variable its reader action binds, filled by the setup when the agent takes a document.
+# The Agent API carries no attachment, so the file is uploaded to the org and its ContentDocumentId set
+# on this variable. Empty: this agent takes no document, and a turn handing one over is refused.
+_FILE_VARIABLE = ''
+
+# What a turn that hands over a file and says nothing sends as its words: the agent must get a message.
+_FILE_ONLY_TEXT = '(attached a file)'
+
+# The `.host_effects_consent` grant without which no file is written into the org.
+_UPLOAD_GRANT = 'file_uploads'
+
+# The org REST API version the uploads use. Same value as `rewire_agentforce.API_VERSION`, restated
+# because the close and the sweep run without loading that module.
+_ORG_API_VERSION = '67.0'
+
+# The one channel the mock session id has. The credential URL carries `/mock/<env id>` and is
+# env-scoped, an `@InvocableMethod` receives only declared invocable variables, and the rewrite
+# binds this agent variable into every rewired action.
+_SESSION_VARIABLE = 'plurai_session_id'
+
+# The turn the runner mirrors into the environment before each `invoke_agent`. It is the
+# documented seam for a dispatcher outside the runner's own process, which is what a Salesforce
+# callout is: the callout carries no turn, so the mock service stamps whichever turn its session
+# holds, and this is the only value the harness can check that stamp against.
+_TURN_ENV_VAR = 'PLURAI_TURN_INDEX'
+
+_DEFAULT_API_BASE = 'https://api.salesforce.com/einstein/ai-agent/v1'
+# The Agent API answers a synchronous message within 120 s or fails the turn; wait that long
+# plus a margin, so a timeout here means the transport broke rather than the agent thought hard.
+_CALL_TIMEOUT_S = 130.0
+_HTTP_UNAUTHORIZED = 401
+_HTTP_NOT_FOUND = 404
+_HTTP_ERROR_FLOOR = 400
+
+# Who owns a raise. A refusal this harness makes about its own bench (no copy id, missing settings,
+# a resume seed, an unreported turn, a mock event log it cannot read, a config that cannot name the
+# Knowledge-search tool, an in-org action the mock service itself failed) raises `plurai.HarnessFault`,
+# so the scenario is recorded not_valid instead of being scored against the agent. A `Failure` reply
+# about the agent's own turn stays a plain raise: that one is the agent's.
+
+
+def _setting(name: str, default: str = '') -> str:
+    value = (os.environ.get(name) or '').strip()
+    return value or default
+
+
+def _utc_now() -> str:
+    """Now, in UTC, at fixed width so the index sorts as plain text."""
+    return datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+
+
+def _copy_agent_id() -> str:
+    """The Agent API id of the rewired copy.
+
+    `SF_MOCK_AGENT_ID` pins one. Otherwise the marker the mock-path bring-up wrote after it
+    activated the copy is read: the bring-up already holds an org login and knows which agent
+    it published, so the lookup by developer name happens there once rather than here on every
+    run — this harness needs no `sf` CLI at all.
+    """
+    pinned = _setting('SF_MOCK_AGENT_ID')
+    if pinned:
+        return pinned
+    marker = _DIR / '.mock_agent_id'
+    if marker.is_file():
+        found = marker.read_text(encoding='utf-8').strip()
+        if found:
+            return found
+    raise plurai.HarnessFault(
+        f'no id for the rewired copy {_COPY_NAME!r}: {marker} is missing or empty and '
+        'SF_MOCK_AGENT_ID is unset. Bring the mock path up '
+        '(`bash plurai_sim/agentforce_mock_path.sh up`) so the copy is deployed and its id '
+        'recorded, or export SF_MOCK_AGENT_ID. Refusing rather than falling back to '
+        "SF_AGENT_ID, which names the customer's own agent — that one's actions never reach "
+        'the mock service, so the run would be metered and ungradeable.'
+    )
+
+
+class _AgentApiSession:
+    """One Agentforce session: a client-credentials token, one conversation, one close."""
+
+    def __init__(self, agent_id: str, plurai_session_id: str, variables: list[dict[str, str]]) -> None:
+        names = ('SF_MY_DOMAIN_URL', 'SF_CLIENT_ID', 'SF_CLIENT_SECRET')
+        values = {name: _setting(name) for name in names}
+        missing = [name for name in names if not values[name]]
+        if missing:
+            raise plurai.HarnessFault(
+                f'missing Agent API settings: {", ".join(missing)}. They live in this folder\'s '
+                '`.env` (or the environment) and belong to the External Client App that issues '
+                'Agent API tokens.'
+            )
+        self._domain = values['SF_MY_DOMAIN_URL'].rstrip('/')
+        self._client_id = values['SF_CLIENT_ID']
+        self._client_secret = values['SF_CLIENT_SECRET']
+        self._api_base = _setting('SF_AGENT_API_BASE', _DEFAULT_API_BASE).rstrip('/')
+        self._http = requests.Session()
+        self._token: str | None = None
+        # The user the token acts as, the owner of every file this session uploads: the last segment of
+        # the token response's identity URL, '' when it carries none.
+        self._run_as_user_id = ''
+        self._sequence = 0
+        # The mock-service session this org session is bound to, held here rather than read back
+        # from the module global: the global moves to the next scenario before this object does,
+        # so an index line that took it from there could name two different scenarios.
+        self.plurai_session_id = plurai_session_id
+        # Stamped before the open and again after the close, so the pair brackets the org's own
+        # session rather than claiming its exact edges: the token fetch and the round trip sit
+        # inside the window, and a reader correlating by time wants the wider one.
+        self.started_at = _utc_now()
+        self.external_session_key = str(uuid.uuid4())
+        body: dict[str, object] = {
+            'externalSessionKey': self.external_session_key,
+            'instanceConfig': {'endpoint': self._domain},
+            'streamingCapabilities': {'chunkTypes': ['Text']},
+            # The agent runs as its own user, so no end-user identity is asserted here.
+            'bypassUser': True,
+        }
+        if variables:
+            body['variables'] = variables
+        payload = self._call('POST', f'/agents/{agent_id}/sessions', json=body)
+        session_id = payload.get('sessionId')
+        if not isinstance(session_id, str) or not session_id:
+            raise RuntimeError(f'session start returned no sessionId for {_COPY_NAME}: {payload}')
+        self.session_id = session_id
+        # `close()` clears `session_id` to keep a second close from sending a second DELETE, and
+        # this id is the key into the org's Session Trace — it has to outlive the close. The
+        # index takes it in the same once-only way, and clears it too.
+        self.opened_session_id = session_id
+        self.greeting = _read_reply(payload)[0]
+        # The ContentDocuments this session uploaded, oldest first. The last is re-sent on every later
+        # turn, so the agent still has it when it reads the file turns after it was handed over.
+        self.uploaded: list[str] = []
+        # ContentVersions created whose ContentDocument this session has not read yet: in the org all
+        # the same, so the close resolves and deletes them too.
+        self.unresolved: list[str] = []
+        # The agent user's id, by username, read once: every file is shared with it.
+        self._user_ids: dict[str, str] = {}
+
+    def send(self, text: str, variables: list[dict[str, str]] | None = None) -> dict:
+        self._sequence += 1
+        body: dict[str, object] = {'message': {'sequenceId': self._sequence, 'type': 'Text', 'text': text}}
+        if variables:
+            body['variables'] = variables
+        return self._call('POST', f'/sessions/{self.session_id}/messages', json=body)
+
+    def upload(self, document: object, agent_user: str) -> str:
+        """One handed-over document, uploaded as a ContentVersion and shared with `agent_user`, the
+        user the agent runs as; returns its ContentDocumentId.
+
+        A file is private to its uploader, the Agent API client's run-as user, and the agent's reader
+        runs as the agent user: unshared, the agent is handed an id it cannot open and the turn is
+        graded as its failure. Each id is recorded, here and on the ledger, the moment it exists, so
+        a turn that breaks anywhere after the create still has its file deleted at close.
+        """
+        name = Path(document.filename).name or 'document'
+        if not Path(name).suffix:
+            name += mimetypes.guess_extension(document.media_type or '') or ''
+        try:
+            user_id = self._user_id(agent_user)
+            version = self._org_call(
+                'POST',
+                '/sobjects/ContentVersion',
+                json={'Title': name, 'PathOnClient': name, 'VersionData': base64.b64encode(document.data).decode('ascii')},
+            )
+            version_id = _sf_id(version.get('id'))
+            if not version_id:
+                raise plurai.HarnessFault('the org answered the file upload with no ContentVersion id')
+            self.unresolved.append(version_id)
+            self._ledger({'content_version_id': version_id})
+            document_id = self.document_of(version_id)
+            if not document_id:
+                raise plurai.HarnessFault(f'the uploaded ContentVersion {version_id} names no ContentDocumentId')
+            self.uploaded.append(document_id)
+            self.unresolved.remove(version_id)
+            self._ledger({'content_version_id': version_id, 'content_document_id': document_id})
+            if user_id != self._run_as_user_id:
+                self._share(document_id, user_id)
+        except OSError as exc:
+            if not isinstance(exc, requests.RequestException):
+                raise plurai.HarnessFault(f'{_UPLOADS_FILE} could not record an upload: {exc}') from exc
+            raise plurai.HarnessFault(f'the handed-over file could not be uploaded to the org: {type(exc).__name__}') from exc
+        except (_OrgError, RuntimeError, ValueError) as exc:
+            # The token's and the org's errors carry a status and a code only, never a body.
+            raise plurai.HarnessFault(
+                f'the handed-over file could not be uploaded to the org and shared with the agent user: {exc}. The '
+                'run-as user of the Agent API client needs create and delete access to files, and to share them.'
+            ) from exc
+        return document_id
+
+    def document_of(self, version_id: str) -> str:
+        """The ContentDocumentId a ContentVersion belongs to, or '' when the org names none."""
+        found = self._org_call('GET', f'/sobjects/ContentVersion/{version_id}?fields=ContentDocumentId')
+        return _sf_id(found.get('ContentDocumentId'))
+
+    def _user_id(self, username: str) -> str:
+        if username not in self._user_ids:
+            soql = "SELECT Id FROM User WHERE Username = '{}'".format(username.replace('\\', '\\\\').replace("'", "\\'"))
+            records = self._org_call('GET', f'/query?q={quote(soql)}').get('records') or []
+            user_id = _sf_id(records[0].get('Id')) if len(records) == 1 and isinstance(records[0], dict) else ''
+            if not user_id:
+                raise plurai.HarnessFault(f'the agent user {username!r} the bundle names is not a user of this org')
+            self._user_ids[username] = user_id
+        return self._user_ids[username]
+
+    def _share(self, document_id: str, user_id: str) -> None:
+        """A viewer link from the file to the agent user. One that exists already is the share."""
+        try:
+            self._org_call(
+                'POST',
+                '/sobjects/ContentDocumentLink',
+                json={'ContentDocumentId': document_id, 'LinkedEntityId': user_id, 'ShareType': 'V', 'Visibility': 'AllUsers'},
+            )
+        except _OrgError as exc:
+            if exc.code != 'DUPLICATE_VALUE':
+                raise
+
+    def _ledger(self, ids: dict[str, str]) -> None:
+        _append_upload_line({**ids, 'plurai_session_id': self.plurai_session_id, 'pid': os.getpid(), 'uploaded_at': _utc_now()})
+
+    def delete_document(self, document_id: str, version_id: str = '') -> None:
+        """Delete one uploaded file, and mark it deleted on the ledger. A 404 is a file already gone;
+        any other failure leaves it on the ledger for the next sweep, and never raises.
+
+        Salesforce moves a deleted file to the org's Recycle Bin, which it empties after 15 days."""
+        try:
+            self._org_call('DELETE', f'/sobjects/ContentDocument/{document_id}')
+        except _OrgError as exc:
+            if exc.status != _HTTP_NOT_FOUND:
+                return
+        except Exception:  # noqa: BLE001 — cleanup runs from `atexit` and `seed_state`; neither is worth a raise
+            return
+        _mark_deleted({'content_document_id': document_id, **({'content_version_id': version_id} if version_id else {})})
+
+    def delete_version(self, version_id: str) -> None:
+        """Delete the file a ContentVersion belongs to, when its ContentDocumentId was never read. A
+        404 is a version already gone; any other failure leaves it for the next sweep, and never raises."""
+        try:
+            document_id = self.document_of(version_id)
+        except _OrgError as exc:
+            if exc.status == _HTTP_NOT_FOUND:
+                _mark_deleted({'content_version_id': version_id})
+            return
+        except Exception:  # noqa: BLE001 — cleanup runs from `atexit` and `seed_state`; neither is worth a raise
+            return
+        if document_id:
+            self.delete_document(document_id, version_id)
+
+    def close(self) -> None:
+        if not self.session_id:
+            return
+        session_id, self.session_id = self.session_id, ''
+        self._call('DELETE', f'/sessions/{session_id}', headers={'x-session-end-reason': 'UserRequest'})
+
+    def _token_value(self, *, refresh: bool) -> str:
+        if self._token is not None and not refresh:
+            return self._token
+        response = self._http.post(
+            f'{self._domain}/services/oauth2/token',
+            data={
+                'grant_type': 'client_credentials',
+                'client_id': self._client_id,
+                'client_secret': self._client_secret,
+            },
+            timeout=_CALL_TIMEOUT_S,
+        )
+        if response.status_code >= _HTTP_ERROR_FLOOR:
+            # The body can echo the request, so only the status is reported: a token response is
+            # the one place a secret could reach a log.
+            raise RuntimeError(f'Agent API token request failed: HTTP {response.status_code}')
+        answer = response.json()
+        token = answer.get('access_token')
+        if not isinstance(token, str) or not token:
+            raise RuntimeError('Agent API token response carries no access_token')
+        self._token = token
+        identity = answer.get('id')
+        self._run_as_user_id = _sf_id(identity.rstrip('/').rsplit('/', 1)[-1]) if isinstance(identity, str) else ''
+        return token
+
+    def _call(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, object] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> dict:
+        """One Agent API call."""
+        response = self._authorized(method, f'{self._api_base}{path}', json, headers)
+        if response.status_code >= _HTTP_ERROR_FLOOR:
+            raise RuntimeError(f'{method} {path} failed: HTTP {response.status_code} {response.text[:300]}')
+        return response.json() if response.content else {}
+
+    def _org_call(self, method: str, path: str, *, json: dict[str, object] | None = None) -> dict:
+        """One call to the org's REST API on the same token: the my-domain host, not the Agent API's.
+
+        A failure names the HTTP status and Salesforce's `errorCode`, nothing else of either body: the
+        response can echo the request, and on an upload the request is the file.
+        """
+        response = self._authorized(method, f'{self._domain}/services/data/v{_ORG_API_VERSION}{path}', json, None)
+        if response.status_code >= _HTTP_ERROR_FLOOR:
+            raise _OrgError(f'{method} {path.split("?")[0]}', response.status_code, _error_code(response))
+        return response.json() if response.content else {}
+
+    def _authorized(
+        self,
+        method: str,
+        url: str,
+        json: dict[str, object] | None,
+        headers: dict[str, str] | None,
+    ) -> requests.Response:
+        """One authenticated request; a 401 refreshes the token once and retries.
+
+        A long conversation outlives its token, and the retry is what keeps that from ending
+        the scenario mid-turn.
+        """
+        response = self._request(method, url, json, headers, refresh=False)
+        if response.status_code == _HTTP_UNAUTHORIZED:
+            response = self._request(method, url, json, headers, refresh=True)
+        return response
+
+    def _request(
+        self,
+        method: str,
+        url: str,
+        json: dict[str, object] | None,
+        headers: dict[str, str] | None,
+        *,
+        refresh: bool,
+    ) -> requests.Response:
+        auth = {
+            'Authorization': f'Bearer {self._token_value(refresh=refresh)}',
+            'Accept': 'application/json',
+            **(headers or {}),
+        }
+        return self._http.request(method, url, json=json, headers=auth, timeout=_CALL_TIMEOUT_S)
+
+
+class _AgentFailure(RuntimeError):
+    """The platform reported the agent's turn as failed: the agent's outcome, not the harness's."""
+
+
+class _OrgError(RuntimeError):
+    """An org REST call failed: the call, its HTTP status and Salesforce's `errorCode`, and nothing else."""
+
+    def __init__(self, call: str, status: int, code: str) -> None:
+        super().__init__(f'{call} failed: HTTP {status}{f" {code}" if code else ""}')
+        self.status = status
+        self.code = code
+
+
+def _sf_id(value: object) -> str:
+    """`value` when it is shaped like a Salesforce record id (ASCII letters and digits only), else ''."""
+    return value if isinstance(value, str) and value.isascii() and value.isalnum() else ''
+
+
+def _error_code(response: requests.Response) -> str:
+    """The `errorCode` of a Salesforce error body (`[{"errorCode": ..., "message": ...}]`), or ''.
+
+    Only a code-shaped value is kept: the message beside it can quote the request.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return ''
+    first = body[0] if isinstance(body, list) and body else body
+    code = first.get('errorCode') if isinstance(first, dict) else None
+    return code if isinstance(code, str) and re.fullmatch(r'[A-Z][A-Z_]{0,79}', code) else ''
+
+
+def _append_upload_line(line: dict) -> None:
+    """One ledger line, as one write to a handle opened for append, like the session-id index."""
+    with _UPLOADS_FILE.open('a', encoding='utf-8') as ledger:
+        ledger.write(json.dumps(line) + '\n')
+
+
+def _mark_deleted(ids: dict[str, str]) -> None:
+    try:
+        _append_upload_line({**ids, 'deleted_at': _utc_now()})
+    except OSError:
+        pass
+
+
+#: Native Windows; a test sets this module's `_WINDOWS`.
+_WINDOWS = os.name == 'nt'
+
+
+def _process_alive(pid: object) -> bool:
+    """Whether the process `pid` names still runs. On Windows it
+    asks the process's exit code: there `os.kill(pid, 0)` is TerminateProcess, and would end the very
+    scenario this check exists to spare."""
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    if _WINDOWS:
+        return _windows_process_alive(pid)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True   # it exists, under another user
+    return True
+
+
+# Windows' process-query right, its `GetExitCodeProcess` value for a running process, and its error for a
+# process that exists and refuses the query.
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_STILL_ACTIVE = 259
+_ERROR_ACCESS_DENIED = 5
+
+
+def _windows_process_alive(pid: int) -> bool:
+    """`_process_alive` on Windows: a process that cannot be opened is gone unless the refusal is access
+    denied; one that opens runs while its exit code reads STILL_ACTIVE."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return ctypes.get_last_error() == _ERROR_ACCESS_DENIED
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return True   # unreadable: kept, a live scenario's file is never swept on a guess
+        return code.value == _STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _sweep_uploads(session: _AgentApiSession) -> None:
+    """Delete the files an earlier scenario uploaded and never deleted.
+
+    A leftover is a ledger id with no delete line whose process has exited: a ContentDocument, or a
+    ContentVersion whose document was never read. Scenarios run concurrently against this one
+    workdir, so a live process's files are its own to delete: one swept here would vanish under a
+    conversation still reading it. A line that does not parse (two appends that tore each other)
+    is skipped, never the reason the rest go unswept.
+    """
+    try:
+        raw_lines = _UPLOADS_FILE.read_text(encoding='utf-8').splitlines()
+    except (OSError, ValueError):
+        return
+    rows = []
+    for raw in raw_lines:
+        try:
+            row = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+
+    def ids(row: dict) -> tuple[str, str]:
+        return _sf_id(row.get('content_document_id')), _sf_id(row.get('content_version_id'))
+
+    deleted_documents = {ids(row)[0] for row in rows if 'deleted_at' in row} - {''}
+    deleted_versions = {ids(row)[1] for row in rows if 'deleted_at' in row} - {''}
+    resolved_versions = {version for document, version in map(ids, rows) if document and version}
+    for row in rows:
+        document_id, version_id = ids(row)
+        if 'uploaded_at' not in row or _process_alive(row.get('pid')):
+            continue
+        if document_id and document_id not in deleted_documents:
+            session.delete_document(document_id, version_id)
+            deleted_documents.add(document_id)
+        elif not document_id and version_id and version_id not in resolved_versions | deleted_versions:
+            session.delete_version(version_id)
+            deleted_versions.add(version_id)
+
+
+# What the generated callout class (`rewire_agentforce.callout_class_source`) throws when the mock
+# service, not the agent, failed an in-org action: a non-200 (a dropped `/mock/<env id>` route), a body
+# that is not the mock's `{response: ...}` wrapper, or a session that carried no mock session id. The org
+# reports the action as failed and the agent answers around it, so a turn whose reply carries this text
+# was shaped by the instrument. An answer the mock DID give that carries no `content` map (a drifted
+# status, text content) is not here: the envelope table types it as the action failing, the agent's to
+# handle. Restated rather than imported, because this file ships standalone.
+_MOCK_FAULT_RE = re.compile(
+    r'mock service returned (?:\d{3}|a non-object body|no response object) for '
+    r'|the Agent API session did not carry the plurai mock session id'
+)
+
+
+def _refuse_mock_fault(messages: list) -> None:
+    """Stop the turn when any part of the reply carries the callout class's own mock-fault text."""
+    text = json.dumps(messages, default=str, ensure_ascii=False)
+    found = _MOCK_FAULT_RE.search(text)
+    if found is None:
+        return
+    raise plurai.HarnessFault(
+        f'an in-org action failed on the mock service, not on the agent: {text[found.start() : found.start() + 300]}. '
+        'Check that the mock env is up and that the credential URL the copy calls still names it, then run '
+        'the scenario again.'
+    )
+
+
+# What each Agent API reply message type is. Speech is what the user reads. A failure type is
+# the platform reporting that the turn broke, not something the agent said, so it raises. An act
+# is something the agent did to the conversation, reported under the runner's reserved verb for
+# it. A type in none of these is never read as speech; the turn carrying it is recorded raw.
+_SPEECH_TYPES = frozenset({'Inform', 'Inquire', 'Confirm'})
+_FAILURE_TYPES = frozenset({'Failure', 'Error'})
+_ACT_OF_TYPE = {'Escalate': 'handoff'}
+
+# Turn replies this harness could not fully read, one JSON line each, beside the session-id index.
+_REPLIES_FILE = _DIR / 'agent_api_replies.jsonl'
+
+# The org's Knowledge search (`target: standardInvocableAction://streamKnowledgeSearch`) has no
+# callout seam, so the rewrite always leaves it real and no `/mock/execute` event is ever posted
+# for it — this harness is the ONLY place that ever sees a call it made, via `citedReferences` on
+# the Agent API reply. Those calls are reported under the tool whose entry in `plurai.config.yaml`
+# declares `observation_lane: tool_trail_cited`: the config names the action as the bundle does,
+# and `rewire_agentforce.py --plan` prints that lane on the Knowledge-search action's line. Only a
+# call that cited something is seen, so the lane is a lower bound on the calls.
+_TRAIL_LANE = 'tool_trail_cited'
+
+# The tool the citations are reported under, read from the config when the scenario opens. `None`
+# is a config that declares no tool on the lane: this agent has no Knowledge-search action to
+# credit, so a turn reports an empty trail.
+_knowledge_tool: str | None = None
+
+
+def _trail_tool() -> str | None:
+    """The one tool the workspace config declares on the `tool_trail_cited` lane, or `None`.
+
+    The config is found the way the SDK finds every declaration beside a harness
+    (`plurai.ingest.workspace_config`): the repo root above this file's directory, then the
+    directory itself, fail-closed on a config that exists and cannot be read. Two configs that
+    disagree about the lane are refused rather than settled by discovery order.
+
+    No config, and the run cannot say which tool a citation belongs to: a run that guessed would
+    file every Knowledge call under a name the evals do not grade. Two tools on the lane is the
+    same gap: a reply's citations do not say which action produced them.
+    """
+    try:
+        from plurai.ingest.workspace_config import WorkspaceConfigError, bench_config_roots, discover_config_documents
+    except ImportError as exc:
+        raise plurai.HarnessFault(
+            'this plurai SDK has no `plurai.ingest.workspace_config` config discovery, so the harness '
+            'cannot find the config that names the Knowledge-search tool; install the plurai SDK that '
+            'scripts/resolve_plurai.py --install-line names.'
+        ) from exc
+    stop = 'It declares which tool the Knowledge search is reported under, so the run stops before an org session opens.'
+    found: list[tuple[tuple[str, ...], Path]] = []
+    seen: set[Path] = set()
+    try:
+        for root in bench_config_roots(Path(__file__).resolve()):
+            for path, document in discover_config_documents(root):
+                if (resolved := path.resolve()) in seen:
+                    continue
+                seen.add(resolved)
+                tools = document.get('tools')
+                if isinstance(tools, dict):
+                    on_lane = sorted(
+                        name for name, entry in tools.items()
+                        if isinstance(entry, dict) and entry.get('observation_lane') == _TRAIL_LANE
+                    )
+                    found.append((tuple(on_lane), path))
+    except WorkspaceConfigError as exc:
+        raise plurai.HarnessFault(f'{exc} {stop}') from exc
+    if not seen:
+        raise plurai.HarnessFault(f'no plurai.config.yaml is found from {_DIR} (the SDK looks at the repo root above it and beside it). {stop}')
+    if len({names for names, _ in found}) > 1:
+        conflict = '; '.join(f'{path}: {", ".join(names) or "none"}' for names, path in found)
+        raise plurai.HarnessFault(f'the configs disagree about which tool is on observation_lane: {_TRAIL_LANE} ({conflict}). Remove one, or make them agree.')
+    on_lane = found[0][0] if found else ()
+    if len(on_lane) > 1:
+        raise plurai.HarnessFault(
+            f'{found[0][1]} declares observation_lane: {_TRAIL_LANE} on {", ".join(on_lane)}. A '
+            "reply's citedReferences do not say which action produced them, so at most one tool "
+            'can carry that lane; write the lane `rewire_agentforce.py --plan` prints for each.'
+        )
+    return on_lane[0] if on_lane else None
+
+# `export_agentforce_knowledge.py` writes these beside this file: the Markdown snapshot of the
+# org's published Knowledge articles, and the index that joins a citation's `recordId` (a
+# `Knowledge__kav` Id — one published VERSION of an article) back to the snapshot file it
+# corresponds to. Same names as `rewire_agentforce.KNOWLEDGE_SNAPSHOT_DIR` /
+# `KNOWLEDGE_SNAPSHOT_INDEX` — restated rather than imported, because this file ships standalone
+# with no sibling module to import from.
+_KNOWLEDGE_SNAPSHOT_DIR = 'knowledge_snapshot'
+_KNOWLEDGE_SNAPSHOT_INDEX = 'knowledge_snapshot.INDEX.json'
+
+# The index, keyed by `version_id`, loaded and memoized on first use: every citation this run
+# resolves reads the same export, and a long conversation would otherwise reopen it every turn.
+# `None` means "not loaded yet", distinct from `{}` ("loaded; the org has no snapshot" or "the
+# index failed to parse") — either of those still resolves every citation, just to `resolved:
+# False`, never by raising and never by dropping the citation.
+_knowledge_index: dict[str, dict] | None = None
+
+
+def _knowledge_articles_by_version_id() -> dict[str, dict]:
+    """``knowledge_snapshot.INDEX.json``'s articles, keyed by ``version_id``."""
+    global _knowledge_index
+    if _knowledge_index is not None:
+        return _knowledge_index
+    _knowledge_index = {}
+    index_path = _DIR / _KNOWLEDGE_SNAPSHOT_INDEX
+    if index_path.is_file():
+        try:
+            index = json.loads(index_path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            index = None
+        if isinstance(index, dict):
+            for article in index.get('articles') or []:
+                if isinstance(article, dict) and article.get('version_id'):
+                    _knowledge_index[str(article['version_id'])] = article
+    return _knowledge_index
+
+
+def _resolve_citation(cited: dict) -> dict:
+    """One ``citedReferences[]`` entry, resolved against the local snapshot — or TYPED as
+    unresolved, with a reason; never dropped, never raised.
+
+    ``recordId`` is a ``Knowledge__kav`` Id, i.e. one published VERSION of an article, and the
+    join to the snapshot export is by ``version_id`` — matched here, never re-derived. A miss is
+    NORMAL, not exceptional: the snapshot is a point-in-time export
+    (``export_agentforce_knowledge.py``, scan time), and any article edited or republished in the
+    org afterward gets a new ``version_id`` the local snapshot does not carry. A snapshot file the
+    index still names but that is missing from disk (a partial/corrupted export) types the same
+    way rather than crashing the run.
+
+    ``reference`` is the entry VERBATIM, every field the platform sent beside ``recordId`` (an
+    address, a label, a type) but ``inlineMetadata``, below. The judge grades a reply on what the
+    agent actually received, so a field dropped here is a field it can never trace a reply to.
+    """
+    record_id = str(cited.get('recordId') or '')
+    reference = dict(cited)
+    # ``inlineMetadata[].claim`` is NOT retrieved knowledge: the platform copies the AGENT'S OWN
+    # reply sentence that it attached this citation to. Left inside ``reference`` it reads to a
+    # judge as article content, so a reply would be graded against itself. Kept, but labelled for
+    # what it is.
+    agent_sentences = reference.pop('inlineMetadata', None)
+    labelled = {'agent_reply_sentences_citing_this': agent_sentences} if agent_sentences else {}
+    article = _knowledge_articles_by_version_id().get(record_id)
+    if article is None:
+        return {'record_id': record_id, 'resolved': False, 'reason': 'version_id_not_in_snapshot', 'reference': reference, **labelled}
+    file_name = str(article.get('file') or '')
+    try:
+        passage = (_DIR / _KNOWLEDGE_SNAPSHOT_DIR / file_name).read_text(encoding='utf-8')
+    except OSError:
+        return {'record_id': record_id, 'resolved': False, 'reason': 'snapshot_file_missing', 'reference': reference, **labelled}
+    return {
+        'record_id': record_id,
+        'resolved': True,
+        'reference': reference,
+        **labelled,
+        'article_id': article.get('article_id'),
+        'version_id': record_id,
+        'file': file_name,
+        'url_name': article.get('url_name'),
+        'title': article.get('title'),
+        # NOT passage-level: `citedReferences[].recordId` is one whole article, with no chunk/
+        # offset field anywhere in the Agent API response (confirmed against a live org — see
+        # BINDING_REPORT.md Part C). A consumer scoring this unit at finer granularity than the
+        # article would be inventing precision the source never carried.
+        'granularity': 'article',
+        'passage': passage,
+    }
+
+
+def _read_reply(payload: dict) -> tuple[str, list[dict], list[dict], list[dict], bool]:
+    """A reply as (speech, acts, tool_trail, envelope, fully_read).
+
+    ``tool_trail`` is this harness's self-report of every Knowledge-search call the turn made (one
+    entry per message carrying ``citedReferences``, under ``_knowledge_tool``; none when the config
+    declares no tool on the lane). A search that cited nothing is not seen, so the entries are a lower
+    bound on the calls, and their ``args`` are empty: the query is not observed. The TRAIL_LANE shape
+    (``tool``/``args``/``call_id``/``status``/``result``) ``tool_call_recovery.trail_tool_calls``
+    reads off ``agent_state['tool_trail']``. It is deliberately NOT on ``agent_actions``
+    (ACTION_LANE): that lane is reserved for the protocol's own acts (``handoff`` and friends,
+    below), and every entry on it unconditionally stamps the WHOLE ``tool_calls`` list
+    ``_recovered: True`` — routing a tool-surface call through it would silently widen that stamp
+    past the one tool that actually fired.
+
+    ``envelope`` carries ``type``/``id``/``result``/``plan_id``/``feedback_id`` for EVERY message,
+    cited or not, so a bare ``Confirm`` with no citation still has its ``type`` preserved rather
+    than folded into the undifferentiated ``speech`` string.
+
+    fully read = every type has a reading and the turn said or did something."""
+    messages = payload.get('messages') or []
+    failures = [m for m in messages if m.get('type') in _FAILURE_TYPES]
+    if failures:
+        raise _AgentFailure(f'Agentforce returned a failure: {failures[0]}')
+    speech = '\n\n'.join(m['message'] for m in messages if m.get('type') in _SPEECH_TYPES and m.get('message'))
+    acts = [
+        {'name': _ACT_OF_TYPE[m['type']], 'args': {'targets': m.get('targets') or []}, 'status': 'ok'}
+        for m in messages
+        if m.get('type') in _ACT_OF_TYPE
+    ]
+    tool_trail = [
+        {
+            'tool': _knowledge_tool,
+            # The planner's query never reaches the reply, so no argument is observed; the user's
+            # words are not the search's input and are never reported as one.
+            'args': {},
+            'call_id': m.get('id', ''),
+            'status': 'ok',
+            'result': {
+                'cited': [_resolve_citation(c) for c in m['citedReferences']],
+                'message_type': m.get('type'),
+                'result': m.get('result') or [],
+                'plan_id': m.get('planId'),
+                'feedback_id': m.get('feedbackId'),
+            },
+        }
+        for m in messages
+        if _knowledge_tool is not None and m.get('citedReferences')
+    ]
+    envelope = [
+        {
+            'type': m.get('type'),
+            'id': m.get('id'),
+            'result': m.get('result') or [],
+            'plan_id': m.get('planId'),
+            'feedback_id': m.get('feedbackId'),
+        }
+        for m in messages
+    ]
+    unread = [m for m in messages if m.get('type') not in _SPEECH_TYPES and m.get('type') not in _ACT_OF_TYPE]
+    return speech, acts, tool_trail, envelope, not unread and bool(speech.strip() or acts)
+
+
+# The SDK's content-part table. A build that cannot render a `citation` part would put a placeholder
+# into the reply every judge reads, so the sources stay on the trail entry alone there.
+try:
+    from plurai.content_parts import RENDERABLE_PART_KINDS as _PART_KINDS
+except ImportError:  # an SDK that predates content parts
+    _PART_KINDS = {}
+
+
+def _shown_with_sources(reply: str, messages: list) -> str | list[dict]:
+    """The reply as the person sees it: its words, then each source it cited, as `citation` parts.
+
+    The Agent API carries a reply's sources on the speech message (`citedReferences`) and the
+    product shows them beside it, so they are part of what the reply SHOWED — a judge asked
+    "did the reply show a source?" must read them there, not only on the trail entry
+    (`_read_reply`). One part per distinct article: the title the snapshot resolves (else the
+    reference's own label) and the link the reply carried. No source: the reply text, unchanged.
+    """
+    if 'citation' not in _PART_KINDS:
+        return reply
+    parts: list[dict] = []
+    for m in messages:
+        if m.get('type') not in _SPEECH_TYPES:
+            continue
+        for cited in m.get('citedReferences') or []:
+            resolved = _resolve_citation(cited)
+            reference = resolved['reference']
+            url = reference.get('value') if isinstance(reference.get('value'), str) else ''
+            part = {'type': 'citation', 'citation': {'title': resolved.get('title') or reference.get('label') or '', 'url': url}}
+            # A reference naming no title and no link showed the person nothing.
+            if (part['citation']['title'] or url) and part not in parts:
+                parts.append(part)
+    return [{'type': 'text', 'text': reply}, *parts] if parts else reply
+
+
+def _record_reply(turn: int, messages: list) -> None:
+    """Append a reply this harness could not fully read, so what the platform sent is on disk.
+
+    One write to a handle opened for append, as for the session-id index, and a failure to
+    write never ends the turn.
+    """
+    try:
+        line = json.dumps({'plurai_session_id': _plurai_session_id, 'turn': turn, 'at': _utc_now(), 'messages': messages})
+        with _REPLIES_FILE.open('a', encoding='utf-8') as out:
+            out.write(line + '\n')
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_session: _AgentApiSession | None = None
+
+# The mock-service session the org session is bound to, and how many of its events belong to
+# turns already driven. Both are set when the scenario opens; only the count moves after that.
+_plurai_session_id = ''
+_events_seen = 0
+
+
+def _current_turn() -> int:
+    """The conversation turn the runner is driving.
+
+    Unset, a callout recorded while this turn was open cannot be matched to a turn at all, so
+    there is nothing to check the mock service's stamp against and the guard below would pass
+    over anything.
+    """
+    raw = _setting(_TURN_ENV_VAR)
+    if not raw:
+        raise plurai.HarnessFault(
+            f'{_TURN_ENV_VAR} is unset, so a callout recorded during this turn cannot be matched '
+            'to the turn it belongs to and its stamp cannot be checked. Drive this harness with '
+            'the plurai runner, which reports the open turn before every agent call.'
+        )
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise plurai.HarnessFault(f'{_TURN_ENV_VAR} is not an integer: {raw!r}') from exc
+
+
+def _session_events() -> list[dict]:
+    """Every event the mock service holds for this run's session.
+
+    `plurai.get_events` is the SDK's own read of that log: it already holds the service URL
+    this run was configured against and sends the Plurai backend bearer token when the mock sits
+    behind the server's mock proxy. Deriving either here would be a second copy that drifts
+    from the one the rewired actions travel.
+
+    A refusal is fatal rather than an empty log. The mock service answers its refusals with an
+    envelope inside a 200 body, so nothing raises for one and the body is the only place it
+    appears. An empty log reads as "the agent took no action", which is a gradeable outcome, so
+    degrading to one would turn an unreachable mock service into a scenario the evals score.
+
+    One shape stays invisible: a session the mock service never opened answers with an empty log
+    rather than a refusal, so an id that reaches the wrong service reads as a silent agent. The
+    session id is the one the rewired actions carry, which is what keeps that from happening
+    here rather than being detected here.
+    """
+    try:
+        payload = plurai.get_events(_plurai_session_id)
+    except Exception as exc:  # noqa: BLE001 — any failure to reach the log is the instrument's
+        raise plurai.HarnessFault(
+            f'the mock service event log for session {_plurai_session_id} could not be read: {exc}. '
+            'The same route serves the callouts the org makes, so the run stops here rather than '
+            'grading turns whose actions may have failed on the mock service.'
+        ) from exc
+    if not isinstance(payload, dict) or payload.get('error') or payload.get('status') == 'error':
+        raise plurai.HarnessFault(
+            f'the mock service refused the event log for session {_plurai_session_id}: {payload}. '
+            'The turn stamp on the callouts this turn made cannot be checked, so the run stops '
+            'here rather than grading turns whose actions may be filed under another one.'
+        )
+    events = payload.get('events')
+    if not isinstance(events, list):
+        raise plurai.HarnessFault(
+            f'the mock service returned no event list for session {_plurai_session_id}: {payload}'
+        )
+    return events
+
+
+def _refuse_wrong_turn(events: list[dict], turn: int) -> None:
+    """Stop the run when a callout was filed under a turn other than the one being driven.
+
+    A callout from the org carries no turn of its own, so the mock service stamps the turn its
+    session holds and the runner pushes that turn there before each agent call. The push
+    degrades to a warning when it fails, and it can be refused inside a 200 response, so a
+    stale stamp reaches the event log with nothing raised. Every per-turn eval then reads this
+    turn's actions as another turn's, and the run grades green.
+
+    Only `tool_call` events are checked. Those are what a rewired action produces and the only
+    ones the mock service stamps; an `observe` event carries no turn by design, so a missing
+    stamp there is the shape, not a fault.
+
+    The refusal is a `plurai.HarnessFault`, so the scenario is recorded not_valid on any turn,
+    the closing one included: the runner finalizes past an agent's failed closing turn, never
+    past a harness fault.
+    """
+    wrong = [e for e in events if e.get('type') == 'tool_call' and e.get('turn') != turn]
+    if not wrong:
+        return
+    seen = ', '.join(f'{e.get("tool")!r} stamped turn {e.get("turn")!r}' for e in wrong)
+    raise plurai.HarnessFault(
+        f'the mock service filed {len(wrong)} callout(s) of session {_plurai_session_id} under the '
+        f'wrong turn while turn {turn} was open: {seen}. The turn push from the runner did not '
+        'reach the mock env, so every per-turn eval on this run would grade the wrong turn.'
+    )
+
+
+def _record_session_ids(session: _AgentApiSession) -> None:
+    """Append this scenario's session ids to the workdir's index.
+
+    The org's Session Trace is keyed by the Agent API session id and a plurai transcript by
+    its own thread id, and neither file names the other. This line is the join: the
+    `plurai_session_id` here is what the run writes as `thread_id` in a scenario's
+    `transcript.json`, and what a scenario that never finished carries in its `error.json`
+    beside the scenario id.
+
+    Every scenario is its own process against one workdir, so the line goes out as a single
+    write to a handle opened for append: concurrent scenarios then interleave whole lines
+    rather than halves of two.
+
+    One line per session. The id is taken once, the way `close()` takes `session_id`, so a
+    second close leaves the index holding one row per scenario rather than two rows a reader
+    has to choose between.
+
+    Building the line is inside the guard with the write, because both run from `atexit` after
+    the verdict is decided and neither is worth a teardown traceback.
+    """
+    session_id, session.opened_session_id = session.opened_session_id, ''
+    if not session_id:
+        return
+    try:
+        line = json.dumps(
+            {
+                'plurai_session_id': session.plurai_session_id,
+                'agent_api_session_id': session_id,
+                'external_session_key': session.external_session_key,
+                'started_at': session.started_at,
+                'ended_at': _utc_now(),
+            }
+        )
+        with _SESSION_IDS_FILE.open('a', encoding='utf-8') as index:
+            index.write(line + '\n')
+    except Exception:  # noqa: BLE001
+        pass
+
+
+@atexit.register
+def _close_session() -> None:
+    """End the org session when the scenario's process exits, and index its ids.
+
+    An abandoned session stays open in the org, so this runs even when the run failed. A close
+    that itself fails is swallowed: the run's verdict is already decided by then, and raising
+    from `atexit` would replace it with a teardown traceback.
+
+    The ids are recorded either way. A scenario whose closing turn broke is exactly the one
+    someone opens the org's traces for, so a line written only after a clean close would be
+    missing where it is wanted most. The files the session uploaded are deleted either way too.
+    """
+    if _session is None:
+        return
+    try:
+        _session.close()
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        uploaded, _session.uploaded = _session.uploaded, []
+        for document_id in uploaded:
+            _session.delete_document(document_id)
+        unresolved, _session.unresolved = _session.unresolved, []
+        for version_id in unresolved:
+            _session.delete_version(version_id)
+        _record_session_ids(_session)
+
+
+async def seed_state(
+    initial_agent_context: dict,
+    initial_world_state: dict,
+    resume_seed: dict | None = None,   # always passed (None when fresh)
+) -> dict | None:
+    """Open the Agentforce session for this scenario (world seeding is server-side).
+
+    `initial_world_state` is untouched on purpose. Every rewired action reaches the mock
+    service, which `plurai.start_session` already seeded with this scenario's world before
+    this hook runs; there is no second copy of that state to write, and the agent holds none
+    of its own outside the org.
+
+    The mock session id is read here rather than at import, because `plurai.start_session`
+    and `plurai.configure` run first and both accessors are `None` outside an active session.
+    It goes into the session as the `plurai_session_id` agent variable — the only channel that
+    reaches a rewired action, and what keeps concurrent runs on separate world states.
+    """
+    global _session, _plurai_session_id, _events_seen, _knowledge_tool
+    del initial_world_state   # server-side; named for the contract's three positional arguments
+    if resume_seed is not None:
+        # An Agent API session opens on an empty conversation: there is no system prompt to
+        # fold a transcript into and no state to restore into. Replaying the pinned turns
+        # through the live session would re-run their actions and meter them, and the agent
+        # would answer them afresh, so the "resumed" conversation would be a new one wearing
+        # the trace's words. Refusing names that ceiling instead of faking a resume; the bench
+        # manifest declares it: harness.resume {mode: unsupported, reason: history_not_writable}.
+        raise plurai.HarnessFault(
+            'resume_seed was passed, and a hosted Agentforce session cannot be pre-seeded: '
+            'the conversation lives in the org and opens empty. Run this scenario fresh, or '
+            'target a harness whose agent state is local.'
+        )
+    sid = plurai.active_session_id()
+    if not sid:
+        raise plurai.HarnessFault(
+            'no active plurai session id at seed_state — the rewired actions key the mock '
+            "service's world state by session, so a session opened without one would read and "
+            'write another scenario\'s world.'
+        )
+    variables = [{'name': _SESSION_VARIABLE, 'type': 'Text', 'value': sid}]
+    for key, variable in _CONTEXT_VARIABLES.items():
+        value = initial_agent_context.get(key)
+        if value is not None:
+            variables.append({'name': variable, 'type': 'Text', 'value': str(value)})
+    _plurai_session_id = sid
+    # Read before the org session opens, whose greeting is the first reply read: a config that
+    # cannot name the Knowledge-search tool fails here, before anything is metered.
+    _knowledge_tool = _trail_tool()
+    # Whatever the service already holds was written by the seeding, not by a turn. Read before
+    # the org session opens: an event log that cannot be reached leaves the turn guard blind for
+    # the whole scenario, and failing now costs neither an org session nor a Flex Credit.
+    _events_seen = len(_session_events())
+    _session = _AgentApiSession(_copy_agent_id(), sid, variables)
+    _sweep_uploads(_session)
+    # A fresh scenario reports full fidelity, which is what `None` means.
+    return None
+
+
+def _turn_chain(events: list[dict], reply: str | list[dict]) -> list:
+    """The turn as a LangChain message chain: each mock-recorded call, its result, then the reply.
+
+    A per-turn judge is shown the tool calls of the turn's message chain and nothing else; the
+    mock's event log never reaches it. A chain that is only the reply is, to that judge, a turn
+    nobody can say anything about, so every per-turn check that needs a tool result (a case lookup
+    the reply is graded against) is judged blind. This is the shape a LangChain agent's turn has
+    anyway: an `AIMessage` carrying `tool_calls`, a `ToolMessage` answering each, the reply.
+
+    Not a second count. The SDK reconciles a call named in the chain with the same call in
+    `tool_events`, so the end-to-end evals still see one call, not two. The calls carry NO id, and
+    that is deliberate: the mock's event log declares none, and the reconciliation matches by id
+    wherever EITHER side declares one. An id minted here would be "an id on one lane only" for
+    every call, which is read as a count that may be a lower bound and stamps that floor on every
+    mock tool's count in the run's report. Without ids it falls back to matching by tool name,
+    count for count, which is exact here: every call below is followed at once by its own result.
+    """
+    chain: list = []
+    calls = [e for e in events if e.get('type') == 'tool_call']
+    for event in calls:
+        name = str(event.get('tool') or 'unknown_tool')
+        args = event.get('args')
+        chain.append(AIMessage(content='', tool_calls=[{'name': name, 'args': args if isinstance(args, dict) else {}, 'id': None}]))
+        failed = str(event.get('status') or '').lower() in ('error', 'failed', 'failure')
+        chain.append(
+            ToolMessage(
+                content=json.dumps(event.get('response'), default=str, ensure_ascii=False),
+                tool_call_id='',
+                name=name,
+                status='error' if failed else 'success',
+            )
+        )
+    chain.append(AIMessage(content=reply))
+    return chain
+
+
+_workdir_modules: dict[str, types.ModuleType] = {}
+
+
+def _workdir_module(name: str) -> types.ModuleType:
+    """The module `name` names, from beside this file where the setup copies it, loaded by path once."""
+    if name in _workdir_modules:
+        return _workdir_modules[name]
+    path = _DIR / f'{name}.py'
+    if not path.is_file():
+        raise plurai.HarnessFault(f'{path} is missing; the Agentforce setup copies it beside simulate.py for a file turn. Re-run the setup.')
+    spec = importlib.util.spec_from_file_location(f'_plurai_workdir_{name}', path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    _workdir_modules[name] = module
+    return module
+
+
+def _turn_message(content: object) -> tuple[str, list[dict[str, str]] | None]:
+    """What the turn sends: its words, and the file variable once this session has uploaded a file.
+
+    A string turn is sent as it is. A turn of content parts is read through `_documents.py`; the file
+    it hands over is uploaded and its ContentDocumentId set on `_FILE_VARIABLE`, and every refusal
+    comes before the upload.
+    """
+    if isinstance(content, str):
+        text = content
+    else:
+        documents_module = _workdir_module('_documents')
+        try:
+            documents = documents_module.turn_documents(content)
+        except documents_module.UnreadableDocument as exc:
+            raise plurai.HarnessFault(f'the document this turn hands over cannot be decoded: {exc}') from exc
+        text = documents_module.turn_text(content)
+        if documents:
+            if not _FILE_VARIABLE:
+                raise plurai.HarnessFault(
+                    'this turn hands the agent a file and _FILE_VARIABLE is empty. The Agent API carries no '
+                    'attachment, so a file reaches the agent only as an uploaded ContentDocumentId set on the '
+                    'External Text variable its reader action binds: fill _FILE_VARIABLE with it (the Agentforce '
+                    "setup's file-input step), or declare no file input for this agent."
+                )
+            if len(documents) > 1:
+                raise plurai.HarnessFault(
+                    f'this turn hands the agent {len(documents)} files and the reader action binds one: hand '
+                    'them over on separate turns.'
+                )
+            rewire = _workdir_module('rewire_agentforce')
+            if _UPLOAD_GRANT not in rewire._granted(_DIR):
+                raise plurai.HarnessFault(
+                    f'this turn hands the agent a file and {_DIR / rewire.CONSENT_FILE} does not grant '
+                    f'{_UPLOAD_GRANT}: the file would be written into your org (and moved to its Recycle Bin '
+                    f'when the conversation ends). Add {_UPLOAD_GRANT} to its granted: line to allow it.'
+                )
+            try:
+                agent_user = rewire.file_input_agent_user(_project_root(), _COPY_NAME, _FILE_VARIABLE)
+            except (rewire.RewireError, OSError) as exc:
+                raise plurai.HarnessFault(f'this turn hands the agent a file it could not be given: {exc}') from exc
+            _session.upload(documents[0], agent_user)
+            text = text if text.strip() else _FILE_ONLY_TEXT
+    if not _session.uploaded:
+        return text, None
+    return text, [{'name': _FILE_VARIABLE, 'type': 'Text', 'value': _session.uploaded[-1]}]
+
+
+async def invoke_agent(payload: dict, config: dict | None = None) -> dict:
+    """One user turn against the live session.
+
+    The actions the turn ran are recorded by the mock service, not by this harness: each rewired
+    action posts to its `/mock/execute` from inside Salesforce, and that is the same wire every
+    other lane's tool calls travel, so they are already this session's tool events (the
+    end-to-end evals read them there).
+
+    The per-turn judges do not read that log. They read the turn's MESSAGE CHAIN, and a turn whose
+    chain carries no tool call reads to them as "tool activity not observable". So the turn's
+    `tool_call` events are ALSO read here and returned as a chain — an `AIMessage` naming each
+    call, a `ToolMessage` carrying what the mock answered — ahead of the reply, which is what a
+    LangChain agent's own turn looks like. `_turn_chain` states why that is not a second count.
+    The log is read for one more thing the reply cannot carry: the turn each of those events was
+    filed under. See `_refuse_wrong_turn`.
+    """
+    global _events_seen
+    del config   # history lives in the org session, keyed by its own session id
+    if _session is None:
+        raise plurai.HarnessFault('seed_state was not called — no Agentforce session to send into')
+    # Read before the turn is driven. A turn the runner never reported cannot be checked
+    # afterwards either, and refusing here spends no Flex Credits on a turn nothing can grade.
+    turn = _current_turn()
+    # PAYLOAD CONTRACT: payload['messages'] carries THIS turn's user side and nothing else,
+    # never the conversation so far — one message on an ordinary turn. The org session is
+    # the history.
+    # The last HUMAN message, never blindly messages[-1]: a payload whose trailing element is
+    # not the user turn (tool/system residue from a prior exchange) would otherwise feed the
+    # wrong text to the agent — and mis-attributed words are graded as the conversation.
+    m = next(
+        (x for x in reversed(payload['messages'])
+         if str(getattr(x, 'type', None) or (x.get('type') or x.get('role') if isinstance(x, dict) else '') or '').lower().removesuffix('message') in ('human', 'user')),
+        payload['messages'][-1],
+    )
+    question = m.content if hasattr(m, 'content') else str(m)
+    reply_payload = _session.send(*_turn_message(question))
+    _refuse_mock_fault(reply_payload.get('messages') or [])
+    try:
+        reply, acts, tool_trail, envelope, fully_read = _read_reply(reply_payload)
+    except _AgentFailure:
+        # Probe the mock route before the failure is filed as the agent's: a route that is down
+        # fails every in-org action, and the event-log read travels that route (it raises the
+        # harness fault when it cannot be read).
+        _session_events()
+        raise
+    if not fully_read:
+        # The turn is still the agent's and is returned as read: an empty one is scored as the
+        # silence it is. Only the raw record is extra.
+        _record_reply(turn, reply_payload.get('messages') or [])
+    events = _session_events()
+    new_events = events[_events_seen:]
+    # Banked before the guard raises, so a refused turn cannot report the same events again on
+    # a later one.
+    _events_seen = len(events)
+    _refuse_wrong_turn(new_events, turn)
+    # `tool_trail` and `message_envelope` ride as TOP-LEVEL keys of this return dict, never
+    # nested under a key literally named `agent_state`: the SDK's `_extract_agent_state`
+    # (`plurai/child.py`) builds `UserTurnRequest.agent_state` by copying every key of this dict
+    # EXCEPT `messages` as a SIBLING of the others — so a key called `agent_state` here would
+    # itself become one more sibling entry (`agent_state['agent_state'] = {...}`), not the
+    # envelope's contents. `tool_trail` lands there instead as the flat TRAIL_LANE self-report
+    # `tool_call_recovery.trail_tool_calls` reads off `agent_state['tool_trail']` — the only
+    # channel this turn's Knowledge-search calls ever reach, since the org runs
+    # that action with no callout seam. `message_envelope` carries every reply message's type/id/
+    # result/ids, cited or not (see `_read_reply`). A turn that cited nothing still reports an
+    # empty `tool_trail`, never an absent key.
+    return {
+        'messages': _turn_chain(new_events, _shown_with_sources(reply, reply_payload.get('messages') or [])),
+        'agent_actions': acts,
+        'tool_trail': tool_trail,
+        'message_envelope': envelope,
+    }

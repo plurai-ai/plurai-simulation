@@ -1,0 +1,75 @@
+# Checks the plugin as a user receives it: the manifests agree with each other and with the files they name, and the plugin
+# installs from the repository through the Claude Code CLI.
+#
+# The workflow is part of the release export. It runs in the public mirror only; in the private development repository the
+# jobs are skipped. The CLI version is pinned so that a new release of the CLI cannot change the verdict by itself.
+name: mirror-ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CLAUDE_CODE_VERSION: "2.1.303"
+
+jobs:
+  manifests:
+    if: github.repository == 'plurai-ai/plurai-simulation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The mirror's own visibility decides whether a README link may still be pending: a private mirror may carry one, a public one
+      # may not. The expression yields `public` for anything but a private repository, so a missing value fails closed.
+      - name: Check the manifests against each other and the files they name
+        env:
+          MIRROR_VISIBILITY: ${{ github.event.repository.private && 'private' || 'public' }}
+        run: python3 .github/scripts/check_manifests.py --root . --mirror "$MIRROR_VISIBILITY"
+
+      - name: Install the Claude Code CLI
+        run: |
+          npm install --global --prefix "$RUNNER_TEMP/claude-cli" --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          echo "$RUNNER_TEMP/claude-cli/bin" >> "$GITHUB_PATH"
+          # A throwaway configuration directory: nothing is read from or written to a home directory.
+          echo "CLAUDE_CONFIG_DIR=$RUNNER_TEMP/claude-config" >> "$GITHUB_ENV"
+
+      - name: Validate the plugin and the marketplace with the CLI
+        run: claude plugin validate .
+
+  install-smoke:
+    if: github.repository == 'plurai-ai/plurai-simulation'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the Claude Code CLI
+        run: |
+          npm install --global --prefix "$RUNNER_TEMP/claude-cli" --no-audit --no-fund "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          echo "$RUNNER_TEMP/claude-cli/bin" >> "$GITHUB_PATH"
+          # A throwaway configuration directory: nothing is read from or written to a home directory.
+          echo "CLAUDE_CONFIG_DIR=$RUNNER_TEMP/claude-config" >> "$GITHUB_ENV"
+
+      - name: Add the marketplace and install the plugin
+        run: |
+          set -euo pipefail
+          marketplace=$(jq -r .name .claude-plugin/marketplace.json)
+          plugin=$(jq -r '.plugins[0].name' .claude-plugin/marketplace.json)
+          claude plugin marketplace add "$GITHUB_WORKSPACE"
+          claude plugin install "${plugin}@${marketplace}"
+          echo "PLUGIN_ID=${plugin}@${marketplace}" >> "$GITHUB_ENV"
+
+      - name: The installed plugin is enabled, at the manifest version, with its skills
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version .claude-plugin/plugin.json)
+          claude plugin list --json | jq -e --arg id "$PLUGIN_ID" --arg v "$version" '.[] | select(.id == $id and .enabled == true and .version == $v)' > /dev/null
+          skills=$(find skills -mindepth 2 -maxdepth 2 -name SKILL.md | wc -l | tr -d ' ')
+          claude plugin details "$PLUGIN_ID" | grep -E "^  Skills \(${skills}\)"

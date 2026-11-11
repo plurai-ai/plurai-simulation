@@ -1,0 +1,22 @@
+# code_surface.yaml — CLI sub-mode (authored by plugin into plurai.config.yaml; projected by the SDK)
+version: 1
+runtime: fetch_shadow                     # the CLI sub-mode runtime (fetch-shadow preload)
+preload: scripts/fetch_shadow.mjs         # path to the --import preload the harness injects
+return_envelope: node_cli_json            # the CLI prints JSON to stdout; harness reads it back
+unmapped_egress: fail_closed              # any fetch to a host/URL not in cli_http aborts (no real call)
+cli_http:
+  rank-items:                             # original_command
+    tool: rank_items                      # 1:1 subcommand → tool; rankType is a normal scored arg
+    egress_guard: { method: POST, url_pattern: ".../v1/rank/items" }   # from http_mapping
+  flow-summary:
+    tool: flow_summary
+    egress_guard: { method: POST, url_pattern: ".../v1/flow/summary" }
+  trend-list:
+    tool: trend_list
+    egress_guard: { method: GET, url_pattern: ".../v1/trends" }
+  top-list:
+    tool: top_list
+    egress_guard: { method: GET, url_pattern: ".../v1/top" }
+  leaderboard:
+    tool: leaderboard
+    egress_guard: { method: GET, url_pattern: ".../v1/leaderboard" }

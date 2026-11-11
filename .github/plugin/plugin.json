@@ -1,0 +1,35 @@
+{
+  "name": "plurai-simulation",
+  "version": "1.0.4",
+  "description": "Set up Plurai simulation for any AI agent. Analyzes agent code, stubs production dependencies, patches the agent's tool bindings with mock-aware interception, and generates simulate.py.",
+  "author": {
+    "name": "Plurai AI",
+    "url": "https://plurai.ai"
+  },
+  "homepage": "https://github.com/plurai-ai/plurai-simulation#readme",
+  "repository": "https://github.com/plurai-ai/plurai-simulation",
+  "keywords": [
+    "testing",
+    "simulation",
+    "agents",
+    "mocking",
+    "langgraph",
+    "evaluation"
+  ],
+  "hooks": "hooks/copilot.json",
+  "mcpServers": {
+    "plurai": {
+      "type": "stdio",
+      "command": "python3",
+      "args": [
+        "-I",
+        "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_bridge.py",
+        "--harness",
+        "copilot"
+      ],
+      "tools": [
+        "*"
+      ]
+    }
+  }
+}

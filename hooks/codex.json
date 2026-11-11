@@ -1,0 +1,123 @@
+{
+  "description": "Plurai simulation hooks for codex, generated from hooks/registry.py by scripts/dev/generate_harness_files.py. Edit the registry, not this file.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^mcp__plurai__(generate_env_start|generate_evals_start|generate_scenarios_start|ground_workspace_start|optimize_eval_start|prewarm_dimension_graph_start|release_verdict_recompute|solvability_check_start|suite_diagnostics_start|upload_doc_examples_start|upload_run_artifacts_start|upload_scenario_bundle_start)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness codex regen_gate",
+            "timeout": 10,
+            "commandWindows": "python3 \"%CLAUDE_PLUGIN_ROOT%\\hooks\\run.py\" --harness codex regen_gate"
+          }
+        ]
+      },
+      {
+        "matcher": "request_user_input|request_user_input_async",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness codex ask_guard",
+            "timeout": 10,
+            "commandWindows": "python3 \"%CLAUDE_PLUGIN_ROOT%\\hooks\\run.py\" --harness codex ask_guard"
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__plurai__(edit_session_start|interact_edit_session|interact_with_scenario_request)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness codex placeholder_guard",
+            "timeout": 10,
+            "commandWindows": "python3 \"%CLAUDE_PLUGIN_ROOT%\\hooks\\run.py\" --harness codex placeholder_guard"
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__plurai__(generate_env_start|generate_evals_start|generate_scenarios_start|ground_workspace_start|optimize_eval_start|prewarm_dimension_graph_start|release_verdict_recompute|solvability_check_start|suite_diagnostics_start|upload_doc_examples_start|upload_run_artifacts_start|upload_scenario_bundle_start)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness codex halt_gate",
+            "timeout": 10,
+            "commandWindows": "python3 \"%CLAUDE_PLUGIN_ROOT%\\hooks\\run.py\" --harness codex halt_gate"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^mcp__plurai__generate_scenarios_start$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness codex regen_spent",
+            "timeout": 10,
+            "commandWindows": "python3 \"%CLAUDE_PLUGIN_ROOT%\\hooks\\run.py\" --harness codex regen_spent"
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__plurai__.*|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness codex failure_notice",
+            "timeout": 10,
+            "commandWindows": "python3 \"%CLAUDE_PLUGIN_ROOT%\\hooks\\run.py\" --harness codex failure_notice"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness codex --bundle session_glossary,session_pin",
+            "timeout": 10,
+            "commandWindows": "python3 \"%CLAUDE_PLUGIN_ROOT%\\hooks\\run.py\" --harness codex --bundle session_glossary,session_pin"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" prompt -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness codex --bundle flow_arm,ask_answered",
+            "timeout": 10,
+            "commandWindows": "python3 \"%CLAUDE_PLUGIN_ROOT%\\hooks\\run.py\" --harness codex --bundle flow_arm,ask_answered"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness codex --bundle flow_cleanup,session_pin",
+            "timeout": 10,
+            "commandWindows": "python3 \"%CLAUDE_PLUGIN_ROOT%\\hooks\\run.py\" --harness codex --bundle flow_cleanup,session_pin"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh\" -- python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/run.py\" --harness codex report_guard",
+            "timeout": 10,
+            "commandWindows": "python3 \"%CLAUDE_PLUGIN_ROOT%\\hooks\\run.py\" --harness codex report_guard"
+          }
+        ]
+      }
+    ]
+  }
+}

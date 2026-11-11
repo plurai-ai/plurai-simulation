@@ -1,0 +1,4329 @@
+{
+  "blocks": {
+    "agent_context_spec_keys": {
+      "note": "Every key a scenario_state_schema `agent_context_fields` entry may carry; the loader warns and drops any other (and env-gen strips them from the schema it ships).",
+      "value": [
+        "default_value",
+        "description",
+        "enum_citation",
+        "enum_source",
+        "generated_document",
+        "ground_from",
+        "inject",
+        "item_fields",
+        "item_specs",
+        "owner",
+        "precondition",
+        "required",
+        "sample_rows",
+        "seeds",
+        "type"
+      ]
+    },
+    "agent_rule_fact_kind": {
+      "note": "The PRD `## Agent facts` kind whose facts are the agent's own quoted rules — each asked once for a contract_clause row per family, then warned if unrowed.",
+      "value": "rule"
+    },
+    "agent_state_tool_trail": {
+      "note": "Where a self-looping harness reports its tool calls, and which entry statuses mean a failed dispatch.",
+      "value": {
+        "failed_statuses": [
+          "error",
+          "failed",
+          "failure",
+          "refused",
+          "unavailable"
+        ],
+        "key": "tool_trail"
+      }
+    },
+    "axis_declaration": {
+      "note": "The AXIS: declaration a generated rubric carries, as pattern + re flags.",
+      "value": {
+        "flags": 40,
+        "pattern": "^[ \\t]*AXIS:[ \\t]*(?P<axis>\\S[^\\r\\n]*?)[ \\t\\r]*$"
+      }
+    },
+    "client_version_handshake": {
+      "note": "Every MCP and REST call carries `header` as `<client>/<version>`. A call with no header, a malformed one, an unknown client, or a version below `minimum_versions[client]` is refused with HTTP `refusal.status` and a JSON body whose `error` is `refusal.error` and whose `reason` is one of `refusal.reasons`; the body carries `client`, `client_version` and `minimum_version` where they apply, plus the whole `minimum_versions` map. Every response to an identified client repeats that client's floor in `floor_header` as `<client>/<floor>`. Treat an unrecognised `reason` as a refusal. The probe paths and the mock / document data plane are not gated.",
+      "value": {
+        "floor_header": "X-Plurai-Min-Client",
+        "header": "X-Plurai-Client",
+        "minimum_versions": {
+          "plurai-simulation": "0.0.0",
+          "plurai-simulation-sdk": "0.0.0"
+        },
+        "refusal": {
+          "error": "client_upgrade_required",
+          "reasons": [
+            "missing_header",
+            "malformed_header",
+            "unknown_client",
+            "below_floor"
+          ],
+          "status": 426
+        }
+      }
+    },
+    "coverage_debt_kinds": {
+      "note": "The kinds of eval-coverage debt a suite can carry.",
+      "value": [
+        "absence_probe_unasked",
+        "intent_obligation_ungraded",
+        "knowledge_turns_unrealized",
+        "mandated_flow_uncovered",
+        "never_scored_policy",
+        "pinned_probe_ungraded",
+        "polarity_unmeasured",
+        "set_wide_skipped_guard",
+        "source_fidelity_ungraded",
+        "trace_failure_ungraded"
+      ]
+    },
+    "descriptor_return_types": {
+      "note": "A mocked tool's `returns.type` vocabulary (token -> gloss; `|` joins a union, `unknown` stands alone) and the `returns.type_source` values, best evidence first.",
+      "value": {
+        "type_sources": [
+          "plugin",
+          "code",
+          "annotation",
+          "trace",
+          "declared",
+          "stub_run",
+          "inferred",
+          "declared_unknown"
+        ],
+        "types": {
+          "bool": "`True` or `False`: an acknowledgement, never a record",
+          "dict": "a mapping, as-is",
+          "float": "a number",
+          "int": "an integer",
+          "json": "a JSON-encoded str (`json.dumps(...)`); `content` is that str, never the decoded object",
+          "json[dict]": "a JSON-encoded str whose top level is an object",
+          "json[list]": "a JSON-encoded str whose top level is a list",
+          "list": "a list, as-is",
+          "null": "`None`: the tool returns nothing, never a record or a message",
+          "str": "plain text; `content` is a str",
+          "unknown": "not derivable from the code (`returns.unknown_reason` names why, e.g. an external response passed through)"
+        }
+      }
+    },
+    "drifted_refusal_statuses": {
+      "note": "Status tokens that mean a refusal only when the envelope also names a blocker.",
+      "value": [
+        "failed",
+        "failure",
+        "refused"
+      ]
+    },
+    "gate_authority": {
+      "note": "The gate-authority contract: every gate id with its `authority` (security | invariant | advisory), whether its advisory finding `holds` an effect until overruled, the `evidence_keys` its fingerprint covers, the `carriers` (MCP tools, and the scan contract `check` command) that accept `overrules` for it, and whether every evidence value is `client_computable`; the overrule outcome vocabulary, the minimum overrule reason length (characters, after strip), the fingerprint canonicalisation version of the finding fingerprint, and the ordered field names of a finding (`finding_fields`) and an overrule (`overrule_fields`).",
+      "value": {
+        "authorities": [
+          "security",
+          "invariant",
+          "advisory"
+        ],
+        "finding_fields": [
+          "gate_id",
+          "authority",
+          "holds",
+          "subject",
+          "evidence",
+          "observed",
+          "remedy",
+          "draft_ref",
+          "fingerprint"
+        ],
+        "fingerprint_canon_version": 1,
+        "gates": {
+          "attribution.premise_withheld_by_mock": {
+            "authority": "advisory",
+            "carriers": [
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "fact_keys",
+              "item",
+              "policy",
+              "withholding_calls"
+            ],
+            "holds": true,
+            "why": "a red filed as environment is not counted as evidence that the check can fail; an overrule files it as the agent residue"
+          },
+          "attribution.universal_failure": {
+            "authority": "advisory",
+            "carriers": [
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "policy",
+              "resolved_cells",
+              "scenarios"
+            ],
+            "holds": true,
+            "why": "a red filed as an eval defect is not counted as evidence that the check can fail; an overrule files it as the agent residue"
+          },
+          "corpus_edit.absence_unchecked": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "samples"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "corpus_edit.denial_written": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "sample_index"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "env.customer_test_edit_reverted": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "change",
+              "test"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "env.edit_contract_corrected": {
+            "authority": "advisory",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "tool",
+              "tree_digest"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "env.edit_not_started": {
+            "authority": "invariant",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "cause",
+              "source_id",
+              "tree_digest"
+            ],
+            "holds": false,
+            "why": "a mock that does not start serves nothing; committing it takes the live env down"
+          },
+          "env.edit_record_rule": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "text",
+              "where"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "env.edit_record_unreadable": {
+            "authority": "invariant",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "source_id",
+              "tree_digest"
+            ],
+            "holds": false,
+            "why": "the runtime tools are emitted from the per-tool record; an unreadable record cannot be emitted or served"
+          },
+          "env.edit_regression": {
+            "authority": "advisory",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "baseline",
+              "edited",
+              "regression_id",
+              "source_id",
+              "tree_digest"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "env.hidden_owner_live_reader": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "owner",
+              "path",
+              "reader"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "env.mock_boot_slow": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "bound_seconds"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "env.mock_witness_unproven": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "undecided",
+              "unproven"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "env.schema_record_mismatch": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "text",
+              "where"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "env.schema_unloadable": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "cause"
+            ],
+            "holds": false,
+            "why": "scenario generation loads the env schema and refuses one that does not load, so no scenario could be generated on this env"
+          },
+          "env.state_update_key_on_world_type": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "field",
+              "prd_declares",
+              "type"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "env.tool_ignores_request": {
+            "authority": "advisory",
+            "carriers": [
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "result_digest",
+              "tool",
+              "varied_args"
+            ],
+            "holds": true,
+            "why": "a tool that answers identically to requests differing in what shapes its result passes a wrong request as a right one; the final suite waits for a repair or an overrule"
+          },
+          "env.tool_record_rule": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "text",
+              "where"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "env.tool_record_unloadable": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "tools"
+            ],
+            "holds": false,
+            "why": "the authoring prompt and the runtime tools are dispatched from the loaded per-tool record; with none there is nothing to author from"
+          },
+          "env.workflow_case_untested": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "errors",
+              "undecided"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "env.workflow_container_wording": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "arg",
+              "declared_type",
+              "role"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.all_policies_dropped": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [],
+            "holds": false,
+            "why": "a set with no policy left scores nothing"
+          },
+          "eval.applicability_unsettled": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.audit": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "audit_class",
+              "line"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.audit.co_binding_bound": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "bound",
+              "count",
+              "merged_probe_names",
+              "names",
+              "scope"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.audit.guard_vocabulary": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "in_declared_pool",
+              "in_linked_set",
+              "literals",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.audit.judge_provenance": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "policy",
+              "weight_reason"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.audit.obligation_ledger": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "clause_weight_floor",
+              "obligation_id",
+              "owner"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.audit.script_name": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "field",
+              "literal",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.guard_raises": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.guard_unreachable": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "in_declared_pool",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.intent_parse": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "line"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.intent_schema": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "line"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.ledger.baseline_restored": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "obligation_ids",
+              "reachability_policies"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.ledger.coordinate_unresolved": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "contract_ref",
+              "obligation_id",
+              "source"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.ledger.reachability_unresolved": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.no_usable_policies": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [],
+            "holds": false,
+            "why": "a set whose every policy fails shape validation ships empty"
+          },
+          "eval.optimize_gt_dependence": {
+            "authority": "advisory",
+            "carriers": [
+              "optimize_eval_adopt"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "eval_set_id",
+              "gt_dependence",
+              "policy",
+              "policy_fingerprint"
+            ],
+            "holds": true,
+            "why": "a hybrid judge injects no runtime ground truth, so a judge that grades against it would grade blind; the adoption waits for an overrule"
+          },
+          "eval.output_unparseable": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "cause"
+            ],
+            "holds": false,
+            "why": "a policy set that is not a YAML mapping cannot be loaded by any consumer"
+          },
+          "eval.policy.body_not_mapping": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": "a body that is not a mapping makes the whole policy file unloadable for every consumer"
+          },
+          "eval.policy.errors_on_benign_run": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.policy.escapes_own_precondition": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.policy.flags_benign_run": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.policy.judge_template": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": "a judge prompt that does not render returns an error cell on every scenario"
+          },
+          "eval.policy.judge_violation_form": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.policy.lambda": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.policy.message_object_membership": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": "a literal tested for membership in a message object is False on every transcript, so the check can never fire"
+          },
+          "eval.policy.message_object_string_op": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": "a string operation on a message object raises on every run that reaches it"
+          },
+          "eval.policy.message_source": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.policy.metric_type": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": "a boolean expression on a numeric metric is compared as 1/0 against a magnitude, so every score it produces is corrupt"
+          },
+          "eval.policy.provenance": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.policy.record_vocabulary": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.policy.rescoped_end_to_end": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.policy.sandbox_builtin": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": "a builtin the scoring sandbox never runs raises on every evaluation, so the policy never scores"
+          },
+          "eval.policy.schema": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": "one body the loader cannot construct makes the whole policy file unloadable for every consumer"
+          },
+          "eval.policy.selftest_unexercised": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.policy.term_collision": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.policy.threshold_unreachable": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.policy.unknown_name": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": "a name the scoring sandbox does not bind raises on every evaluation, so the policy never scores"
+          },
+          "eval.policy.vacuous_on_no_calls": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "body_digest",
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.policy_set_unloadable": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [],
+            "holds": false,
+            "why": "a set that does not build a PolicyManager fails every consumer at thread creation"
+          },
+          "eval.set_over_cap": {
+            "authority": "invariant",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "cap",
+              "count"
+            ],
+            "holds": false,
+            "why": "a delivered set holds at most the per-set policy cap; past it, a family of rules folds into an existing eval"
+          },
+          "eval.source_fidelity_ungraded": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "scenario_set_id"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.source_scope_ungradable": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval.verdict_tier_unhonourable": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval_edit.audited_red_lost": {
+            "authority": "advisory",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": true,
+            "evidence_keys": [
+              "policy",
+              "run_upload_id",
+              "scenario",
+              "turn_idx"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval_edit.backend_owned": {
+            "authority": "invariant",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "policy"
+            ],
+            "holds": false,
+            "why": "the scorer re-derives a backend-owned body from the staged config, so the edit would never reach a judge; committing it reports a change that does not happen"
+          },
+          "eval_edit.graded_policy_removed": {
+            "authority": "advisory",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "branch",
+              "conclusive",
+              "distribution",
+              "not_measured_causes",
+              "run_id",
+              "unmeasured",
+              "unscored_linked"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval_edit.ledger_unparseable": {
+            "authority": "invariant",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "path"
+            ],
+            "holds": false,
+            "why": "a ledger that does not parse is no accounting: every coverage reader would report it unreadable instead of reading it"
+          },
+          "eval_edit.lost_red": {
+            "authority": "advisory",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": true,
+            "evidence_keys": [
+              "policy",
+              "run_upload_id",
+              "scenario",
+              "turn_idx"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval_edit.policies_unparseable": {
+            "authority": "invariant",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "parsed_as"
+            ],
+            "holds": false,
+            "why": "a working file that is not a policies mapping cannot be promoted: every consumer loads the set as one"
+          },
+          "eval_edit.regression_guard_unrun": {
+            "authority": "advisory",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "fault",
+              "run_upload_id"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval_edit.regression_owner_moved": {
+            "authority": "advisory",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "policy"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval_edit.trace_row_unfed": {
+            "authority": "advisory",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "line"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval_edit.unevaluated": {
+            "authority": "advisory",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": true,
+            "evidence_keys": [
+              "policy",
+              "run_upload_id",
+              "scenario",
+              "turn_idx"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "eval_edit.verdict_dropped": {
+            "authority": "advisory",
+            "carriers": [
+              "end_edit_session"
+            ],
+            "client_computable": true,
+            "evidence_keys": [
+              "policy",
+              "run_upload_id",
+              "scenario",
+              "turn_idx"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "grounding.disagreement": {
+            "authority": "advisory",
+            "carriers": [
+              "end_edit_session",
+              "ground_workspace_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "kept_value",
+              "key",
+              "other_tier",
+              "other_value"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "grounding.mocked_tool": {
+            "authority": "advisory",
+            "carriers": [
+              "end_edit_session",
+              "ground_workspace_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "kept_value",
+              "key",
+              "other_tier",
+              "other_value"
+            ],
+            "holds": true,
+            "why": "a mock built while the evidence for a mocked tool or entity is missing would answer from a value nobody checked; the version stays unsettled until the part is removed or delivered again"
+          },
+          "notice.actionable": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "family",
+              "line"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "release.catastrophic_risk_unaccepted": {
+            "authority": "advisory",
+            "carriers": [
+              "eval_coverage_audit",
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "kind",
+              "policy",
+              "policy_fingerprint",
+              "subject",
+              "verdict"
+            ],
+            "holds": true,
+            "why": "a catastrophic check nothing has shown able to fail would let a breach ship as a pass; the final release waits for a repair or an overrule"
+          },
+          "release.coverage_unknown": {
+            "authority": "advisory",
+            "carriers": [
+              "eval_coverage_audit",
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "in_scope",
+              "rows_read",
+              "run_upload_id"
+            ],
+            "holds": true,
+            "why": "no coverage was computed, so nothing says how much of the run was measured; the release waits for a repair or an overrule"
+          },
+          "release.guard_coverage_violation": {
+            "authority": "advisory",
+            "carriers": [
+              "eval_coverage_audit"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "admitted",
+              "cause",
+              "floor_bp",
+              "policy",
+              "policy_fingerprint",
+              "scenario_set_id",
+              "scenarios"
+            ],
+            "holds": true,
+            "why": "an eval its guard admits onto too few scenarios cannot measure the run it gates; the release waits for a repair or an overrule"
+          },
+          "release.run_coverage_violation": {
+            "authority": "advisory",
+            "carriers": [
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "cause",
+              "decided",
+              "floor_bp",
+              "policy",
+              "policy_fingerprint",
+              "run_upload_id",
+              "scenarios"
+            ],
+            "holds": true,
+            "why": "an eval that measured too little of the run grades a surface the suite does not have; the release waits for a repair or an overrule"
+          },
+          "release.run_incomplete": {
+            "authority": "advisory",
+            "carriers": [
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "error_kinds",
+              "loss",
+              "run_upload_id",
+              "scenario"
+            ],
+            "holds": true,
+            "why": "a scenario the run did not fully score is missing from every verdict; the release waits for a repair or an overrule"
+          },
+          "scan.closed_class_detector_missing": {
+            "authority": "advisory",
+            "carriers": [
+              "plurai-scan-contract check"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "descent",
+              "fact_id",
+              "member_count",
+              "oversized",
+              "subject"
+            ],
+            "holds": true,
+            "why": "the author required a code-side detector for this closed set and none passed; generation waits for one or for an explicit judge-only decision"
+          },
+          "scan.corpus_root_empty": {
+            "authority": "advisory",
+            "carriers": [
+              "plurai-scan-contract check"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "admitted_suffixes",
+              "root",
+              "skipped_by_suffix"
+            ],
+            "holds": true,
+            "why": "a corpus root that admits no file decides nothing about the facts scoped to it; generation waits for a wider scope or the root dropped"
+          },
+          "scan.fact_contradicted": {
+            "authority": "advisory",
+            "carriers": [
+              "plurai-scan-contract check"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "check",
+              "fact_id",
+              "kind",
+              "matches",
+              "scopes_addressed"
+            ],
+            "holds": true,
+            "why": "the PRD still states the refuted claim to every generator, so generation waits until the fact is re-authored or the claim is judged to stand"
+          },
+          "scenario.absence": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.absence_terms_unnamed": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "fact_id",
+              "match",
+              "terms"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.agent_context_binding": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.agent_context_required": {
+            "authority": "invariant",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": "the loader refuses a scenario whose required agent_context is missing"
+          },
+          "scenario.arming": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.audit_coherence": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location",
+              "seed_confirmed",
+              "seed_ref",
+              "seed_value"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.audit_flicker_demoted": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "claim"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.audit_grounding": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location",
+              "seed_confirmed",
+              "seed_ref",
+              "seed_value"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.audit_overruled_by_session": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location",
+              "reason"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.audit_unavailable": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.complication_withdrawn": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "complication",
+              "reason"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.det_check_sandbox": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "expression",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.det_check_vacuity": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.document_handover_undelivered": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "cause",
+              "field"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.document_undelivered": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "cause",
+              "field"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.document_validation": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "cause",
+              "field",
+              "omitted_keys"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.documents_handed_over": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.fact_held_by_unreadable": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.fact_not_seeded": {
+            "authority": "invariant",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": "a record the story needs the agent to read is missing from the world, so the mock answers from its default and the agent is graded against a story the world contradicts"
+          },
+          "scenario.facts_ledger": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.ground_from_unsourced": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "field",
+              "ground_from",
+              "pool",
+              "source"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.gt_edit_check": {
+            "authority": "advisory",
+            "carriers": [
+              "edit_scenario_gt"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "base_gt_revision",
+              "field_path",
+              "rule",
+              "scenario",
+              "scenario_set_id",
+              "value_sha256"
+            ],
+            "holds": true,
+            "why": "the value fails a deterministic check the generator applies to the same field; the edit waits for a repair or an overrule"
+          },
+          "scenario.gt_field_locked": {
+            "authority": "advisory",
+            "carriers": [
+              "edit_scenario_gt"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "base_gt_revision",
+              "field_path",
+              "scenario",
+              "scenario_set_id",
+              "value_sha256"
+            ],
+            "holds": true,
+            "why": "the field shapes what the scenario asks of the agent, not how it is graded; the edit waits for an overrule"
+          },
+          "scenario.gt_field_unknown": {
+            "authority": "invariant",
+            "carriers": [
+              "edit_scenario_gt"
+            ],
+            "client_computable": true,
+            "evidence_keys": [
+              "field_path",
+              "scenario",
+              "scenario_set_id"
+            ],
+            "holds": false,
+            "why": "a path that names no field of the scenario has no file or key to write the value into"
+          },
+          "scenario.handovers": {
+            "authority": "invariant",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": "the loader refuses a malformed handovers block"
+          },
+          "scenario.harness_leak": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.id_consistency": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.input_channel_dealt_unused": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.input_channels": {
+            "authority": "invariant",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": "the loader refuses a channel use anchored on no beat, and the run cannot plant an undeclared channel, a wrong kind or a row the world does not hold"
+          },
+          "scenario.input_doc_dropped": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": true,
+            "evidence_keys": [
+              "document",
+              "previous_scenario_set_id"
+            ],
+            "holds": true,
+            "why": "previous_scenario_set_id inherits no inputs, so a batch that drops a document its predecessor was generated with is authored against less material and nothing else says so; the call waits for the document or an overrule that retires it"
+          },
+          "scenario.input_doc_omitted": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": true,
+            "evidence_keys": [
+              "document",
+              "previous_scenario_set_id"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.knowledge": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.language": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "declared_language",
+              "licensed",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.live_world_rows": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "row_keys"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.mode_conflict": {
+            "authority": "invariant",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": "the loader refuses a folder that is both a one-shot pipeline scenario and a resumed trace"
+          },
+          "scenario.narrative_leak": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.output_unwritten": {
+            "authority": "invariant",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": "a session that wrote no extraction or no narrative leaves nothing to load or drive"
+          },
+          "scenario.pin_identity_undeclared": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "entity_type",
+              "field"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.pinned_context": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "basis",
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.premise_plan": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.resume_seed_unfetchable": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "bytes",
+              "cap",
+              "trace_id"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.scan_fact_seed": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.schema": {
+            "authority": "invariant",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": "the scenario writer and the loader both read blocks the composite schema shapes; a malformed block is written malformed"
+          },
+          "scenario.seed_check_error": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.seed_coherence": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.seed_lineage": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.seed_materialize": {
+            "authority": "invariant",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": "the world file is corrupt or absent when the declared seed rows cannot be written and re-read"
+          },
+          "scenario.seed_script": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.slot_unshipped": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "error_type",
+              "exhaustion_kind",
+              "futile_kind",
+              "gate_ids"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.state_schema_incomplete": {
+            "authority": "invariant",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "defects"
+            ],
+            "holds": false,
+            "why": "a state schema that cannot express a required artifact guarantees a dead scenario on every draw"
+          },
+          "scenario.wire_oversize": {
+            "authority": "advisory",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": ""
+          },
+          "scenario.world_empty": {
+            "authority": "invariant",
+            "carriers": [
+              "generate_scenarios_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "category",
+              "claim",
+              "location"
+            ],
+            "holds": false,
+            "why": "the loader refuses an empty world under an entity-declaring schema unless the session authored it empty; stamping it authored would lie to every entity-reading judge"
+          },
+          "score.absence_after_turn_cap": {
+            "authority": "advisory",
+            "carriers": [
+              "score_run",
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "locus",
+              "policy",
+              "policy_fingerprint",
+              "thread_id",
+              "turn_cap"
+            ],
+            "holds": true,
+            "why": "an absence red on a dialog the turn cap ended leaves every rate as inconclusive; an overrule restores the raw verdict"
+          },
+          "score.censored_absence": {
+            "authority": "advisory",
+            "carriers": [
+              "score_run",
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "cited_quotes",
+              "co_fired",
+              "gt_fingerprint",
+              "locus",
+              "policy",
+              "policy_fingerprint",
+              "raw_label",
+              "raw_violated",
+              "thread_id",
+              "turn_idx",
+              "unmatched_quotes"
+            ],
+            "holds": true,
+            "why": "an absence red past a harness cut leaves every rate as not measured; an overrule restores the raw verdict"
+          },
+          "score.turn_fault_absence": {
+            "authority": "advisory",
+            "carriers": [
+              "score_run",
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "cited_quotes",
+              "co_fired",
+              "gt_fingerprint",
+              "locus",
+              "policy",
+              "policy_fingerprint",
+              "raw_label",
+              "raw_violated",
+              "thread_id",
+              "turn_idx",
+              "unmatched_quotes"
+            ],
+            "holds": true,
+            "why": "an absence red over a faulted final turn leaves every rate as not measured; an overrule restores the raw verdict"
+          },
+          "score.uncited_content_fidelity_pass": {
+            "authority": "advisory",
+            "carriers": [
+              "score_run",
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "cited_quotes",
+              "co_fired",
+              "gt_fingerprint",
+              "locus",
+              "policy",
+              "policy_fingerprint",
+              "raw_label",
+              "raw_violated",
+              "thread_id",
+              "turn_idx",
+              "unmatched_quotes"
+            ],
+            "holds": true,
+            "why": "a pass that cites nothing on the graded surface leaves every rate as inconclusive; an overrule restores the raw verdict"
+          },
+          "score.uncited_requirement_pass": {
+            "authority": "advisory",
+            "carriers": [
+              "score_run",
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "cited_quotes",
+              "co_fired",
+              "gt_fingerprint",
+              "locus",
+              "policy",
+              "policy_fingerprint",
+              "raw_label",
+              "raw_violated",
+              "thread_id",
+              "turn_idx",
+              "unmatched_quotes"
+            ],
+            "holds": true,
+            "why": "a pass with no back-reference leaves every rate as inconclusive; an overrule restores the raw verdict"
+          },
+          "score.unevidenced_violation": {
+            "authority": "advisory",
+            "carriers": [
+              "score_run",
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "cited_quotes",
+              "co_fired",
+              "gt_fingerprint",
+              "locus",
+              "policy",
+              "policy_fingerprint",
+              "raw_label",
+              "raw_violated",
+              "route",
+              "thread_id",
+              "turn_idx",
+              "unmatched_quotes"
+            ],
+            "holds": true,
+            "why": "a red that cites nothing on the graded surface leaves every rate as inconclusive; an overrule restores the raw verdict"
+          },
+          "score.unreproduced_across_attempts": {
+            "authority": "advisory",
+            "carriers": [
+              "suite_diagnostics_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "gt_fingerprint",
+              "item",
+              "policy",
+              "policy_fingerprint",
+              "raw_label",
+              "raw_violated",
+              "thread_id"
+            ],
+            "holds": true,
+            "why": "a pass the second sample graded red leaves every rate as unreproduced; an overrule restores the raw verdict"
+          },
+          "trace.corpus_environment_unattested": {
+            "authority": "advisory",
+            "carriers": [
+              "ground_workspace_start"
+            ],
+            "client_computable": false,
+            "evidence_keys": [
+              "archive_sha256",
+              "declared",
+              "environments",
+              "expect_environment",
+              "file_count",
+              "opaque"
+            ],
+            "holds": true,
+            "why": "traces from another environment, or from an unnamed mix, would ground the simulation in behaviour that is not the one asked for; the analysis waits for an overrule"
+          },
+          "trace.corpus_self_observed": {
+            "authority": "advisory",
+            "carriers": [],
+            "client_computable": false,
+            "evidence_keys": [
+              "archive_sha256",
+              "units"
+            ],
+            "holds": false,
+            "why": ""
+          }
+        },
+        "overrule_fields": [
+          "gate_id",
+          "fingerprint",
+          "reason"
+        ],
+        "overrule_outcomes": [
+          "applied",
+          "not_holding",
+          "refused",
+          "stale",
+          "not_evaluated"
+        ],
+        "overrule_reason_min_chars": 20
+      }
+    },
+    "generate_scenarios_arguments": {
+      "note": "Every generate_scenarios_start argument, classified as an input document, a control key or a backfilled one, and the input documents grouped into the logical documents a regeneration naming previous_scenario_set_id must re-send.",
+      "value": {
+        "arguments": [
+          "variables_yaml",
+          "prd_markdown",
+          "variables_upload_id",
+          "prd_upload_id",
+          "scenario_state_schema_yaml",
+          "inputs_schema_yaml",
+          "outputs_schema_yaml",
+          "user_style_markdown",
+          "world_state_markdown",
+          "data_profile_markdown",
+          "data_profile_upload_id",
+          "count",
+          "interest",
+          "adapt_request",
+          "steering_demands",
+          "random_seed",
+          "document_generation",
+          "document_fields",
+          "doc_examples_set_id",
+          "workspace_id",
+          "scenario_bundle_id",
+          "additional_bundle_id",
+          "augmentation_level",
+          "artifact_feedback",
+          "redraws",
+          "intervention_point",
+          "dataset_name",
+          "dataset_description",
+          "plurai_config_yaml",
+          "plurai_config_upload_id",
+          "shape",
+          "corpus_id",
+          "corpus_ids",
+          "knowledge_bases",
+          "knowledge_turns",
+          "knowledge_synthesis_mode",
+          "max_seed_nodes",
+          "memory_challenge",
+          "happy_path_min_ratio",
+          "mandated_flows",
+          "adopt_from_scenario_set_id",
+          "previous_scenario_set_id",
+          "eval_set_id",
+          "scan_contract_upload_id",
+          "world_reference_rows",
+          "overrules",
+          "ledger_version",
+          "env_id",
+          "command_run_id"
+        ],
+        "backfilled": [
+          "user_style_markdown",
+          "world_state_markdown"
+        ],
+        "control": [
+          "adapt_request",
+          "additional_bundle_id",
+          "adopt_from_scenario_set_id",
+          "artifact_feedback",
+          "augmentation_level",
+          "command_run_id",
+          "count",
+          "dataset_description",
+          "dataset_name",
+          "document_generation",
+          "env_id",
+          "eval_set_id",
+          "happy_path_min_ratio",
+          "interest",
+          "intervention_point",
+          "knowledge_synthesis_mode",
+          "knowledge_turns",
+          "ledger_version",
+          "mandated_flows",
+          "max_seed_nodes",
+          "memory_challenge",
+          "overrules",
+          "previous_scenario_set_id",
+          "random_seed",
+          "redraws",
+          "shape",
+          "steering_demands",
+          "workspace_id"
+        ],
+        "input_document_groups": {
+          "data_profile": [
+            "data_profile_markdown",
+            "data_profile_upload_id"
+          ],
+          "doc_examples": [
+            "doc_examples_set_id"
+          ],
+          "document_fields": [
+            "document_fields"
+          ],
+          "inputs_schema": [
+            "inputs_schema_yaml"
+          ],
+          "knowledge": [
+            "knowledge_bases",
+            "corpus_ids",
+            "corpus_id"
+          ],
+          "outputs_schema": [
+            "outputs_schema_yaml"
+          ],
+          "plurai_config": [
+            "plurai_config_yaml",
+            "plurai_config_upload_id"
+          ],
+          "prd": [
+            "prd_markdown",
+            "prd_upload_id"
+          ],
+          "scan_contract": [
+            "scan_contract_upload_id"
+          ],
+          "scenario_bundle": [
+            "scenario_bundle_id"
+          ],
+          "state_schema": [
+            "scenario_state_schema_yaml"
+          ],
+          "variables": [
+            "variables_yaml",
+            "variables_upload_id"
+          ],
+          "world_reference_rows": [
+            "world_reference_rows"
+          ]
+        },
+        "input_documents": [
+          "corpus_id",
+          "corpus_ids",
+          "data_profile_markdown",
+          "data_profile_upload_id",
+          "doc_examples_set_id",
+          "document_fields",
+          "inputs_schema_yaml",
+          "knowledge_bases",
+          "outputs_schema_yaml",
+          "plurai_config_upload_id",
+          "plurai_config_yaml",
+          "prd_markdown",
+          "prd_upload_id",
+          "scan_contract_upload_id",
+          "scenario_bundle_id",
+          "scenario_state_schema_yaml",
+          "variables_upload_id",
+          "variables_yaml",
+          "world_reference_rows"
+        ],
+        "stale": [],
+        "unclassified": []
+      }
+    },
+    "grounding_ledger": {
+      "note": "The grounding ledger rules a client reimplements instead of importing: the eight-rung precedence ladder with the config `*_source` vocabularies, the source-competence table, the key grammar and its fold as data, the verdict rules, the reading rules of the three agent descriptions with their limits, the generators that read the ledger (their start tool, the argument that carries the pinned version and the key kinds they read from it) with the causes a pin is refused for, and golden vectors (fold, key, refusal, profile slug, and description fragment to declared keys) a client must reproduce. `version` moves when any rule does.",
+      "value": {
+        "competence": {
+          "code": {
+            "entity": "value",
+            "knowledge": "value",
+            "tool": "value"
+          },
+          "corpus": {
+            "entity": "value",
+            "knowledge": "value",
+            "tool": null
+          },
+          "declared": {
+            "entity": "value",
+            "knowledge": "value",
+            "tool": "value"
+          },
+          "declared_unknown": {
+            "entity": "value",
+            "knowledge": "value",
+            "tool": "value"
+          },
+          "inferred": {
+            "entity": "value",
+            "knowledge": "value",
+            "tool": "value"
+          },
+          "plugin": {
+            "entity": "value",
+            "knowledge": "value",
+            "tool": "value"
+          },
+          "prd": {
+            "entity": "value",
+            "knowledge": "value",
+            "tool": "value"
+          },
+          "stub_run": {
+            "entity": "value",
+            "knowledge": "value",
+            "tool": "value"
+          },
+          "trace": {
+            "entity": "value",
+            "knowledge": "observation",
+            "tool": "value"
+          }
+        },
+        "fact_class_of_kind": {
+          "agent_fact": "knowledge",
+          "entity": "entity",
+          "tool": "tool"
+        },
+        "finding_kinds": [
+          "disagrees",
+          "description_disagrees",
+          "unseen_declared_tool",
+          "undeclared_observed_tool",
+          "key_collision",
+          "evidence_missing",
+          "undeclared_cap_exceeded"
+        ],
+        "generators": {
+          "env": {
+            "argument": "ledger_version",
+            "kinds": [
+              "tool",
+              "entity",
+              "agent_fact"
+            ],
+            "optional_tools": [
+              "edit_session_start"
+            ],
+            "tool": "generate_env_start"
+          },
+          "evals": {
+            "argument": "ledger_version",
+            "kinds": [
+              "tool",
+              "entity",
+              "agent_fact"
+            ],
+            "other_tools": [
+              "edit_session_start",
+              "optimize_eval_start"
+            ],
+            "tool": "generate_evals_start"
+          },
+          "scenarios": {
+            "argument": "ledger_version",
+            "kinds": [
+              "tool",
+              "entity",
+              "agent_fact"
+            ],
+            "other_tools": [
+              "refine_scenarios_start",
+              "prewarm_dimension_graph_start"
+            ],
+            "tool": "generate_scenarios_start"
+          }
+        },
+        "golden_vectors": {
+          "fold": [
+            {
+              "declared": "Lookup-Order",
+              "folded": "lookup_order"
+            },
+            {
+              "declared": "lookup  order",
+              "folded": "lookup_order"
+            },
+            {
+              "declared": "lookup__-_order",
+              "folded": "lookup_order"
+            },
+            {
+              "declared": "  _lookup_order_  ",
+              "folded": "lookup_order"
+            },
+            {
+              "declared": "FollowupSuggestion",
+              "folded": "followupsuggestion"
+            },
+            {
+              "declared": "orderId",
+              "folded": "orderid"
+            },
+            {
+              "declared": "order id",
+              "folded": "order_id"
+            },
+            {
+              "declared": "ＬＯＯＫＵＰ",
+              "folded": "lookup"
+            },
+            {
+              "declared": "ﬁle",
+              "folded": "file"
+            },
+            {
+              "declared": "Straße",
+              "folded": "strasse"
+            },
+            {
+              "declared": "order#id",
+              "folded": "order#id"
+            },
+            {
+              "declared": "שלום-עולם",
+              "folded": "שלום_עולם"
+            }
+          ],
+          "inventory": [
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "tool:lookup_order",
+                "tool:lookup_order.args.order_id",
+                "tool:lookup_order.error_channel",
+                "tool:lookup_order.returns",
+                "tool:lookup_order.returns.field:status"
+              ],
+              "name": "config_tool_with_args_returns_field_and_error_channel",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "error_channel_beside_the_descriptor"
+              ],
+              "text": "tools:\n  Lookup-Order:\n    mode: mock\n    error_channel: raises\n    descriptor:\n      args: {order_id: {type: str}}\n      returns:\n        type: dict\n        fields: {status: {type: str}}\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "tool:t",
+                "tool:t.returns.field:a"
+              ],
+              "name": "returns_without_a_string_type_declares_no_returns_key",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "returns_exists_only_with_a_string_type"
+              ],
+              "text": "tools:\n  t: {descriptor: {returns: {fields: {a: {type: str}}}}}\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "tool:t"
+              ],
+              "name": "bare_string_returns_and_args_declare_nothing",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "bare_string_declares_nothing"
+              ],
+              "text": "tools:\n  t: {descriptor: {returns: \"a list of things\", args: \"free text\"}}\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "tool:t",
+                "tool:t.args.q"
+              ],
+              "name": "args_fall_back_to_input_schema_properties",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "args_fall_back_to_input_schema_properties"
+              ],
+              "text": "tools:\n  t: {descriptor: {args: {}, input_schema: {properties: {q: {type: string}}}}}\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "entity:customer",
+                "entity:customer.field:email",
+                "entity:customer.field:id"
+              ],
+              "name": "entity_fields_as_a_list_of_names",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "entity_fields_union"
+              ],
+              "text": "world_state: {entity_types: {customer: {fields: [id, email]}}}\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "entity:customer",
+                "entity:customer.field:email",
+                "entity:customer.field:id"
+              ],
+              "name": "entity_fields_as_a_list_of_named_mappings",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "entity_fields_union"
+              ],
+              "text": "world_state: {entity_types: {customer: {fields: [{name: id}, {name: email, type: str}]}}}\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "entity:customer",
+                "entity:order"
+              ],
+              "name": "entity_types_as_a_list_of_names",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "entity_types_union"
+              ],
+              "text": "world_state: {entity_types: [customer, Order]}\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "tool:fine"
+              ],
+              "name": "a_tool_name_yaml_reads_as_a_boolean_is_refused_and_the_rest_is_read",
+              "origin": "config",
+              "refused": [
+                "tool_name_not_a_string"
+              ],
+              "rules": [
+                "tool_names_are_strings"
+              ],
+              "text": "tools:\n  off: {mode: mock}\n  fine: {mode: mock}\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "tool:fine"
+              ],
+              "name": "a_null_tool_entry_is_refused_and_the_rest_is_read",
+              "origin": "config",
+              "refused": [
+                "tool_entry_not_a_mapping"
+              ],
+              "rules": [
+                "tool_names_are_strings"
+              ],
+              "text": "tools:\n  dead:\n  fine: {}\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "tool:t",
+                "tool:t.returns",
+                "tool:t.returns.field:a",
+                "tool:t.returns.field:b",
+                "tool:t.returns.field:c",
+                "tool:t.returns.field:d"
+              ],
+              "name": "a_config_key_is_declared_unless_a_source_names_another_rung",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "config_keys_are_declared"
+              ],
+              "text": "tools:\n  t:\n    descriptor:\n      returns:\n        type: dict\n        type_source: annotation\n        fields:\n          a: {type: str, evidence: x.py:1}\n          b: {type: str}\n          c: {type: str, type_source: code}\n          d: {type: str, type_source: annotation}\n",
+              "tiers": {
+                "tool:t": "declared",
+                "tool:t.returns": "code",
+                "tool:t.returns.field:a": "declared",
+                "tool:t.returns.field:b": "declared",
+                "tool:t.returns.field:c": "code",
+                "tool:t.returns.field:d": "code"
+              }
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "tool:t",
+                "tool:t.returns",
+                "tool:t.returns.field:id",
+                "tool:t.returns.field:qty"
+              ],
+              "name": "list_item_fields_are_returns_fields_at_their_own_type_source",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "item_fields_are_returns_fields"
+              ],
+              "text": "tools:\n  t:\n    descriptor:\n      returns:\n        type: list\n        type_source: code\n        item_fields:\n          id: {type: str}\n          qty: {type: int, type_source: code}\n",
+              "tiers": {
+                "tool:t.returns": "code",
+                "tool:t.returns.field:id": "declared",
+                "tool:t.returns.field:qty": "code"
+              }
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "entity:device",
+                "entity:device.field:kind",
+                "entity:device.field:note",
+                "entity:device.field:state"
+              ],
+              "name": "an_entity_field_reads_at_its_own_type_source",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "config_keys_are_declared"
+              ],
+              "text": "world_state:\n  entity_types:\n    device:\n      fields:\n        state: {type: str, type_source: plugin}\n        kind: {type: str, type_source: annotation}\n        note: {type: str}\n",
+              "tiers": {
+                "entity:device.field:kind": "code",
+                "entity:device.field:note": "declared",
+                "entity:device.field:state": "plugin"
+              }
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "tool:t",
+                "tool:t.args.q",
+                "tool:t.error_channel",
+                "tool:t.returns",
+                "tool:t.returns.field:a"
+              ],
+              "name": "a_plugin_source_or_citation_reads_at_plugin",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "plugin_citation_is_a_plugin_decision"
+              ],
+              "text": "tools:\n  t:\n    error_channel: raises\n    error_channel_source: plugin\n    descriptor:\n      args: {q: {type: str, evidence: [plugin:env_edit_session:s1, x.py:3]}}\n      returns:\n        type: dict\n        type_source: plugin\n        fields: {a: {type: str, evidence: x.py:1}}\n",
+              "tiers": {
+                "tool:t.args.q": "plugin",
+                "tool:t.error_channel": "plugin",
+                "tool:t.returns": "plugin",
+                "tool:t.returns.field:a": "declared"
+              }
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "tool:t",
+                "tool:t.returns"
+              ],
+              "name": "a_source_outside_the_vocabulary_is_read_as_absent",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "out_of_vocabulary_source_is_absent"
+              ],
+              "text": "tools:\n  t: {descriptor: {returns: {type: dict, type_source: corpus}}}\n",
+              "tiers": {
+                "tool:t.returns": "declared"
+              }
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "tool:a%2Ereturns",
+                "tool:a%2Ereturns.args.x%3Ay"
+              ],
+              "name": "a_dotted_tool_name_is_escaped_not_refused",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "names_are_escaped"
+              ],
+              "text": "tools:\n  \"a.returns\": {mode: mock, descriptor: {args: {\"x:y\": {type: str}}}}\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [
+                "tool:lookup_order"
+              ],
+              "error": null,
+              "keys": [
+                "tool:lookup_order"
+              ],
+              "name": "two_tool_names_that_fold_together_collide",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "repeated_declaration_is_a_collision"
+              ],
+              "text": "tools:\n  lookup-order: {mode: mock}\n  lookup_order: {mode: mock}\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "tool:erp_write",
+                "tool:erp_write.args.operation",
+                "tool:erp_write.error_channel",
+                "tool:generate_samples",
+                "tool:generate_samples.args.feedback",
+                "tool:generate_samples.error_channel",
+                "tool:list_rows",
+                "tool:list_rows.error_channel",
+                "tool:pluto_get_thread",
+                "tool:pluto_get_thread.args.dataset_id",
+                "tool:pluto_get_thread.error_channel"
+              ],
+              "name": "seams_serving_real_tools_link_them_and_open_one_channel_slot_each",
+              "origin": "config",
+              "refused": [],
+              "rules": [
+                "serves_is_a_link"
+              ],
+              "text": "tools:\n  generate_samples:\n    mode: real\n    descriptor: {args: {feedback: {type: str}}}\n  list_rows: {mode: real}\n  pluto_get_thread:\n    mode: mock\n    seam: transport\n    error_channel: raises\n    serves: [generate_samples, list_rows]\n    serves_cite: agent/tools.py:7\n    descriptor: {args: {dataset_id: {type: str}}}\n  erp_write:\n    mode: mock\n    seam: entity\n    error_channel: returns\n    serves: [Generate-Samples]\n    serves_cite: agent/tools.py:9\n    descriptor: {args: {operation: {type: str}}}\n",
+              "tiers": {
+                "tool:generate_samples.args.feedback": "declared",
+                "tool:generate_samples.error_channel": "inferred",
+                "tool:list_rows.error_channel": "inferred",
+                "tool:pluto_get_thread.error_channel": "declared"
+              }
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "entity:order",
+                "entity:order.field:id",
+                "entity:order.state:on_hold",
+                "tool:lookup_order",
+                "tool:lookup_order.returns.field:status"
+              ],
+              "name": "variables_declare_tools_fields_entities_and_states_not_profiles_or_complications",
+              "origin": "variables",
+              "refused": [],
+              "rules": [
+                "config_keys_are_declared"
+              ],
+              "text": "agent_tools:\n  - {name: Lookup-Order, output_fields: [status]}\nentity_schemas:\n  - {name: Order, key_fields: [id], typical_states: [On-Hold]}\ntypical_user_profiles:\n  - {style: \"Terse, Skeptical Engineer!\"}\ntypical_complications:\n  - {name: wrong_order_id}\n",
+              "tiers": {
+                "tool:lookup_order.returns.field:status": "inferred"
+              }
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "agent_fact:rag%2Esearch.fact:omits"
+              ],
+              "name": "a_numbered_heading_and_a_dotted_subject_that_is_escaped",
+              "origin": "prd",
+              "refused": [],
+              "rules": [
+                "facts_block_locator",
+                "fact_key_shape"
+              ],
+              "text": "# PRD\n\n## 9. Agent facts\n\n```yaml\nfacts:\n  - {kind: tool_surface, subject: rag.search, predicate: omits}\n```\n",
+              "tiers": {
+                "agent_fact:rag%2Esearch.fact:omits": "prd"
+              }
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [],
+              "name": "a_heading_below_level_two_declares_nothing",
+              "origin": "prd",
+              "refused": [],
+              "rules": [
+                "facts_block_locator"
+              ],
+              "text": "# PRD\n\n### Agent facts\n\n```yaml\nfacts:\n  - {kind: tool_surface, subject: rag.search, predicate: omits}\n```\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [],
+              "name": "a_block_not_tagged_yaml_is_refused",
+              "origin": "prd",
+              "refused": [
+                "facts_block_not_yaml"
+              ],
+              "rules": [
+                "facts_block_locator"
+              ],
+              "text": "## Agent facts\n\n```json\n{\"facts\": []}\n```\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [],
+              "error": null,
+              "keys": [
+                "agent_fact:s.fact:p"
+              ],
+              "name": "a_fact_that_is_not_a_mapping_is_refused_and_the_rest_is_read",
+              "origin": "prd",
+              "refused": [
+                "fact_not_a_mapping"
+              ],
+              "rules": [
+                "fact_key_shape"
+              ],
+              "text": "## Agent facts\n\n```yaml\nfacts:\n  - just text\n  - {kind: k, subject: s, predicate: p}\n```\n",
+              "tiers": {}
+            },
+            {
+              "collisions": [
+                "agent_fact:s.fact:p"
+              ],
+              "error": null,
+              "keys": [
+                "agent_fact:s.fact:p"
+              ],
+              "name": "a_repeated_subject_and_predicate_is_a_collision",
+              "origin": "prd",
+              "refused": [],
+              "rules": [
+                "repeated_declaration_is_a_collision",
+                "fact_key_shape"
+              ],
+              "text": "## Agent facts\n\n```yaml\nfacts:\n  - {kind: k, subject: s, predicate: p, source: a:1}\n  - {kind: k, subject: s, predicate: p, source: a:2}\n```\n",
+              "tiers": {}
+            }
+          ],
+          "keys": [
+            {
+              "key": "tool:lookup_order",
+              "kind": "tool",
+              "name": "Lookup-Order",
+              "segments": []
+            },
+            {
+              "key": "tool:lookup_order.returns",
+              "kind": "tool",
+              "name": "lookup_order",
+              "segments": [
+                [
+                  "returns"
+                ]
+              ]
+            },
+            {
+              "key": "tool:lookup_order.returns.field:order_status",
+              "kind": "tool",
+              "name": "lookup_order",
+              "segments": [
+                [
+                  "returns"
+                ],
+                [
+                  "field",
+                  "Order Status"
+                ]
+              ]
+            },
+            {
+              "key": "tool:lookup_order.args.orderid",
+              "kind": "tool",
+              "name": "lookup_order",
+              "segments": [
+                [
+                  "args",
+                  "orderId"
+                ]
+              ]
+            },
+            {
+              "key": "tool:lookup_order.error_channel",
+              "kind": "tool",
+              "name": "lookup_order",
+              "segments": [
+                [
+                  "error_channel"
+                ]
+              ]
+            },
+            {
+              "key": "entity:order",
+              "kind": "entity",
+              "name": "Order",
+              "segments": []
+            },
+            {
+              "key": "entity:order.field:status",
+              "kind": "entity",
+              "name": "Order",
+              "segments": [
+                [
+                  "field",
+                  "status"
+                ]
+              ]
+            },
+            {
+              "key": "entity:order.state:on_hold",
+              "kind": "entity",
+              "name": "Order",
+              "segments": [
+                [
+                  "state",
+                  "On-Hold"
+                ]
+              ]
+            },
+            {
+              "key": "agent_fact:rag%2Esearch.fact:omits",
+              "kind": "agent_fact",
+              "name": "rag.search",
+              "segments": [
+                [
+                  "fact",
+                  "omits"
+                ]
+              ]
+            },
+            {
+              "key": "agent_fact:optimize_evaluator.fact:rejects%3A_x",
+              "kind": "agent_fact",
+              "name": "optimize_evaluator",
+              "segments": [
+                [
+                  "fact",
+                  "rejects: x"
+                ]
+              ]
+            },
+            {
+              "key": "tool:a%2Ereturns",
+              "kind": "tool",
+              "name": "a.returns",
+              "segments": []
+            },
+            {
+              "key": "tool:ns%3Atool",
+              "kind": "tool",
+              "name": "ns:Tool",
+              "segments": []
+            },
+            {
+              "key": "tool:ns%3Atool",
+              "kind": "tool",
+              "name": "ns：tool",
+              "segments": []
+            },
+            {
+              "key": "tool:100%25",
+              "kind": "tool",
+              "name": "100%",
+              "segments": []
+            },
+            {
+              "key": "tool:%252e",
+              "kind": "tool",
+              "name": "%2E",
+              "segments": []
+            },
+            {
+              "key": "entity:order.field:a%2Eb",
+              "kind": "entity",
+              "name": "Order",
+              "segments": [
+                [
+                  "field",
+                  "a.b"
+                ]
+              ]
+            },
+            {
+              "key": "tool:x.args.a%3Ab%2Ec",
+              "kind": "tool",
+              "name": "x",
+              "segments": [
+                [
+                  "args",
+                  "a:b.c"
+                ]
+              ]
+            }
+          ],
+          "refused": [
+            {
+              "cause": "empty_name",
+              "kind": "tool",
+              "name": " _-_ ",
+              "segments": []
+            },
+            {
+              "cause": "empty_name",
+              "kind": "agent_fact",
+              "name": "search",
+              "segments": [
+                [
+                  "fact",
+                  " "
+                ]
+              ]
+            },
+            {
+              "cause": "bad_shape",
+              "kind": "agent_fact",
+              "name": "search",
+              "segments": []
+            },
+            {
+              "cause": "bad_segment",
+              "kind": "entity",
+              "name": "x",
+              "segments": [
+                [
+                  "returns"
+                ]
+              ]
+            },
+            {
+              "cause": "unknown_kind",
+              "kind": "widget",
+              "name": "x",
+              "segments": []
+            },
+            {
+              "cause": "unknown_kind",
+              "kind": "user_profile",
+              "name": "x",
+              "segments": []
+            }
+          ],
+          "refused_text": [
+            {
+              "cause": "bad_escape",
+              "text": "tool:50%"
+            },
+            {
+              "cause": "bad_escape",
+              "text": "tool:a%2"
+            },
+            {
+              "cause": "bad_escape",
+              "text": "tool:a%2Zb"
+            },
+            {
+              "cause": "bad_shape",
+              "text": "tool:a:b"
+            },
+            {
+              "cause": "bad_shape",
+              "text": "tool:x.field:a:b"
+            },
+            {
+              "cause": "bad_shape",
+              "text": "tool:x..returns"
+            }
+          ]
+        },
+        "key_grammar": {
+          "chains": {
+            "agent_fact": [
+              [
+                "fact"
+              ]
+            ],
+            "entity": [
+              [],
+              [
+                "field"
+              ],
+              [
+                "state"
+              ]
+            ],
+            "tool": [
+              [],
+              [
+                "returns"
+              ],
+              [
+                "returns",
+                "field"
+              ],
+              [
+                "args"
+              ],
+              [
+                "error_channel"
+              ]
+            ]
+          },
+          "escape_applied": "to every folded name, in the key text, after the fold",
+          "escapes": {
+            "%": "%25",
+            ".": "%2E",
+            ":": "%3A"
+          },
+          "fold": {
+            "camel_case": "not split",
+            "case": "casefold",
+            "collapse_to": "_",
+            "normalisation": "NFKC",
+            "separators": "-_ ",
+            "strip": "_"
+          },
+          "kinds": [
+            "tool",
+            "entity",
+            "agent_fact"
+          ],
+          "segment_heads": {
+            "args": {
+              "names": 1,
+              "separator": "."
+            },
+            "error_channel": {
+              "names": 0,
+              "separator": null
+            },
+            "fact": {
+              "names": 1,
+              "separator": ":"
+            },
+            "field": {
+              "names": 1,
+              "separator": ":"
+            },
+            "returns": {
+              "names": 0,
+              "separator": null
+            },
+            "state": {
+              "names": 1,
+              "separator": ":"
+            }
+          }
+        },
+        "ladder": {
+          "config_default_tier": "declared",
+          "config_sources": [
+            "plugin",
+            "code",
+            "annotation",
+            "trace",
+            "declared",
+            "stub_run",
+            "inferred",
+            "declared_unknown"
+          ],
+          "default_tier": "inferred",
+          "error_channel_sources": [
+            "plugin",
+            "trace",
+            "declared",
+            "inferred"
+          ],
+          "rungs": [
+            "plugin",
+            "code",
+            "trace",
+            "declared",
+            "corpus",
+            "prd",
+            "stub_run",
+            "inferred",
+            "declared_unknown"
+          ],
+          "source_rung": {
+            "annotation": "code"
+          }
+        },
+        "pin_refusal_causes": [
+          "missing",
+          "no_workspace",
+          "malformed",
+          "grounding_off",
+          "unknown",
+          "other_workspace",
+          "unsettled"
+        ],
+        "reading_rules": {
+          "error_channels": [
+            "raises",
+            "returns"
+          ],
+          "facts_heading": "^##[ \\t]+(?:\\d+[.)][ \\t]*)?agent[ -]facts[ \\t]*:?[ \\t]*$",
+          "limits": {
+            "max_declared_keys": 10000,
+            "max_description_bytes": 8388608,
+            "max_yaml_nodes": 500000
+          },
+          "rules": [
+            {
+              "id": "tool_names_are_strings",
+              "text": "A tool whose YAML key is not a string (an unquoted off or yes) or whose entry is not a mapping is refused for that entry with a named cause and the rest of the file is read."
+            },
+            {
+              "id": "names_are_escaped",
+              "text": "A name holding \"%\", \".\" or \":\" is folded and then escaped in the key text as %25, %2E and %3A; the parser decodes them, so a tool named a.returns is the key tool:a%2Ereturns and nothing is refused for holding them."
+            },
+            {
+              "id": "returns_exists_only_with_a_string_type",
+              "text": "tool:X.returns exists only when descriptor.returns.type is a string; its fields are read either way."
+            },
+            {
+              "id": "bare_string_declares_nothing",
+              "text": "A returns or args value that is not a mapping declares nothing and is not refused."
+            },
+            {
+              "id": "args_fall_back_to_input_schema_properties",
+              "text": "Arguments come from descriptor.args; when that is empty, from descriptor.input_schema.properties."
+            },
+            {
+              "id": "entity_types_union",
+              "text": "world_state.entity_types is a mapping of name to body, or a list of names."
+            },
+            {
+              "id": "entity_fields_union",
+              "text": "An entity body lists fields as a mapping of name to spec, a list of names, or a list of mappings with a name."
+            },
+            {
+              "id": "error_channel_beside_the_descriptor",
+              "text": "error_channel (raises or returns) and error_channel_source sit on the tool entry beside descriptor, not inside it; error_channel_source takes plugin, trace, declared or inferred."
+            },
+            {
+              "id": "config_keys_are_declared",
+              "text": "Every config key is declared, with or without a citation, unless a *_source slot names another rung: returns.type_source sets the tier of the returns block, returns.fields.<f>.type_source and returns.item_fields.<f>.type_source that of its field, world_state.entity_types.<e>.fields.<f>.type_source that of an entity field, and error_channel_source that of the channel. A type_source is never part of the value. A key of the variables file with no source slot is inferred, and a PRD fact is prd."
+            },
+            {
+              "id": "item_fields_are_returns_fields",
+              "text": "descriptor.returns.item_fields, a mapping of name to spec (the fields of each item of a list return), declares tool:X.returns.field:<f> as returns.fields does, with item: true added to the value; returns.item_fields.<f>.type_source sets that field's tier and is never inherited from returns.type_source."
+            },
+            {
+              "id": "plugin_citation_is_a_plugin_decision",
+              "text": "A spec whose evidence cites plugin:<session or step> (alone or in a list) reads at the plugin tier with the source plugin, whatever *_source it names: the plugin decided the value."
+            },
+            {
+              "id": "out_of_vocabulary_source_is_absent",
+              "text": "A *_source value outside its vocabulary is read as absent (the default tier) and noted as an advisory, never as a finding."
+            },
+            {
+              "id": "facts_block_locator",
+              "text": "The typed block is the first fenced block under the level-two heading Agent facts (an optional \"<number>.\" or \"<number>)\" prefix, a hyphen for the space, a trailing colon, any case); it must be tagged yaml; the verbatim appendix is never read."
+            },
+            {
+              "id": "fact_key_shape",
+              "text": "A fact is agent_fact:<escape(fold(subject))>.fact:<escape(fold(predicate))> at the prd tier; a fact that is not a mapping or lacks a subject or predicate is refused with a named cause; the value is the fact's value field verbatim."
+            },
+            {
+              "id": "repeated_declaration_is_a_collision",
+              "text": "A key declared more than once inside one description (two names that fold together, a repeated subject and predicate) is a key_collision; both declarations stay as evidence."
+            },
+            {
+              "id": "serves_is_a_link",
+              "text": "A seam entry's serves list, with a serves_cite, links the seam to real tools of the config; it never restates the seam's args or error_channel under a served tool. Each served tool whose own entry declares no error_channel gets one tool:X.error_channel with no value at the inferred tier, once however many seams name it; a name that folds to the entry itself or to no tool of the config is dropped, and names that fold together are one."
+            }
+          ],
+          "spec_non_value_keys": [
+            "commit",
+            "description",
+            "evidence",
+            "function_last_changed",
+            "last_changed",
+            "scanned_at",
+            "type_source"
+          ]
+        },
+        "verdict_rules": {
+          "args": {
+            "applies_to": [
+              "tool:X.args.Y"
+            ],
+            "confirmed": "the argument was passed",
+            "contradicted": "an observed name that is not declared is an undeclared observation, never a verdict on a key",
+            "unseen": "never passed"
+          },
+          "closed_set": {
+            "applies_to": [
+              "a type key whose declared value lists members and is not open"
+            ],
+            "confirmed": "observed members are a subset; coverage is kept (3 of 5)",
+            "contradicted": "an observed member lies outside the set",
+            "unseen": "no member observed"
+          },
+          "error_channel": {
+            "applies_to": [
+              "tool:X.error_channel"
+            ],
+            "confirmed": "the observed channel (raises or returns) equals the declared one",
+            "contradicted": "it differs",
+            "unseen": "no error observed"
+          },
+          "observation_only": {
+            "applies_to": [
+              "entity:E",
+              "entity:E.state:S",
+              "agent_fact:S.fact:P"
+            ],
+            "confirmed": "never",
+            "contradicted": "never",
+            "unseen": "never; the observation is the share of units"
+          },
+          "open_set": {
+            "applies_to": [
+              "a type key whose declared members are open"
+            ],
+            "confirmed": "always; the observed set is a floor and members beyond the declared ones extend what is known",
+            "contradicted": "never",
+            "unseen": "no member observed"
+          },
+          "tool_called": {
+            "applies_to": [
+              "tool:X"
+            ],
+            "confirmed": "called at least once",
+            "contradicted": "never",
+            "unseen": "never called in a non-empty window"
+          },
+          "type": {
+            "applies_to": [
+              "tool:X.returns",
+              "tool:X.returns.field:Y",
+              "entity:E.field:F"
+            ],
+            "confirmed": "every observed type is one the declared type names, both read in the type vocabulary",
+            "contradicted": "an observed type is one the declared type does not name",
+            "unseen": "never observed",
+            "vocabulary": "a type is the set of its \"|\" alternatives (and Union[...] members), case-insensitive: json and json[X] read as str, and a declared json[X] (a JSON-encoded string whose payload is X) is also satisfied by an observed X; Literal[...] as the types of its values, which are also its members; list[...], List[...], tuple, Tuple[...] and Sequence[...] as list; dict[...], Dict[...] and Mapping[...] as dict; None, NoneType and Optional[X] add null. int satisfies float, and unknown matches anything. The declared spelling stays the kept value."
+          }
+        },
+        "version": 4
+      }
+    },
+    "input_channel_kinds": {
+      "note": "The closed `agent.io.channels[].kind` vocabulary, and per kind the scenario schedule that uses it (`schedule_of_kind`): `turn_inputs` items ride a user turn, `between_turn_actions` items change the world after the agent replies. A kind outside `kinds` is refused.",
+      "value": {
+        "kinds": [
+          "file_by_reference",
+          "structured_context",
+          "between_turn_action",
+          "host_injected_message"
+        ],
+        "schedule_of_kind": {
+          "between_turn_action": "between_turn_actions",
+          "file_by_reference": "turn_inputs",
+          "host_injected_message": "turn_inputs",
+          "structured_context": "turn_inputs"
+        }
+      }
+    },
+    "measurement_unclean_channels": {
+      "note": "The two clean flags kept apart: user-sim delivery anomalies and measurement breaches.",
+      "value": {
+        "measurement_breach_kinds": [
+          "policy_error",
+          "guard_error",
+          "target_check_error",
+          "unverified_criterion",
+          "turn_eval_error",
+          "uncelled_policy",
+          "unreadable_evidence",
+          "undelivered_input",
+          "undelivered_seed",
+          "unserved_record",
+          "judge_sample_error"
+        ],
+        "user_sim_anomaly_keys": [
+          "scripted_delivery_early",
+          "scripted_delivery_position_echoes",
+          "scripted_delivery_unreported",
+          "scripted_redelivery_turns",
+          "scripted_clamp_released",
+          "beats_unplayed_at_budget",
+          "premise_beat_early",
+          "premise_beat_redelivery_turns",
+          "premise_beats_undelivered",
+          "scripted_beats_undelivered",
+          "premise_beat_condition_contradicted",
+          "parse_fallback_turns",
+          "user_action_dropped",
+          "language_switch_dropped"
+        ],
+        "user_sim_anomaly_keys_are_exhaustive": false,
+        "user_sim_self_report_keys": [
+          "scripted_delivery_unresolved_reports",
+          "scripted_delivery_unchecked",
+          "beats_over_reported",
+          "premise_beat_unresolved_reports",
+          "beats_played_early",
+          "premise_beat_withheld_reports",
+          "premise_beat_redraws",
+          "premise_beat_redraws_unresolved",
+          "premise_beat_valve_released",
+          "scripted_delivery_valve_released",
+          "premise_plan_undecidable",
+          "scripted_delivery_withheld_match",
+          "scripted_delivery_withheld_reports",
+          "plan_exhausted_ledger_disagreement",
+          "scripted_redelivery_unreported",
+          "scripted_redelivery_unreported_beats",
+          "premise_beats_unnamed",
+          "premise_beats_withheld",
+          "premise_beats_unreported",
+          "premise_beats_reason_unknown",
+          "delivery_ledger_degraded",
+          "give_up_cause_unresolved",
+          "give_up_cause_uncorroborated",
+          "give_up_released_curtailing",
+          "padded_turns",
+          "premise_delivery_unreported",
+          "cue_unchecked"
+        ]
+      }
+    },
+    "message_shaped_bindings": {
+      "note": "Which sandbox bindings carry BaseMessage-shaped values.",
+      "value": [
+        "agent_messages",
+        "agent_messages_raw",
+        "chatbot_messages",
+        "messages",
+        "user_messages"
+      ]
+    },
+    "mock_envelope": {
+      "note": "Every shape a mocked call answers with, and per reader channel what it hands on: `model` (the tool return the model reads) and `typed_outputs` (a typed-output action). A view `returns` a value, passes the response `whole`, or `fails` with a message carrying `marker`. `drift` rows are shapes no backend writer emits that readers still meet. No row covers code channels.",
+      "value": [
+        {
+          "drift": false,
+          "envelope": {
+            "content": {
+              "k": "PLURAI_SELF_TEST_SUCCESS"
+            },
+            "message": "PLURAI_SELF_TEST_SIBLING",
+            "status": "success"
+          },
+          "id": "success_content_map",
+          "views": {
+            "model": {
+              "kind": "returns",
+              "value": {
+                "k": "PLURAI_SELF_TEST_SUCCESS"
+              }
+            },
+            "typed_outputs": {
+              "kind": "returns",
+              "value": {
+                "k": "PLURAI_SELF_TEST_SUCCESS"
+              }
+            }
+          }
+        },
+        {
+          "drift": false,
+          "envelope": {
+            "content": "PLURAI_SELF_TEST_TEXT",
+            "status": "success"
+          },
+          "id": "success_content_text",
+          "views": {
+            "model": {
+              "kind": "returns",
+              "value": "PLURAI_SELF_TEST_TEXT"
+            },
+            "typed_outputs": {
+              "kind": "fails",
+              "marker": "PLURAI_SELF_TEST_TEXT"
+            }
+          }
+        },
+        {
+          "drift": false,
+          "envelope": {
+            "message": "PLURAI_SELF_TEST_FAULT",
+            "status": "error"
+          },
+          "id": "error_message",
+          "views": {
+            "model": {
+              "kind": "fails",
+              "marker": "PLURAI_SELF_TEST_FAULT"
+            },
+            "typed_outputs": {
+              "kind": "fails",
+              "marker": "PLURAI_SELF_TEST_FAULT"
+            }
+          }
+        },
+        {
+          "drift": false,
+          "envelope": {
+            "_plurai_unregistered_tool": true,
+            "error": "PLURAI_SELF_TEST_REFUSED",
+            "status": "error",
+            "tool": "plurai_self_test"
+          },
+          "id": "engine_refusal",
+          "views": {
+            "model": {
+              "kind": "fails",
+              "marker": "PLURAI_SELF_TEST_REFUSED"
+            },
+            "typed_outputs": {
+              "kind": "fails",
+              "marker": "PLURAI_SELF_TEST_REFUSED"
+            }
+          }
+        },
+        {
+          "drift": false,
+          "envelope": {
+            "_plurai_handler_error": true,
+            "error": "PLURAI_SELF_TEST_HANDLER_ERROR"
+          },
+          "id": "handler_error",
+          "views": {
+            "model": {
+              "kind": "fails",
+              "marker": "PLURAI_SELF_TEST_HANDLER_ERROR"
+            },
+            "typed_outputs": {
+              "kind": "fails",
+              "marker": "PLURAI_SELF_TEST_HANDLER_ERROR"
+            }
+          }
+        },
+        {
+          "drift": false,
+          "envelope": {
+            "content": {
+              "k": "PLURAI_SELF_TEST_OUTCOME"
+            },
+            "message": "PLURAI_SELF_TEST_UNREAD",
+            "status": "error"
+          },
+          "id": "error_with_content",
+          "views": {
+            "model": {
+              "kind": "returns",
+              "value": {
+                "k": "PLURAI_SELF_TEST_OUTCOME"
+              }
+            },
+            "typed_outputs": {
+              "kind": "returns",
+              "value": {
+                "k": "PLURAI_SELF_TEST_OUTCOME"
+              }
+            }
+          }
+        },
+        {
+          "drift": true,
+          "envelope": {
+            "message": "PLURAI_SELF_TEST_BARE",
+            "status": "success"
+          },
+          "id": "contentless_success",
+          "views": {
+            "model": {
+              "kind": "whole"
+            },
+            "typed_outputs": {
+              "kind": "fails",
+              "marker": "PLURAI_SELF_TEST_BARE"
+            }
+          }
+        },
+        {
+          "drift": true,
+          "envelope": {
+            "content": {
+              "k": "PLURAI_SELF_TEST_DRIFTED_OUTCOME"
+            },
+            "message": "PLURAI_SELF_TEST_DRIFTED_STATUS",
+            "status": "failed"
+          },
+          "id": "drifted_status_with_content",
+          "views": {
+            "model": {
+              "kind": "fails",
+              "marker": "PLURAI_SELF_TEST_DRIFTED_STATUS"
+            },
+            "typed_outputs": {
+              "kind": "fails",
+              "marker": "PLURAI_SELF_TEST_DRIFTED_STATUS"
+            }
+          }
+        }
+      ]
+    },
+    "not_applicable_reasons": {
+      "note": "The reasons that make a policy result not_applicable rather than failed.",
+      "value": [
+        "mixed_not_applicable",
+        "not_applicable"
+      ]
+    },
+    "not_scored": {
+      "note": "Why a policy produced no score — the typed kinds plus the guard-skip prose reason.",
+      "value": {
+        "guard_skipped_reason": "guard-skipped — applicability_guard / flow_filter says it does not apply to this scenario (matching the live run)",
+        "kinds": [
+          "guard_skipped",
+          "turn_skipped_every_turn",
+          "no_agent_turns",
+          "turn_refused",
+          "guard_raised"
+        ]
+      }
+    },
+    "obligation_source_regression": {
+      "note": "The ledger row `source` of a recorded regression: its `owner` is the check that measures that folder's issue.",
+      "value": "regression"
+    },
+    "observation_lanes": {
+      "note": "The closed `tools.<name>.observation_lane` vocabulary, and per lane whether zero recorded calls is evidence the tool was not called (`absence_is_evidence`). A word outside `lanes` is refused, never read as observable.",
+      "value": {
+        "absence_is_evidence": {
+          "none": false,
+          "tool_events": true,
+          "tool_trail": true,
+          "tool_trail_cited": false
+        },
+        "lanes": [
+          "tool_events",
+          "tool_trail",
+          "tool_trail_cited",
+          "none"
+        ]
+      }
+    },
+    "quarantine_refusal_prefix": {
+      "note": "The prefix a thread refusal carries when the scenario was quarantined unsolvable.",
+      "value": "scenario_quarantined_unsolvable:"
+    },
+    "release_gate": {
+      "note": "The release gate vocabulary: the typed `remedy` values, the `block_causes` a block names per check, the `advisories` a named risk may carry (named, never blocking), the named-risk `kind`s and unproven `verdict`s, the reason-line prefix of the catastrophic rung, and the `payload_keys` of the published gate — `deterministic_losses` names the scenarios a positively deterministic, non-agent run fault voided (fix the env/mock, never `rerun`); it rides beside `remedy`, which is `fix_env_rerun_scenarios` when those losses (and the absent coverage they caused) are all that hold the gate. Two remedies are bounded, in-place repairs: `fix_env_rerun_scenarios` (fix the env/mock, then re-run only `rerun_scenarios`) and `replant_premise` (every coverage violation is an under-planted premise listed in `replant` as `{policy, complications, shortfall}`: top the set up with `shortfall` scenarios dealing those complications, then re-run only the new ones plus `rerun_scenarios`). `rerun_scenarios` is non-empty only for `rerun`, `fix_env_rerun_scenarios` and `replant_premise`. `fix_agent`: no scenario completed and every failure is the agent's own raise, so the absent coverage is the agent's (fix the agent, then re-run), never a rebuild.",
+      "value": {
+        "advisories": [
+          "catastrophic_risk_unprovable"
+        ],
+        "block_causes": [
+          "catastrophic_risk_unaccepted",
+          "gated_off",
+          "guard_never_armed",
+          "guard_unarmed_unattributed",
+          "hedge_lost_scenario",
+          "infra_unmeasured",
+          "judge_unanswered",
+          "judge_undecided",
+          "run_incomplete",
+          "under_measured",
+          "under_planted"
+        ],
+        "catastrophic_reason_prefix": "CATASTROPHIC RISK UNACCEPTED",
+        "named_risk_kinds": [
+          "contested_violation",
+          "coverage_by_declaration",
+          "coverage_limit",
+          "replay_carried",
+          "suite_defect",
+          "unproven",
+          "untested_premise"
+        ],
+        "payload_keys": [
+          "audit_sha",
+          "block_causes",
+          "blocking",
+          "catastrophic_unaccepted",
+          "coverage_status",
+          "deterministic_losses",
+          "loss_fault_classes",
+          "named_risks",
+          "provisional",
+          "provisional_cause",
+          "reasons",
+          "remedy",
+          "replant",
+          "rerun_scenarios",
+          "resolved_risks",
+          "rung_holds",
+          "stage",
+          "status",
+          "suite_defects",
+          "summary",
+          "trials"
+        ],
+        "remedies": [
+          "accept_risk",
+          "attribute_run",
+          "fix_agent",
+          "fix_env_rerun_scenarios",
+          "fix_instrument",
+          "rebuild_suite",
+          "replant_premise",
+          "rerun"
+        ],
+        "unproven_verdicts": [
+          "never_fails",
+          "never_measured",
+          "never_passes"
+        ]
+      }
+    },
+    "replay_cut_vocabulary": {
+      "note": "A single-hop regression replay: the `ended_early` reason a client sends on /finalize when it stopped after the turn under test, and the `not_measured_cause` an end-of-run cell carries when it abstained because of that cut. `trigger_absent`: the only two N/A shapes that mean the trigger did not arise on the replayed turn — the policy's `guard_suppressions` records are all of `guard_kind`, or its cell / turn entry has exactly this `inconclusive_reason`. Every other N/A measured nothing.",
+      "value": {
+        "cut_cause": "cut_at_issue_turn",
+        "ended_early": "replay_cut",
+        "trigger_absent": {
+          "guard_kind": "false",
+          "inconclusive_reason": "not_applicable"
+        }
+      }
+    },
+    "resume_seed_shape": {
+      "note": "The whole-seed rules a resume seed must satisfy, by id, with the rule-set version and the pin schema version. Authoring and the run-time loader both enforce every rule; a client mirror names the ids it implements.",
+      "value": {
+        "rules": {
+          "ends_on_completed_agent_turn": "After a trailing user message is lifted as the opener, the history is not empty and ends on an agent message, or on a run of tool results when a user message was lifted. Any other tail is refused.",
+          "message_ids_unique": "No two messages share an id.",
+          "open_call_ids_unique": "No tool call uses the id of an earlier call that has no result yet, whether both are in one agent message or in two.",
+          "seed_has_content": "At least one message carries text or a tool call.",
+          "tool_call_has_result": "Every tool call has a result in a later message.",
+          "tool_result_follows_its_call": "Every tool result answers a tool call that an earlier agent message makes.",
+          "tool_result_once": "A tool call takes one result: a second result for an answered call is refused. A later agent message that reuses the id makes a new call, which takes one more result.",
+          "tool_results_adjacent": "Every tool call's results directly follow the agent message that makes it: until each of its calls has a result, only tool results follow it.",
+          "tool_tail_closes_last_call": "A trailing run of tool results answers the agent message right before it: each tool call that message makes has exactly one result in the run, and the run answers no other call."
+        },
+        "rules_version": 2,
+        "schema_version": 2
+      }
+    },
+    "sampled_reply_outcomes": {
+      "note": "What score_sampled_replies returns per sampled reply (`outcomes`: caught = the owner FAILS it, missed = it passes it, not_measured = no verdict to read), the history-only `controls`, and how many replies one call takes. The rate is caught over the rows that are not not_measured.",
+      "value": {
+        "controls": [
+          "clean",
+          "history_red"
+        ],
+        "max_replies": 10,
+        "outcomes": [
+          "caught",
+          "missed",
+          "not_measured"
+        ],
+        "tool": "score_sampled_replies"
+      }
+    },
+    "sandbox_namespace": {
+      "note": "The code_eval sandbox namespace, read off the real evaluator. Same source as GET /sandbox-helpers.",
+      "value": {
+        "functions": [
+          "abs",
+          "after_step_turns",
+          "agent_reply",
+          "agent_voiced",
+          "all",
+          "answer_texts",
+          "any",
+          "balance",
+          "beat_delivered",
+          "beat_turn",
+          "beats_of_kind",
+          "bool",
+          "called_before",
+          "class_licensed",
+          "closed_class_checked",
+          "closed_classes",
+          "contains_script",
+          "contains_term",
+          "corpus_index_available",
+          "corpus_titles",
+          "corpus_url_licensed",
+          "corpus_urls",
+          "coverage",
+          "dict",
+          "dominant_script",
+          "effective_operation_types",
+          "entities_of_type",
+          "extract_claimed_actions",
+          "extract_urls",
+          "fact_forms",
+          "facts_with_identifier_values",
+          "failed_tool_calls",
+          "find_entity",
+          "float",
+          "head_of",
+          "hidden_rows",
+          "hidden_stat",
+          "int",
+          "iou",
+          "is_bool",
+          "is_dict",
+          "is_list",
+          "is_number",
+          "is_recovered",
+          "is_str",
+          "len",
+          "list",
+          "max",
+          "min",
+          "misresolved_titled_references",
+          "mutation_count",
+          "mutation_evidence_available",
+          "mutations",
+          "obliged_ledger_facts",
+          "operation_types",
+          "parse_json",
+          "partial_plural_writes",
+          "raw_error_replies",
+          "repeated_writes",
+          "reply_after_beat",
+          "reply_before_beat",
+          "reply_links",
+          "reply_measurable",
+          "reply_over_budget",
+          "reply_shape",
+          "reply_to_beat",
+          "require_script_measurable",
+          "require_tool_counts_measurable",
+          "retrieval_recall",
+          "revert_count",
+          "revision_count",
+          "round",
+          "script_measurable",
+          "script_share",
+          "seeded_entities_of_type",
+          "set",
+          "sorted",
+          "step_turns",
+          "str",
+          "successful_tool_calls",
+          "sum",
+          "title_index_available",
+          "titled_references",
+          "titled_references_measurable",
+          "tool_args_for",
+          "tool_call_count",
+          "tool_call_count_floor",
+          "tool_call_error_rate",
+          "tool_call_status",
+          "tool_call_succeeded",
+          "tool_calls_at_least",
+          "tool_counts_measurable",
+          "tool_failed",
+          "tool_output",
+          "tool_response_records",
+          "tool_response_values",
+          "tool_trail_observable",
+          "tool_value_leaked",
+          "tuple",
+          "typed_args",
+          "typed_events",
+          "typed_field",
+          "unlicensed_reply_urls",
+          "unlicensed_reply_values",
+          "unsourced_call_ids",
+          "url_matches",
+          "user_actions",
+          "written_entities_of_type",
+          "zero_effect_calls"
+        ],
+        "helper_reads": {
+          "after_step_turns": [
+            "delivered_beats",
+            "user_agent_step_info",
+            "chatbot_messages"
+          ],
+          "agent_reply": [
+            "chatbot_messages"
+          ],
+          "agent_voiced": [
+            "scenario_metadata",
+            "agent_messages"
+          ],
+          "answer_texts": [
+            "scenario_metadata",
+            "agent_messages"
+          ],
+          "beat_delivered": [
+            "delivered_beats",
+            "user_agent_step_info"
+          ],
+          "beat_turn": [
+            "delivered_beats",
+            "user_agent_step_info"
+          ],
+          "beats_of_kind": [
+            "delivered_beats",
+            "user_agent_step_info"
+          ],
+          "called_before": [
+            "tool_calls"
+          ],
+          "class_licensed": [
+            "scenario_metadata"
+          ],
+          "closed_class_checked": [
+            "scenario_metadata"
+          ],
+          "closed_classes": [
+            "scenario_metadata"
+          ],
+          "corpus_index_available": [
+            "scenario_metadata"
+          ],
+          "corpus_titles": [
+            "scenario_metadata"
+          ],
+          "corpus_url_licensed": [
+            "scenario_metadata"
+          ],
+          "corpus_urls": [
+            "scenario_metadata"
+          ],
+          "effective_operation_types": [
+            "tool_calls"
+          ],
+          "entities_of_type": [
+            "entities"
+          ],
+          "fact_forms": [
+            "scenario_metadata"
+          ],
+          "facts_with_identifier_values": [
+            "scenario_metadata"
+          ],
+          "failed_tool_calls": [
+            "tool_calls"
+          ],
+          "find_entity": [
+            "entities"
+          ],
+          "head_of": [
+            "entities"
+          ],
+          "hidden_rows": [
+            "initial_world_state"
+          ],
+          "hidden_stat": [
+            "initial_world_state"
+          ],
+          "misresolved_titled_references": [
+            "scenario_metadata"
+          ],
+          "mutation_count": [
+            "tool_calls"
+          ],
+          "mutation_evidence_available": [
+            "tool_calls"
+          ],
+          "mutations": [
+            "tool_calls"
+          ],
+          "obliged_ledger_facts": [
+            "scenario_metadata"
+          ],
+          "operation_types": [
+            "tool_calls"
+          ],
+          "partial_plural_writes": [
+            "entities",
+            "initial_world_state",
+            "tool_calls"
+          ],
+          "repeated_writes": [
+            "tool_calls"
+          ],
+          "reply_after_beat": [
+            "delivered_beats",
+            "user_agent_step_info",
+            "chatbot_messages"
+          ],
+          "reply_before_beat": [
+            "delivered_beats",
+            "user_agent_step_info",
+            "chatbot_messages"
+          ],
+          "reply_to_beat": [
+            "delivered_beats",
+            "user_agent_step_info",
+            "chatbot_messages"
+          ],
+          "require_tool_counts_measurable": [
+            "tool_calls"
+          ],
+          "retrieval_recall": [
+            "tool_calls"
+          ],
+          "revert_count": [
+            "tool_calls"
+          ],
+          "revision_count": [
+            "tool_calls"
+          ],
+          "seeded_entities_of_type": [
+            "initial_world_state"
+          ],
+          "step_turns": [
+            "delivered_beats",
+            "user_agent_step_info",
+            "chatbot_messages"
+          ],
+          "successful_tool_calls": [
+            "tool_calls"
+          ],
+          "title_index_available": [
+            "scenario_metadata"
+          ],
+          "tool_args_for": [
+            "tool_calls"
+          ],
+          "tool_call_count": [
+            "tool_calls"
+          ],
+          "tool_call_count_floor": [
+            "tool_calls"
+          ],
+          "tool_call_error_rate": [
+            "tool_calls"
+          ],
+          "tool_call_status": [
+            "tool_calls"
+          ],
+          "tool_call_succeeded": [
+            "tool_calls"
+          ],
+          "tool_calls_at_least": [
+            "tool_calls"
+          ],
+          "tool_counts_measurable": [
+            "tool_calls"
+          ],
+          "tool_response_records": [
+            "tool_calls"
+          ],
+          "tool_response_values": [
+            "tool_calls"
+          ],
+          "tool_trail_observable": [
+            "tool_calls"
+          ],
+          "tool_value_leaked": [
+            "tool_calls"
+          ],
+          "typed_events": [
+            "tool_calls"
+          ],
+          "unlicensed_reply_urls": [
+            "scenario_metadata",
+            "agent_messages"
+          ],
+          "unlicensed_reply_values": [
+            "scenario_metadata",
+            "agent_messages"
+          ],
+          "unsourced_call_ids": [
+            "tool_calls"
+          ],
+          "written_entities_of_type": [
+            "entities",
+            "initial_world_state"
+          ],
+          "zero_effect_calls": [
+            "tool_calls"
+          ]
+        },
+        "names": [
+          "agent_messages",
+          "agent_messages_raw",
+          "agent_state",
+          "agent_states",
+          "chatbot_agent_step_info",
+          "chatbot_messages",
+          "ctx",
+          "delivered_beats",
+          "dialog_outcome",
+          "entities",
+          "final_step",
+          "final_world_state",
+          "initial_world_state",
+          "knowledge_plan",
+          "messages",
+          "metadata",
+          "pipeline_error",
+          "pipeline_inputs",
+          "pipeline_outputs",
+          "scenario_metadata",
+          "step_info",
+          "tool_calls",
+          "tool_events",
+          "top_level_tool_calls",
+          "turn_tool_events",
+          "user_agent_step_info",
+          "user_messages"
+        ],
+        "names_by_scope": {
+          "agent_messages": {
+            "end_to_end": "populated",
+            "turn_based": "populated"
+          },
+          "agent_messages_raw": {
+            "end_to_end": "populated",
+            "turn_based": "populated"
+          },
+          "agent_state": {
+            "end_to_end": "populated",
+            "turn_based": "populated"
+          },
+          "agent_states": {
+            "end_to_end": "populated",
+            "turn_based": "empty"
+          },
+          "chatbot_agent_step_info": {
+            "end_to_end": "empty",
+            "turn_based": "empty"
+          },
+          "chatbot_messages": {
+            "end_to_end": "populated",
+            "turn_based": "populated"
+          },
+          "ctx": {
+            "end_to_end": "empty",
+            "turn_based": "empty"
+          },
+          "delivered_beats": {
+            "end_to_end": "populated",
+            "turn_based": "populated"
+          },
+          "dialog_outcome": {
+            "end_to_end": "populated",
+            "turn_based": "empty"
+          },
+          "entities": {
+            "end_to_end": "populated",
+            "turn_based": "empty"
+          },
+          "final_step": {
+            "end_to_end": "populated",
+            "turn_based": "constant_false"
+          },
+          "final_world_state": {
+            "end_to_end": "populated",
+            "turn_based": "empty"
+          },
+          "initial_world_state": {
+            "end_to_end": "populated",
+            "turn_based": "empty"
+          },
+          "knowledge_plan": {
+            "end_to_end": "populated",
+            "turn_based": "populated"
+          },
+          "messages": {
+            "end_to_end": "populated",
+            "turn_based": "populated"
+          },
+          "metadata": {
+            "end_to_end": "populated",
+            "turn_based": "populated"
+          },
+          "pipeline_error": {
+            "end_to_end": "partial",
+            "turn_based": "empty"
+          },
+          "pipeline_inputs": {
+            "end_to_end": "partial",
+            "turn_based": "empty"
+          },
+          "pipeline_outputs": {
+            "end_to_end": "partial",
+            "turn_based": "empty"
+          },
+          "scenario_metadata": {
+            "end_to_end": "populated",
+            "turn_based": "populated"
+          },
+          "step_info": {
+            "end_to_end": "empty",
+            "turn_based": "empty"
+          },
+          "tool_calls": {
+            "end_to_end": "populated",
+            "turn_based": "empty"
+          },
+          "tool_events": {
+            "end_to_end": "populated",
+            "turn_based": "empty"
+          },
+          "top_level_tool_calls": {
+            "end_to_end": "populated",
+            "turn_based": "empty"
+          },
+          "turn_tool_events": {
+            "end_to_end": "empty",
+            "turn_based": "partial"
+          },
+          "user_agent_step_info": {
+            "end_to_end": "populated",
+            "turn_based": "populated"
+          },
+          "user_messages": {
+            "end_to_end": "populated",
+            "turn_based": "populated"
+          }
+        }
+      }
+    },
+    "scan_fact_kinds": {
+      "note": "The scan-contract fact kinds.",
+      "value": [
+        "absence",
+        "asserted",
+        "behavioural",
+        "count",
+        "existence"
+      ]
+    },
+    "suite_finding_severities": {
+      "note": "Suite-finding severity vocabulary, in ranked order (NOT alphabetical).",
+      "value": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "summary_truncation_marker": {
+      "note": "What score_run appends when it truncates a summary — matched verbatim by readers.",
+      "value": " …[truncated — full text via summary=False]"
+    },
+    "trace_failure_heading": {
+      "note": "The heading a trace-scenario bundle folder's ROLES.md opens on, and the opening rule (pattern + re flags) the backend matches it with: a leading byte-order mark and whitespace are allowed, and only the opening counts.",
+      "value": {
+        "flags": 32,
+        "heading": "## Trace failure:",
+        "opening_pattern": "\\A\\ufeff?\\s*\\#\\#\\ Trace\\ failure:"
+      }
+    },
+    "transport_failure_pattern": {
+      "note": "Transport-failure prose on the trail lane, as pattern + re flags. END-ANCHORED; a copy without the anchor over-counts.",
+      "value": {
+        "flags": 34,
+        "pattern": "(?:\\b(?:fetch|request|connection|connect|socket|lookup|dns)\\s+(?:failed|error|refused|reset|timed\\s+out)|\\b(?:econnrefused|econnreset|enotfound|etimedout|ehostunreach|epipe)|\\b(?:service\\s+unavailable|bad\\s+gateway|gateway\\s+time-?out|internal\\s+server\\s+error))\\s*[.!]?\\s*$"
+      }
+    },
+    "verdict_axis": {
+      "note": "THE VERDICT CONTRACT as a vocabulary: the cell statuses (wire + pre-demotion) and the inconclusive_reason sets that decide which axis a cell rolls up on. own_axis_reasons are the ones OUTSIDE inconclusive_count (deferred among them); unreproduced stays inside it; any other reason is the hedge bucket.",
+      "value": {
+        "deferred_reasons": [
+          "deferred"
+        ],
+        "exclusive_reasons": [
+          "deferred",
+          "not_measured",
+          "unreproduced_across_attempts"
+        ],
+        "not_applicable_reasons": [
+          "mixed_not_applicable",
+          "not_applicable"
+        ],
+        "not_measured_reasons": [
+          "not_measured"
+        ],
+        "own_axis_reasons": [
+          "deferred",
+          "mixed_not_applicable",
+          "not_applicable",
+          "not_measured"
+        ],
+        "pre_demotion_statuses": [
+          "not_applicable"
+        ],
+        "statuses": [
+          "success",
+          "error",
+          "inconclusive"
+        ],
+        "unreproduced_reasons": [
+          "unreproduced_across_attempts"
+        ]
+      }
+    },
+    "world_snapshot_keys": {
+      "note": "Reserved in-entity keys of a world snapshot. `unreadable`: {field: \"<ExcClass>: <message>\"} for fields whose read raised (the field is None).",
+      "value": {
+        "unreadable": "_unreadable"
+      }
+    }
+  },
+  "contracts_version": 1,
+  "summary": "32 contract blocks, each read live off the backend symbol that owns it — vendor them, do not retype them. Blocks absent here are not defined by this backend."
+}

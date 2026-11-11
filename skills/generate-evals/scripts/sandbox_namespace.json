@@ -1,0 +1,458 @@
+{
+  "functions": [
+    "abs",
+    "after_step_turns",
+    "agent_reply",
+    "agent_voiced",
+    "all",
+    "answer_texts",
+    "any",
+    "balance",
+    "beat_delivered",
+    "beat_turn",
+    "beats_of_kind",
+    "bool",
+    "called_before",
+    "class_licensed",
+    "closed_class_checked",
+    "closed_classes",
+    "contains_script",
+    "contains_term",
+    "corpus_index_available",
+    "corpus_titles",
+    "corpus_url_licensed",
+    "corpus_urls",
+    "coverage",
+    "dict",
+    "dominant_script",
+    "effective_operation_types",
+    "entities_of_type",
+    "extract_claimed_actions",
+    "extract_urls",
+    "fact_forms",
+    "facts_with_identifier_values",
+    "failed_tool_calls",
+    "find_entity",
+    "float",
+    "head_of",
+    "hidden_rows",
+    "hidden_stat",
+    "int",
+    "iou",
+    "is_bool",
+    "is_dict",
+    "is_list",
+    "is_number",
+    "is_recovered",
+    "is_str",
+    "len",
+    "list",
+    "max",
+    "min",
+    "misresolved_titled_references",
+    "mutation_count",
+    "mutation_evidence_available",
+    "mutations",
+    "obliged_ledger_facts",
+    "operation_types",
+    "parse_json",
+    "partial_plural_writes",
+    "raw_error_replies",
+    "repeated_writes",
+    "reply_after_beat",
+    "reply_before_beat",
+    "reply_links",
+    "reply_measurable",
+    "reply_over_budget",
+    "reply_shape",
+    "reply_to_beat",
+    "require_script_measurable",
+    "require_tool_counts_measurable",
+    "retrieval_recall",
+    "revert_count",
+    "revision_count",
+    "round",
+    "script_measurable",
+    "script_share",
+    "seeded_entities_of_type",
+    "set",
+    "sorted",
+    "step_turns",
+    "str",
+    "successful_tool_calls",
+    "sum",
+    "title_index_available",
+    "titled_references",
+    "titled_references_measurable",
+    "tool_args_for",
+    "tool_call_count",
+    "tool_call_count_floor",
+    "tool_call_error_rate",
+    "tool_call_status",
+    "tool_call_succeeded",
+    "tool_calls_at_least",
+    "tool_counts_measurable",
+    "tool_failed",
+    "tool_output",
+    "tool_response_records",
+    "tool_response_values",
+    "tool_trail_observable",
+    "tool_value_leaked",
+    "tuple",
+    "typed_args",
+    "typed_events",
+    "typed_field",
+    "unlicensed_reply_urls",
+    "unlicensed_reply_values",
+    "unsourced_call_ids",
+    "url_matches",
+    "user_actions",
+    "written_entities_of_type",
+    "zero_effect_calls"
+  ],
+  "helper_reads": {
+    "after_step_turns": [
+      "delivered_beats",
+      "user_agent_step_info",
+      "chatbot_messages"
+    ],
+    "agent_reply": [
+      "chatbot_messages"
+    ],
+    "agent_voiced": [
+      "scenario_metadata",
+      "agent_messages"
+    ],
+    "answer_texts": [
+      "scenario_metadata",
+      "agent_messages"
+    ],
+    "beat_delivered": [
+      "delivered_beats",
+      "user_agent_step_info"
+    ],
+    "beat_turn": [
+      "delivered_beats",
+      "user_agent_step_info"
+    ],
+    "beats_of_kind": [
+      "delivered_beats",
+      "user_agent_step_info"
+    ],
+    "called_before": [
+      "tool_calls"
+    ],
+    "class_licensed": [
+      "scenario_metadata"
+    ],
+    "closed_class_checked": [
+      "scenario_metadata"
+    ],
+    "closed_classes": [
+      "scenario_metadata"
+    ],
+    "corpus_index_available": [
+      "scenario_metadata"
+    ],
+    "corpus_titles": [
+      "scenario_metadata"
+    ],
+    "corpus_url_licensed": [
+      "scenario_metadata"
+    ],
+    "corpus_urls": [
+      "scenario_metadata"
+    ],
+    "effective_operation_types": [
+      "tool_calls"
+    ],
+    "entities_of_type": [
+      "entities"
+    ],
+    "fact_forms": [
+      "scenario_metadata"
+    ],
+    "facts_with_identifier_values": [
+      "scenario_metadata"
+    ],
+    "failed_tool_calls": [
+      "tool_calls"
+    ],
+    "find_entity": [
+      "entities"
+    ],
+    "head_of": [
+      "entities"
+    ],
+    "hidden_rows": [
+      "initial_world_state"
+    ],
+    "hidden_stat": [
+      "initial_world_state"
+    ],
+    "misresolved_titled_references": [
+      "scenario_metadata"
+    ],
+    "mutation_count": [
+      "tool_calls"
+    ],
+    "mutation_evidence_available": [
+      "tool_calls"
+    ],
+    "mutations": [
+      "tool_calls"
+    ],
+    "obliged_ledger_facts": [
+      "scenario_metadata"
+    ],
+    "operation_types": [
+      "tool_calls"
+    ],
+    "partial_plural_writes": [
+      "entities",
+      "initial_world_state",
+      "tool_calls"
+    ],
+    "repeated_writes": [
+      "tool_calls"
+    ],
+    "reply_after_beat": [
+      "delivered_beats",
+      "user_agent_step_info",
+      "chatbot_messages"
+    ],
+    "reply_before_beat": [
+      "delivered_beats",
+      "user_agent_step_info",
+      "chatbot_messages"
+    ],
+    "reply_to_beat": [
+      "delivered_beats",
+      "user_agent_step_info",
+      "chatbot_messages"
+    ],
+    "require_tool_counts_measurable": [
+      "tool_calls"
+    ],
+    "retrieval_recall": [
+      "tool_calls"
+    ],
+    "revert_count": [
+      "tool_calls"
+    ],
+    "revision_count": [
+      "tool_calls"
+    ],
+    "seeded_entities_of_type": [
+      "initial_world_state"
+    ],
+    "step_turns": [
+      "delivered_beats",
+      "user_agent_step_info",
+      "chatbot_messages"
+    ],
+    "successful_tool_calls": [
+      "tool_calls"
+    ],
+    "title_index_available": [
+      "scenario_metadata"
+    ],
+    "tool_args_for": [
+      "tool_calls"
+    ],
+    "tool_call_count": [
+      "tool_calls"
+    ],
+    "tool_call_count_floor": [
+      "tool_calls"
+    ],
+    "tool_call_error_rate": [
+      "tool_calls"
+    ],
+    "tool_call_status": [
+      "tool_calls"
+    ],
+    "tool_call_succeeded": [
+      "tool_calls"
+    ],
+    "tool_calls_at_least": [
+      "tool_calls"
+    ],
+    "tool_counts_measurable": [
+      "tool_calls"
+    ],
+    "tool_response_records": [
+      "tool_calls"
+    ],
+    "tool_response_values": [
+      "tool_calls"
+    ],
+    "tool_trail_observable": [
+      "tool_calls"
+    ],
+    "tool_value_leaked": [
+      "tool_calls"
+    ],
+    "typed_events": [
+      "tool_calls"
+    ],
+    "unlicensed_reply_urls": [
+      "scenario_metadata",
+      "agent_messages"
+    ],
+    "unlicensed_reply_values": [
+      "scenario_metadata",
+      "agent_messages"
+    ],
+    "unsourced_call_ids": [
+      "tool_calls"
+    ],
+    "written_entities_of_type": [
+      "entities",
+      "initial_world_state"
+    ],
+    "zero_effect_calls": [
+      "tool_calls"
+    ]
+  },
+  "names": [
+    "agent_messages",
+    "agent_messages_raw",
+    "agent_state",
+    "agent_states",
+    "chatbot_agent_step_info",
+    "chatbot_messages",
+    "ctx",
+    "delivered_beats",
+    "dialog_outcome",
+    "entities",
+    "final_step",
+    "final_world_state",
+    "initial_world_state",
+    "knowledge_plan",
+    "messages",
+    "metadata",
+    "pipeline_error",
+    "pipeline_inputs",
+    "pipeline_outputs",
+    "scenario_metadata",
+    "step_info",
+    "tool_calls",
+    "tool_events",
+    "top_level_tool_calls",
+    "turn_tool_events",
+    "user_agent_step_info",
+    "user_messages"
+  ],
+  "names_by_scope": {
+    "agent_messages": {
+      "end_to_end": "populated",
+      "turn_based": "populated"
+    },
+    "agent_messages_raw": {
+      "end_to_end": "populated",
+      "turn_based": "populated"
+    },
+    "agent_state": {
+      "end_to_end": "populated",
+      "turn_based": "populated"
+    },
+    "agent_states": {
+      "end_to_end": "populated",
+      "turn_based": "empty"
+    },
+    "chatbot_agent_step_info": {
+      "end_to_end": "empty",
+      "turn_based": "empty"
+    },
+    "chatbot_messages": {
+      "end_to_end": "populated",
+      "turn_based": "populated"
+    },
+    "ctx": {
+      "end_to_end": "empty",
+      "turn_based": "empty"
+    },
+    "delivered_beats": {
+      "end_to_end": "populated",
+      "turn_based": "populated"
+    },
+    "dialog_outcome": {
+      "end_to_end": "populated",
+      "turn_based": "empty"
+    },
+    "entities": {
+      "end_to_end": "populated",
+      "turn_based": "empty"
+    },
+    "final_step": {
+      "end_to_end": "populated",
+      "turn_based": "constant_false"
+    },
+    "final_world_state": {
+      "end_to_end": "populated",
+      "turn_based": "empty"
+    },
+    "initial_world_state": {
+      "end_to_end": "populated",
+      "turn_based": "empty"
+    },
+    "knowledge_plan": {
+      "end_to_end": "populated",
+      "turn_based": "populated"
+    },
+    "messages": {
+      "end_to_end": "populated",
+      "turn_based": "populated"
+    },
+    "metadata": {
+      "end_to_end": "populated",
+      "turn_based": "populated"
+    },
+    "pipeline_error": {
+      "end_to_end": "partial",
+      "turn_based": "empty"
+    },
+    "pipeline_inputs": {
+      "end_to_end": "partial",
+      "turn_based": "empty"
+    },
+    "pipeline_outputs": {
+      "end_to_end": "partial",
+      "turn_based": "empty"
+    },
+    "scenario_metadata": {
+      "end_to_end": "populated",
+      "turn_based": "populated"
+    },
+    "step_info": {
+      "end_to_end": "empty",
+      "turn_based": "empty"
+    },
+    "tool_calls": {
+      "end_to_end": "populated",
+      "turn_based": "empty"
+    },
+    "tool_events": {
+      "end_to_end": "populated",
+      "turn_based": "empty"
+    },
+    "top_level_tool_calls": {
+      "end_to_end": "populated",
+      "turn_based": "empty"
+    },
+    "turn_tool_events": {
+      "end_to_end": "empty",
+      "turn_based": "partial"
+    },
+    "user_agent_step_info": {
+      "end_to_end": "populated",
+      "turn_based": "populated"
+    },
+    "user_messages": {
+      "end_to_end": "populated",
+      "turn_based": "populated"
+    }
+  },
+  "summary": "27 variables (names) + 109 functions; names_by_scope and helper_reads say what is live per evaluation_scope — read all four blocks"
+}

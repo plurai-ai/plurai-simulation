@@ -1,0 +1,105 @@
+# Example eval_intent.yaml — what the customer cares about evaluating.
+#
+# This is ONE illustrative agent: a hypothetical catalogue-copy pipeline
+# that writes product listings, each tagged with a category from a
+# caller-supplied list. Every field name below (listings, categories,
+# count, Title/Category/Blurb, the category vocabulary) belongs to THIS
+# made-up agent —
+# they are NOT canonical, and neither are the PRD headings the
+# traced_to entries cite. Replace them wholesale with your agent's real
+# input/output field names and your real PRD sections; keep only the
+# SHAPE (schema / axes / failure_modes / traced_to / preferences). The
+# backend SKILL reads this verbatim as the primary source-of-truth when
+# authoring policies_config.yaml.
+#
+# The shape is plurai-eval-intent/2, typed by
+# references/eval_intent_schema.json and explained by
+# references/eval_intent_schema.md — which is the OWNER of the rules.
+# v1 (goals / must_catch / custom_metrics) is still READ and no longer
+# authored; the schema doc's migration note says how one converts.
+#
+# Power-user path: hand-edit this file rather than running
+# /extract-eval-intent. The SKILL's only job is to populate this shape
+# from PRD + scenario_variables + 3-4 targeted questions.
+
+schema: plurai-eval-intent/2
+
+axes:
+  # ONE axis, THREE failure modes — this is the folding the schema is for.
+  # All three are the same claim about the same surface, so they are one
+  # judge carrying three obligations, not three judges.
+  - id: batch_contract
+    axis: a returned batch that does not match the batch that was asked for
+    surface: pipeline
+    failure_modes:
+      - id: count_mismatch
+        describes: >-
+          len(pipeline_outputs.listings) differs from
+          pipeline_inputs.count — fewer is a silent shortfall, more is a
+          contract violation
+        traced_to:
+          - source: prd
+            ref: "## Writing a batch"
+            quote: "The agent returns exactly the number of listings the caller requested."
+      - id: category_outside_list
+        describes: >-
+          a listing's Category does not appear in the declared
+          pipeline_inputs.categories list
+        traced_to:
+          - source: prd
+            ref: "## Categories"
+            quote: "Categories are drawn from the caller-supplied list; the agent never invents one."
+      - id: blank_required_field
+        describes: >-
+          a listing in listings has a missing or whitespace-only
+          Title, Category or Blurb — a stub like {Title: "", Category: "A"}
+          counts as a failure even though Category is legal
+        traced_to:
+          - source: prd
+            ref: "## Listing shape"
+            quote: "Every listing carries a non-empty Title, Category and Blurb."
+
+  - id: category_distribution
+    axis: a batch that collapses onto one or two categories instead of covering the list
+    surface: pipeline
+    notes: >-
+      Continuous, not boolean — a 7/1 split between two expected categories is a
+      failure of degree, and a boolean threshold hides how bad it got.
+    failure_modes:
+      - id: distribution_collapse
+        describes: >-
+          coverage(actual_categories, expected_categories) * balance(actual_categories)
+          — geometric mean — falls below 0.5 over listings
+        traced_to:
+          - source: customer
+            ref: "the 3rd interview question — 'batches keep coming back all one category'"
+
+  - id: out_of_scope_handling
+    axis: listings produced for a request the agent should have refused
+    surface: reply
+    failure_modes:
+      - id: generates_instead_of_refusing
+        describes: >-
+          the request names a category outside the configured list and
+          the agent returns listings anyway, rather than declining
+        traced_to:
+          - source: prd
+            ref: "## Scope"
+            quote: "Requests outside the configured categories are declined, with the reason stated."
+
+  - id: claimed_output
+    axis: a claim about the batch that the batch itself does not support
+    surface: reply
+    failure_modes:
+      - id: overstates_batch_size
+        describes: >-
+          the reply states a produced count that is larger than
+          len(listings) in the same pipeline output
+        catcher: partial_fabrication
+        traced_to:
+          - source: scan
+            ref: "finding: the summary line is composed by the model, not read back from the output"
+
+preferences:
+  rejection_handling: "score zero on inapplicable scenarios, don't vacuously pass"
+  metric_shapes: "continuous preferred for distribution metrics (use metric_type=float, not boolean)"

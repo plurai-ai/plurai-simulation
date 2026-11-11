@@ -1,0 +1,199 @@
+# generated from example_scenario_state_schema.yaml of the simulation-setup skill; edit the source and run sync_shared_text.py --write
+# example_scenario_state_schema.yaml — the shape of plurai_sim/scenario_state_schema.yaml.
+#
+# WHEN YOU NEED THIS. Normally the backend GENERATES this file during /generate-mock-env and you
+# copy it down verbatim. But env-gen is skipped for an all-real / tool-less / pipeline agent, and
+# those agents can still need agent-context preconditions — so on that branch you hand-author those,
+# and this is the reference shape. Its entity blocks, when the config declares world types, are
+# written by `extract-scenario-variables/scripts/world_schema.py`, never by hand.
+#
+# It is transcribed from the loader that parses it (the backend
+# `env_generator/initial_state/loader.py`, `load_initial_state_definition`), so the keys below are
+# the keys that are actually READ. Anything else is silently discarded: the loader now warns about
+# unrecognised keys, but a warning you never look at is not a contract. Two spellings that look
+# obvious and do NOTHING:
+#
+#   * `properties:` / `additional_properties:`  — JSON-Schema vocabulary. This file is NOT JSON
+#                         Schema. To give an object field a typed sub-field contract use
+#                         `item_specs`, below.
+#
+# (`default_value:` is NOT one of these. It is inert in the env-gen loader that parses entities,
+#  but LIVE at sim time — scenario_loader backfills a missing required field from it. Keep it.)
+#
+# Getting that wrong is not a soft failure. A field declared `precondition: true` whose type
+# resolves to an object with no declared sub-fields is UNSATISFIABLE in both directions —
+# populated it is rejected as an unexpected property, empty it fails the precondition — and it
+# cost two whole generation batches before the loader learned to refuse it at load time.
+
+# ── Entities ─────────────────────────────────────────────────────────────────────────────────
+# The seeded world state: rows the backend creates so the agent's tools have something to read.
+# One top-level block per entity type. OMIT this section entirely only for a bench that declares no
+# world type (see `consumes_world_state` at the bottom); tool mode never decides it.
+
+product:
+  # Presence-required fields. A field can also be marked required inside its own spec.
+  required_fields: [sku, title, price]
+  field_specs:
+    sku: {type: string, description: "Catalog SKU, e.g. 5019243"}
+    title: {type: string}
+    price: {type: number, description: "Shekels, VAT included"}
+    in_stock: {type: boolean}
+    # `enum` constrains the permitted values; `constraints` carries free-text rules the
+    # generator and the validator both read.
+    availability: {type: string, enum: [in_stock, backorder, discontinued]}
+    # The inline list a `seeds:` block targets (see onboarding_answers below). A seed target
+    # must be DECLARED as a list of records whose item contract names every field the seed
+    # produces — the backend refuses the schema in `building_graph` otherwise.
+    notes:
+      type: "list[dict]"
+      item_fields: [question, answer, answer_id]
+  invariants:
+    - "price > 0"
+    - "in_stock implies availability != 'discontinued'"
+
+order:
+  required_fields: [id, sku, status]
+  field_specs:
+    id: {type: string}
+    sku: {type: string, description: "References product.sku"}
+    status: {type: string, constraints: ["enum: pending|shipped|delivered"]}
+  invariants:
+    - "sku must reference an existing product"
+
+# ── Agent context ────────────────────────────────────────────────────────────────────────────
+# NOT world state: the values the agent is handed at the start of the conversation — the current
+# page, the signed-in user, the output of a prior onboarding flow.
+#
+# Recognised keys, and nothing else:
+#   type          the type expression (see the grammar below)
+#   description   free text; reaches the authoring prompt
+#   required      JSON-schema PRESENCE. Satisfied by an empty value ([] or {}).
+#   precondition  stronger: must arrive NON-EMPTY. Use for state a prior flow produced and the
+#                 agent genuinely depends on. Distinct from `required` — that is the whole point.
+#   item_specs    per-sub-field TYPED contract for an object or list-of-object field. Prefer this.
+#                 It also OUTRANKS item_fields wherever the backend reads a field's sub-keys.
+#   item_fields   bare sub-field NAMES, untyped (any scalar) and optional. Prefer item_specs.
+#   ground_from   {entity_type: <Entity>, field_map?: {...}, coerce?: {...}} — the rows this
+#                 field's values must be drawn from. A bare string is silently ignored.
+#   seeds         mirror these rows onto a HEAD entity's inline list (see the seeds: block below).
+#   default_value inert HERE, but read at SIM time to backfill a missing required field.
+#   generated_document  {format: txt|html|pdf|image|email|docx|xlsx|pptx|..., brief?: "..."} —
+#                 author a realistic document per scenario and fold it into this field (see
+#                 /generate-scenarios). format is open-ended, not a closed list: txt/html/pdf/
+#                 image/email are the mature Playwright-rendered formats; docx/xlsx/pptx (and any
+#                 other extension your agent's own reader expects) are authored directly by a
+#                 generic office/other-format session and validated by opening the result with a
+#                 matching library where one exists. Use the plural `formats: [pdf, docx, xlsx]`
+#                 instead of a single `format` when the agent accepts more than one — the scenario
+#                 generator then picks one per scenario (mix formats across a suite) via a
+#                 per-scenario `document_formats:` pick, rather than fixing one format set-wide.
+#                 A generated document is handed over by the simulated USER, so it is always
+#                 declared with `owner: user`.
+#   inject        REQUIRED. Where the wire delivers this field's value: `request` (spread into
+#                 the turn-1 payload, and handed to seed_state as param 1), `store` (rows
+#                 mirrored into the world the mock and seed_state param 2 serve), or a list of
+#                 both. `seeds:` routes to `store`, so declare it. A live schema
+#                 (`consumes_world_state: false`) may use `request` only — its store is empty.
+#   owner         `host` (default) = session context the product supplies; `user` = something
+#                 the simulated user hands over, and the user simulator is told it carries it.
+#
+# Type grammar: `string` `integer` `number` `boolean` `dict` `object`
+#               `list[str]` `list[dict]` `list[<EntityName>]` `str | null` `enum[a,b,c]`
+# A bare `<EntityName>` cross-references that entity's full field contract.
+
+agent_context_fields:
+  # Simple scalars.
+  user_id: {type: string, required: true, inject: request}
+  locale: {type: string, description: "BCP-47, e.g. he-IL", inject: request}
+
+  # A USER-OWNED DOCUMENT. WHERE it lands is Step 6.5's wire rule, which has two arms: the
+  # turn-1 payload by default, or a `file` content part on the turn the scenario hands it over.
+  # THIS file is SET-level and the beat is per-scenario, so the timing is not declarable here.
+  # `owner: user` is what tells the user simulator it is carrying the document, so it can answer
+  # questions about what the document says; `generated_document` without it is refused.
+  receipt_document:
+    type: string
+    description: "The delivery receipt the customer attached."
+    inject: request
+    owner: user
+    generated_document: {format: image, brief: "a signed delivery receipt — recipient, order number, date, signature"}
+
+  # AN OBJECT FIELD. This is the one that goes wrong. `type: dict` alone resolves to an object
+  # that permits NO properties — fine for a genuinely free-form bag, fatal the moment you also
+  # mark it required or a precondition. `item_specs` is what gives it a satisfiable contract.
+  #
+  # It is also the worked GROUNDED-OBJECT shape (the `ground_from` pair at the bottom). A dict
+  # field's projected entity fields are MERGED OVER the authored dict, so identity comes from the
+  # real row while page_type/url — which the narrative owns — survive. `field_map` is what SCOPES
+  # that merge to the identity keys: the backend reads it FIRST, and falls back to the field's declared
+  # sub-keys only without one — taking those from `item_specs` in PREFERENCE to `item_fields`, so
+  # an `item_fields` list beside an `item_specs` block is never read and every declared key is
+  # projected over the scenario's own prose. Declare `ground_from` only when a corpus exists, and
+  # author the opening around the entity it pins (first_talk / scenario_target must name it — the
+  # backend warns "Author the opening around <token>" when they do not).
+  page_context:
+    type: dict
+    inject: request
+    precondition: true          # the shopper is ALREADY on a product page when the dialog opens
+    description: "The catalog row the shopper is currently viewing."
+    item_specs:
+      page_type: {type: string, enum: [product, category, search, home]}
+      sku: {type: "str | null"}
+      title: {type: "str | null"}
+      price: {type: "number | null"}
+      url: {type: "str | null"}
+    # <agent_context key>: <entity field> — identity ONLY, never page_type/url.
+    ground_from: {entity_type: product, field_map: {sku: sku, title: title, price: price}}
+
+  # A LIST-OF-OBJECT field, same idea one level down.
+  recently_viewed:
+    type: "list[dict]"
+    inject: request
+    description: "Rows the shopper looked at earlier in the session."
+    item_specs:
+      sku: {type: string}
+      viewed_at: {type: string}
+
+  # A SCALAR-list field whose values must come from real seeded rows rather than being invented
+  # (the object shape is `page_context` above — it grounds per key and needs scoping).
+  cart_skus:
+    type: "list[str]"
+    inject: request
+    # ground_from is a MAPPING keyed `entity_type` (+ optional `field_map` / `coerce`).
+    # A bare entity name is skipped SILENTLY — the field then grounds nothing.
+    ground_from: {entity_type: product, field_map: {sku: sku}}
+
+  # `seeds:` mirrors declared rows onto the HEAD entity's inline list — where the agent's own
+  # storage reads them — deterministically, after the extractor runs. Only for the case where the
+  # agent reads its state from inside another entity rather than from a table of its own.
+  onboarding_answers:
+    type: "list[dict]"
+    # `seeds:` below puts the rows in the store; they also ride the turn-1 payload.
+    inject: [request, store]
+    precondition: true
+    item_specs:
+      question: {type: string}
+      answer: {type: string}
+    seeds:
+      target: product.notes
+      # generate_id names the FIELD to mint an id into; `true` would write a literal True key.
+      generate_id: answer_id
+
+# ── Sibling blocks (neither entities nor agent context) ──────────────────────────────────────
+
+# Tool → the verbs its operations count as. Consumed by the code_eval factory via scenario
+# metadata. Optional.
+tool_verbs:
+  update_cart: [added, removed, updated]
+  place_order: [ordered, purchased]
+
+# Does the agent READ the world state the Plurai backend seeds?
+#
+# `false` is the no-world declaration: the config declares no world type (a RAG, tool-less or pure
+# live-read agent), so seeded rows would be invisible to the agent and seeding them would be phantom
+# state. A declared harness-owned world is `true`: its harness seeds the rows. It is also what
+# makes the entity blocks OPTIONAL — an entity-free schema is accepted only when this is
+# explicitly false, so that a schema which merely FORGOT its entities still fails loudly.
+#
+# Omit it (or set true) for a mocked agent, and declare at least one entity.
+consumes_world_state: true

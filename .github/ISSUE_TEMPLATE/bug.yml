@@ -1,0 +1,70 @@
+name: Bug report
+description: A skill, hook or script of the plugin failed or behaved differently from what the documentation says.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Plurai clients send no telemetry, so what you paste here is all support has. Run `/plurai-diagnose` in your
+        harness and paste its output below: it holds versions, presence flags and ids, never a token or a file from your
+        project. Look it over before you post it.
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: The version in the plugin manifest, printed by `/plurai-diagnose`.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: sdk-version
+    attributes:
+      label: SDK version
+      description: Output of `plurai --version`, or "not installed".
+    validations:
+      required: true
+  - type: dropdown
+    id: harness
+    attributes:
+      label: Harness
+      description: The coding agent the plugin runs in.
+      options:
+        - Claude Code
+        - Codex
+        - GitHub Copilot
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 15.1 arm64"
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Output of `python3 --version`.
+    validations:
+      required: true
+  - type: input
+    id: command-run-id
+    attributes:
+      label: Command run id
+      description: The `Command run id` line of the bundle, or the id the failing command printed. Leave empty if there is none.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what you expected
+      description: The command or skill you ran and the message it printed. Remove anything private first.
+    validations:
+      required: true
+  - type: textarea
+    id: bundle
+    attributes:
+      label: Output of `/plurai-diagnose`
+      render: text
+    validations:
+      required: true

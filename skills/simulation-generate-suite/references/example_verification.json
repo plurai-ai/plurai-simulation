@@ -1,0 +1,54 @@
+{
+  "schema": "plurai-bench-verification/1",
+  "ran_at": "2026-10-06T09:15:00Z",
+  "plugin_version": "0.54.3",
+  "mode": "reverify",
+  "results": [
+    {
+      "id": "verify_config",
+      "status": "verified",
+      "evidence": "verify_config: plurai.config.yaml satisfies the backend contract."
+    },
+    {
+      "id": "verify_simulate",
+      "status": "verified",
+      "evidence": "verify_simulate: no findings."
+    },
+    {
+      "id": "lint_prd",
+      "status": "failed",
+      "reason": "simulation_prd.md cites a tool the config does not declare.",
+      "evidence": "lint_prd: 1 error(s) · citations: 12 resolved, 1 broken"
+    },
+    {
+      "id": "verify_prd_appendix",
+      "status": "reused",
+      "reason": "unchanged since the last verified run"
+    },
+    {
+      "id": "smoke_init",
+      "status": "verified",
+      "evidence": "smoke: Init returned in 2.1s"
+    },
+    {
+      "id": "smoke_turn",
+      "status": "not_run",
+      "reason": "timed out after 120s",
+      "attempted": true,
+      "cause": "timeout"
+    },
+    {
+      "id": "scan_contract",
+      "status": "not_run",
+      "reason": "deselected by --only",
+      "attempted": false,
+      "cause": "deselected"
+    }
+  ],
+  "fields": {
+    "agent.entry": "verified",
+    "harness": "not_run",
+    "sources": "failed",
+    "surfaces.agent_context": "declared_only"
+  }
+}
