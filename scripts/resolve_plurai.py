@@ -103,7 +103,7 @@ except ImportError:  # a copy run outside the plugin decodes its children as the
 #: resolver accepts exactly this release: an older SDK lacks what the skills call, and a newer one is a build
 #: nobody tested the skills against. A release is `X.Y.Z`. A rehearsal build of the plugin pins one pre-release of
 #: it (`X.Y.ZrcN`) and accepts that pre-release alone, so `1.0.0` is refused while `1.0.0rc1` is pinned.
-PINNED_SDK_VERSION = '1.0.1'
+PINNED_SDK_VERSION = '1.0.2'
 
 #: The PyPI distribution that carries the `plurai` command line.
 SDK_DISTRIBUTION = 'plurai-simulation-sdk'
