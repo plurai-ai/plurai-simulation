@@ -1,6 +1,6 @@
 {
   "name": "plurai-simulation",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Set up Plurai simulation for any AI agent. Analyzes agent code, stubs production dependencies, patches the agent's tool bindings with mock-aware interception, and generates simulate.py.",
   "author": {
     "name": "Plurai AI",
@@ -22,7 +22,7 @@
       "url": "${PLURAI_URL:-https://sandbox.plurai.ai/v1}/mcp",
       "headers": {
         "Authorization": "Bearer ${PLURAI_TOKEN:-}",
-        "X-Plurai-Client": "plurai-simulation/1.0.5"
+        "X-Plurai-Client": "plurai-simulation/1.0.6"
       },
       "headersHelper": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/credentials.py\" --headers"
     }

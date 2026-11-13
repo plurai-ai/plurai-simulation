@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.0.6]
+
+- The plugin installs SDK 1.0.3: the browser sign-in now waits an hour instead of five minutes, so a first-time sign-up no longer times out.
+
 ## [1.0.5]
 
 - The plugin installs SDK 1.0.2. With `anonymize: true` set, uploads no longer replace dates and times, durations, web addresses, company names, order numbers or SKUs with hash tokens. Personal identifiers (names, emails, phone numbers, account, card and ID numbers, IP addresses), places and nationality, religion or political group are still scrubbed. Knowledge files and scenario bundles uploaded under the old rule keep their tokens until you upload them again.

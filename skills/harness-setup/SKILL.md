@@ -180,7 +180,7 @@ Plurai support.`
    two differ by design, so do not mention it.
 
 4. Wait for the job to end, the way the harness waits on a background command (it reports the end, or you read the job
-   until it does). The job ends by itself when the login finishes, fails or times out after five minutes; never stop it.
+   until it does). The job ends by itself when the login finishes, fails or times out after an hour; never stop it.
    Then read its output:
 
    - A line of its output reads `Logged in to Plurai.`: the login succeeded; tell the user that line. The lines after it
@@ -205,7 +205,8 @@ Plurai support.`
 
    If the harness cannot tell you whether the job has ended (a new turn after the wait, or a wait the harness gave up
    on), run the status command of step 1 once instead: a `key:` line other than the one step 1 showed means the login
-   finished.
+   finished; an unchanged one (or still none) means no new login is saved yet, so wait for the job again and read its
+   output as above.
 
 **The backend check.** Every path that reaches step 5 or step 6 runs this first: a login that just succeeded, or a login
 that step 1 found. It makes one request and needs no Plurai tool, so it reads the backend's answer on a plugin whose
