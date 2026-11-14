@@ -2612,6 +2612,33 @@ def not_loaded_tools(production: Dict[str, Any]) -> Set[str]:
     return {str(n) for group in production.get('not_loaded') or [] if isinstance(group, dict) for n in group.get('names') or []}
 
 
+def pause_tool(root: Path, site: str, trees: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """The tool whose definition holds the pause at ``site`` (``path:line`` under ``root``, as `production_tools.pauses`
+    records it): the innermost enclosing def or class that is a tool, named as `collect_tools` names it. None when no
+    tool encloses it or the file does not parse. ``trees`` caches each file's parse across one caller's sites. Read at
+    validate time and never stored, so `digest` does not move."""
+    rel, _, line = site.rpartition(':')
+    if not line.isdigit():
+        return None
+    trees = {} if trees is None else trees
+    if rel not in trees:
+        try:
+            tree = ast.parse((root / rel).read_text(encoding='utf-8'))
+            trees[rel] = (tree, _module_strings(tree))
+        except (OSError, SyntaxError, UnicodeDecodeError, ValueError):
+            trees[rel] = None
+    if trees[rel] is None:
+        return None
+    tree, consts = trees[rel]
+    lineno = int(line)
+    enclosing = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                 and n.lineno <= lineno <= n.end_lineno]
+    for node in sorted(enclosing, key=lambda n: n.lineno, reverse=True):
+        if (name := _py_tool_name(node, consts)) is not None:
+            return name
+    return None
+
+
 def production_coverage(production: Dict[str, Any], present: Set[str], overrides: Optional[List[Any]] = None) -> Dict[str, Any]:
     """How much of the production set (C3) ``present`` (a map's tools, a live tool set) accounts for: ``{total,
     carried, dropped, exempt}``. ``dropped`` are the production tools ``present`` lacks that neither an operator's

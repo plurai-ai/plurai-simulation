@@ -675,7 +675,9 @@ Fill all of these before generation, from what you just read — never from a gu
   `surfaces.production_tools.not_loaded` group (`because`: `default_off_switch` / `provider_variant` /
   `separate_surface`, citing the other route / CLI / MCP server). A world precondition is never a reason: seed
   it. An `operator_answer:<id>` waiver needs a recorded question `<id>` naming that input; the map approval waives
-  no input, and never drops an `agent.io` kind or a render verb the agent ships (`input_scope_cut`).
+  no input, and never drops an `agent.io` kind or a render verb the agent ships (`input_scope_cut`); a recorded
+  pause the agent cannot reach gets a `surfaces.pauses[]` waiver (`source`, `waived: {because, cite}`) citing the
+  evidence (its graph, its live tool list).
 - `surfaces.agent_context.finding` — the search that established the agent needs no turn-0 state
   from a caller or a prior flow, quoted, or `null` when it does need one (the honest `ungoverned`).
   An invented finding closes the check with a claim nobody made. `null` with no `agent_context`

@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.0.7]
+
+- The scan no longer blocks on a pause for the user's answer that the agent cannot reach (for example an `interrupt()` in another agent's tool, imported only through a package). Waive it in the bench manifest's `surfaces.pauses[]` with a reason and a cite. The scan writes that waiver itself when the agent's graph and live tool list show the pause is unreachable. A pause in the agent's own entry module or in a tool it loads still has to be declared in `render_actions:`.
+
 ## [1.0.6]
 
 - The plugin installs SDK 1.0.3: the browser sign-in now waits an hour instead of five minutes, so a first-time sign-up no longer times out.

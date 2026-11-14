@@ -1257,10 +1257,64 @@ def _dotted_name(node: ast.AST) -> str:
 NEVER_RECEIVED = ('not_reachable_in_production', 'internal_field', 'tool_argument', 'transport_only', 'harness_session_state')
 
 
-def input_scope_cut_findings(doc: dict[str, Any], inventory: dict[str, Any], config: dict[str, Any]) -> list[str]:
+def _live_tools(doc: dict[str, Any], inventory: dict[str, Any]) -> set[str]:
+    """Every tool on a live tool list: the manifest's `production_tools.live` and the inventory's."""
+    production = doc['surfaces'].get('production_tools')
+    lists = (production if isinstance(production, dict) else {}, inventory.get('production_tools') or {})
+    return {str(n) for p in lists for n in p.get('live') or []}
+
+
+def _pause_file(source: str) -> str:
+    """The file of a pause site: ``<path>:<line>`` or ``<path>`` alone, the line dropped (as `_source_key` drops it)."""
+    path, _, line = source.rpartition(':')
+    return path if line.isdigit() else source
+
+
+def _pause_waiver_problem(entry: dict[str, Any], site: str, doc: dict[str, Any], inventory: dict[str, Any], workdir: Path,
+                          live: set[str], root: Path | None, trees: dict[str, Any]) -> str | None:
+    """Why a `surfaces.pauses[]` waiver of the pause at ``site`` does not hold, or None: an operator answer (it waives
+    an input, never a pause), any `_waiver_problem`, or a pause the agent does reach: one in an entry module, or inside
+    a tool (`agent_inventory.pause_tool`) on the ``live`` tool list."""
+    waived = entry.get('waived')
+    if isinstance(waived, dict) and str(waived.get('because') or '').strip().startswith(OPERATOR_ANSWER):
+        return f'is waived because {str(waived["because"]).strip()!r}: an operator answer waives an input, never a pause'
+    if problem := _waiver_problem(entry, workdir, doc):
+        return problem
+    because = str(waived['because']).strip()
+    if (path := _pause_file(site)) in {str(s) for s in inventory.get('seeds') or []}:
+        return f'is waived {because}, yet it sits in the entry module {path}, which the agent runs'
+    if not live:
+        return None
+    if root is None:
+        return 'is waived, and the agent\'s root does not resolve, so the tool around the pause cannot be read'
+    if (tool := agent_inventory.pause_tool(root, site, trees)) in live:
+        return f'is waived {because}, yet its tool `{tool}` is on the live tool list'
+    return None
+
+
+def _waived_pauses(pauses: list[str], doc: dict[str, Any], inventory: dict[str, Any], workdir: Path) -> tuple[set[str], list[str]]:
+    """``(waived, refused)``: the pauses a `surfaces.pauses[]` entry waives, and why each other waiver of a recorded
+    pause is refused (`_pause_waiver_problem`). A waiver names the file (`<path>` or `<path>:<line>`), so it covers
+    every recorded pause in it; the guard still runs per pause."""
+    declared = {_pause_file(str(e.get('source') or '')): e for e in doc['surfaces']['pauses'] if isinstance(e, dict)}
+    live = _live_tools(doc, inventory)
+    root = Path(inventory['root']) if live and inventory.get('root') else None
+    trees: dict[str, Any] = {}
+    waived: set[str] = set()
+    refused: list[str] = []
+    for site in (p for p in pauses if _pause_file(p) in declared):
+        if problem := _pause_waiver_problem(declared[_pause_file(site)], site, doc, inventory, workdir, live, root, trees):
+            refused.append(f'the surfaces.pauses[] waiver of {site} {problem}')
+        else:
+            waived.add(site)
+    return waived, refused
+
+
+def input_scope_cut_findings(doc: dict[str, Any], inventory: dict[str, Any], config: dict[str, Any], workdir: Path) -> list[str]:
     """`input_scope_cut`: the config declares less than the agent ships. A content part the reader finds the agent
     takes (an image, a file, an upload by reference no channel models) that `agent.io.input` lacks, unless every input of that kind is waived for a reason the
-    agent never receives it; and a pause for the user's answer (a card the UI renders) with no `render_actions:` verb.
+    agent never receives it; and a pause for the user's answer (a card the UI renders) with no `render_actions:` verb,
+    unless a `surfaces.pauses[]` entry waives it (`_waived_pauses`, which reads the agent's root off ``inventory['root']``).
     A scope approval is no such reason: an out-of-harness channel is a `coverage_holes[]` entry and the input is still
     modelled or refused."""
     io = _io_declaration(config)
@@ -1281,9 +1335,16 @@ def input_scope_cut_findings(doc: dict[str, Any], inventory: dict[str, Any], con
                         f'agent.io.input declares {sorted(declared)}; declare the part and model it, or waive each input for a reason the '
                         'agent never receives it (a scope approval is none: an out-of-harness channel is a coverage_holes[] entry)')
     verbs = config.get('render_actions')
-    if (pauses := (inventory.get('production_tools') or {}).get('pauses')) and not (isinstance(verbs, list) and verbs):
-        findings.append(f'input_scope_cut: the agent pauses for the user\'s answer ({", ".join(str(p) for p in pauses[:3])}), a card the UI renders, '
-                        'and render_actions: declares no verb for it; return it on agent_actions and list the verb (or `interrupt`)')
+    pauses = [] if isinstance(verbs, list) and verbs else [str(p) for p in (inventory.get('production_tools') or {}).get('pauses') or []]
+    refused: list[str] = []
+    if pauses and doc['surfaces'].get('pauses'):
+        cleared, refused = _waived_pauses(pauses, doc, inventory, workdir)
+        pauses = [p for p in pauses if p not in cleared]
+    if pauses:
+        findings.append(f'input_scope_cut: the agent pauses for the user\'s answer ({", ".join(pauses[:3])}), a card the UI renders, '
+                        f'and render_actions: declares no verb for it{"; " + "; ".join(refused) if refused else ""}. Either return the verb on '
+                        'agent_actions and list it in render_actions: (or `interrupt`), or, for a pause the agent cannot reach, waive it in '
+                        'surfaces.pauses[] with a reason and a cite at the agent line that shows it')
     return findings
 
 
@@ -1306,7 +1367,7 @@ def _inventory_findings(doc: dict[str, Any], workdir: Path) -> list[str]:
         f'production_tool_dropped: artifacts/{agent_inventory.INVENTORY_FILENAME} is absent or not the agent\'s current reading, so the map, '
         f'lint_prd and this check would read different inventories; {INVENTORY_REMEDY}']
     findings += input_channel_findings(doc, inventory, config, workdir) + production_tool_findings(doc, inventory, workdir)
-    findings += input_scope_cut_findings(doc, inventory, config)
+    findings += input_scope_cut_findings(doc, {**inventory, 'root': fresh['root']}, config, workdir)  # this machine's root, never a stored one
     return findings + production_inventory_findings(doc, config, workdir) + harness_pin_findings(doc, workdir)
 
 

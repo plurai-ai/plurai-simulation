@@ -395,6 +395,29 @@
               }
             }
           }
+        },
+        "pauses": {
+          "type": "array",
+          "description": "a file of recorded pauses (production_tools.pauses) the agent never reaches, waived with a typed reason and the agent line that shows it. Refused for a pause in an entry module, or inside a tool on a live tool list (input_scope_cut)",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source", "waived"],
+            "properties": {
+              "source": {"type": "string", "minLength": 1, "description": "<path> (or <path>:<line>) of the pause as production_tools.pauses records it: the waiver names the file and covers every recorded pause in it"},
+              "waived": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["because", "cite"],
+                "description": "why the AGENT never reaches this pause (bench_manifest.WAIVER_BECAUSE). What the harness drives or chooses is never a reason (input_scope_cut)",
+                "properties": {
+                  "because": {"enum": ["not_reachable_in_production", "internal_field", "tool_argument", "transport_only", "harness_session_state"]},
+                  "cite": {"type": "string", "minLength": 1, "description": "<path>:<line> in the agent's own files (never plurai_sim/) that shows it: its graph, its live tool list"},
+                  "detail": {"type": "string"}
+                }
+              }
+            }
+          }
         }
       }
     },
