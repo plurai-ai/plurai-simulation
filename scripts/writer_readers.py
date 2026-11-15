@@ -639,23 +639,22 @@ def _live_corpus_reads(config: dict[str, Any], corpus: frozenset[str]) -> list[s
     return [n for n in sorted(corpus) if n in tools and read_side(tools[n], served=False) != MOCK_WORLD]
 
 
-def index_over_simulated(config: dict[str, Any], topology: dict[str, Any] | None, corpus: frozenset[str],
-                         workdir: Path) -> dict[str, str]:
+def index_over_simulated(config: dict[str, Any], topology: dict[str, Any] | None, corpus: frozenset[str]) -> dict[str, str]:
     """{tool: why it is part of a simulated store, not reference content}. The map's `grounding.records_of` types what each
     retrieval surface returns: the `world_state.entity_types` type whose rows its hits are, or null when no world type holds
     it (reference content: a playbook, regulations, runbooks). When the run simulates a store (:func:`unconfirmed_store_tools`
-    non-empty), each live corpus read must be typed there, and one typed with a declared world type is an index over records
-    each scenario seeds: part of that store, mocked with it. A `.knowledge_bases` tool the config mocks keeps
-    a corpus scenario generation plants questions from, which its seeded answers never hold."""
-    tools = _tools(config)
+    non-empty, or a corpus tool mocked over a store it names), each live corpus read must be typed there, and one typed with a
+    declared world type is an index over records each scenario seeds: part of that store, mocked with it."""
     grounding = topology.get('grounding') if isinstance(topology, dict) else None
     records_of = grounding.get('records_of') if isinstance(grounding, dict) else None
     records_of = records_of if isinstance(records_of, dict) else {}
     world_state = config.get('world_state') if isinstance(config, dict) else None
     types = world_state.get('entity_types') if isinstance(world_state, dict) else None
     types = set(types) if isinstance(types, dict) else set()
+    tools = _tools(config)
+    mocked_corpus = any(n in tools and mode(tools[n]) == 'mock' and _names_store(_descriptor(tools[n]).get('reads_from')) for n in corpus)
     found: dict[str, str] = {}
-    if unconfirmed_store_tools(config, corpus):
+    if unconfirmed_store_tools(config, corpus) or mocked_corpus:
         for name in _live_corpus_reads(config, corpus):
             value = records_of.get(name, ...)
             if value is ...:
@@ -667,12 +666,4 @@ def index_over_simulated(config: dict[str, Any], topology: dict[str, Any] | None
                 found[name] = f'`{value}` is no declared `world_state.entity_types` type'
             elif value is not None:
                 found[name] = f'records of `{value}`'
-    try:
-        bases = json.loads((workdir / '.knowledge_bases').read_text(encoding='utf-8'))
-    except (OSError, ValueError):
-        bases = None
-    for base in bases if isinstance(bases, list) else ():
-        name = str(base.get('tool') or '') if isinstance(base, dict) else ''
-        if name in tools and mode(tools[name]) == 'mock':
-            found.setdefault(name, 'mocked, yet `.knowledge_bases` keeps its corpus')
     return found

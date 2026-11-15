@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.0.8]
+
+- A knowledge base stays attached when its search tool is mocked: the scan no longer fails a mocked retrieval tool for keeping its knowledge base, and the suite no longer drops a base because its own search tool returns the corpus's documents. A project where an earlier version detached a knowledge base re-attaches it by re-running `/simulation-generate-suite`.
+
 ## [1.0.7]
 
 - The scan no longer blocks on a pause for the user's answer that the agent cannot reach (for example an `interrupt()` in another agent's tool, imported only through a package). Waive it in the bench manifest's `surfaces.pauses[]` with a reason and a cite. The scan writes that waiver itself when the agent's graph and live tool list show the pause is unreachable. A pause in the agent's own entry module or in a tool it loads still has to be declared in `render_actions:`.

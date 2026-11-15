@@ -759,8 +759,8 @@ Four rules, and they cost nothing to follow:
         computed against moved;
       - the **corpus was rebuilt** (a new `corpus_id`, or `/edit-env` re-authored answer-affecting
         content) — the facts being matched are not the facts that were matched;
-      - the `dropped` × `ground_from:` re-check below fires, which is the one case that changes the
-        verdict without changing any of the above.
+      - the `dropped` × `ground_from:` re-check below fires, or a `dropped` rests on the base's own
+        tool (below) — the two cases that change the verdict without changing any of the above.
       Anything else — a new operator, a fresh session, a differently-worded request — is not an
       invalidation. Say which of these you checked; "the cached line still holds" is only a
       statement if you looked.
@@ -792,6 +792,12 @@ Four rules, and they cost nothing to follow:
       facts into the PRD instead. This is decidable right now from `output_fields` and the
       corpus's own field list — it costs nothing here, and a scored run plus a review pass to
       discover later.
+
+      **A base's own retrieval tool is not an ordinary tool.** The tool an entry names under
+      `tool` in `.knowledge_bases` is that corpus's surface, mocked or live: document text it
+      returns counts toward `match`/`degrades`, never `dropped`. A recorded `dropped` that rests
+      on the base's own tool is re-derived, and its entry's `knowledge_planning` /
+      `dropped_reason` are cleared unless the re-derived verdict is again `dropped`.
 
       **RECORD THE VERDICT — every verdict, not only a drop.** The check above is the most
       consequential judgement in this step and it left no trace at all: the next run re-derived
@@ -851,8 +857,8 @@ Four rules, and they cost nothing to follow:
       PY
       ```
 
-      `knowledge_planning` / `dropped_reason` are bookkeeping keys like `kb_id` and `tool` — the
-      backend consumes only `corpus_ids` + `label` and discards the rest, so they are inert on
+      `knowledge_planning` / `dropped_reason` are bookkeeping keys like `kb_id` — the backend
+      consumes `corpus_ids`, `label` and `tool` and discards the rest, so they are inert on
       the wire and load-bearing on disk. Say the drop and its reason in the round's notes too,
       but the manifest is what the next run actually reads. Re-record the same entries into the
       env manifest when this repo uses named envs (the `env_manifest.py write

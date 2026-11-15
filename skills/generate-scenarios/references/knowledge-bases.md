@@ -47,7 +47,9 @@ answerability verdict DROPPED — nothing it holds is realizable through this ag
 and its `dropped_reason` says why. It is marked rather than deleted because the corpus is a
 real backend artifact other flows still reference, which means the entry is still sitting
 there looking usable: read past it. Passing it re-plants knowledge turns that were already
-established as structurally unanswerable, and buys the same dead slots again.
+established as structurally unanswerable, and buys the same dead slots again. A base marked
+`off` because of its own retrieval tool is re-derived by `/simulation-generate-suite`'s corpus
+check.
 
 **But "no knowledge QUESTIONS" is not "no corpus" — check `scenario_state_schema.yaml` for
 `ground_from:` before you detach anything.** A corpus has two independent uses: planting

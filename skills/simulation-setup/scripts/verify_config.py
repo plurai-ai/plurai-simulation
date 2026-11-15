@@ -3730,14 +3730,14 @@ def _check_store_confirmation(config: dict[str, Any], workdir: Path, topology: d
             'them live: reference content stays real; an index over the records that store holds is not reference content.'))
         for var, tools in writer_readers.unnamed_live_reads(config, topology, corpus, answers).items()
     ]
-    if over := writer_readers.index_over_simulated(config, topology, corpus, workdir):
+    if over := writer_readers.index_over_simulated(config, topology, corpus):
         findings.append(Finding(severity='fail', code=Code.INDEX_OVER_SIMULATED_RECORDS, skill_step='Step 2a', message=(
             f'{"; ".join(f"{tool} ({why})" for tool, why in sorted(over.items()))}: a search over the records of a type the run '
             'simulates is part of that store, not reference content. Type each retrieval surface in the map\'s '
             '`grounding.records_of`: the `world_state.entity_types` type whose rows its hits are, or null when no world type '
             'holds what it returns (a playbook, regulations, runbooks). Map one over a simulated type `mocked` with its store '
             '(`reads_from` that store, `returns` declared), so it answers from each scenario\'s seeded rows, and drop it from '
-            '`grounding.surfaces`, `records_of` and `.knowledge_bases`.')))
+            '`grounding.surfaces` and `records_of`.')))
     egress = config.get('egress')
     discovery = egress.get('discovery') if isinstance(egress, dict) else None
     if isinstance(discovery, dict) and discovery.get('status') == 'none_discovered' and (
