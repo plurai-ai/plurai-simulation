@@ -121,7 +121,7 @@ import corpus_coordinate  # noqa: E402 - sibling script: all three corpus marker
 import deliverables  # noqa: E402 - sibling script: which run is THE scored run is read there
 import harness_fingerprint  # noqa: E402 - sibling script: the workdir cascade and the fingerprint live there
 import release_verdict  # noqa: E402 - sibling script: the rung and the report banner read one verdict there
-from release_verdict import NOT_QUALIFIED, QUALIFIED, VALIDATED  # noqa: E402
+from release_verdict import NOT_QUALIFIED, QUALIFIED  # noqa: E402
 
 PIN = '.eval_lane_pin.json'
 
@@ -875,8 +875,6 @@ def _repoint(args: argparse.Namespace, reason: str) -> int:
     # staleness above cannot carry this: the repair loop declares `run-superseded` on every rescore
     # round, so by the time `relink` runs the reason is usually already taken and `setdefault` keeps
     # it — which left the only tell that adoption was REFUSED invisible to every later reader.
-    # Measured before this line existed: write -> stale(run-superseded) -> relink -> anchor printed
-    # `Suite: validated` with "the gated set was adopted", over a pin recording a relink.
     pin['set_lineage'] = lineage
     _rewrite(workdir, pin)
     # The reason RECORDED, never the one this verb wanted: `setdefault` keeps a prior declaration,
@@ -942,8 +940,9 @@ def _loop_passes(art: Path, run_dir: Path | None) -> tuple[str, str, str, str, l
     the loop log, never asserted. Each is read off its own typed kind: a red-cell audit is not a
     critic pass, and an unresolved landing block is counted, never read out of prose.
 
-    The blocking count is the LIVE one (`release_verdict.blocking_split` against `run_dir`, the scored run): an eval
-    entry the final run re-checked no longer counts, and the line then says how many were recorded at landing.
+    The blocking count is the LIVE one (`release_verdict.blocking_split` against `run_dir`, the scored run): a released
+    entry (an eval the final run re-checked, our own tooling) no longer counts, and the line then says how many were
+    recorded at landing.
 
     The loop log is the round's own record and the only place a pass leaves a trace, so both
     numbers come off it. Every way it can fail to answer becomes a LIMITATION line rather than a
@@ -1039,13 +1038,13 @@ def _loop_entries(art: Path) -> list:
 
 def _blocking_line(live: list, released: list) -> str:
     """`<live count>[ (<their surfaces>; remedy <their remedies>)]` (`release_verdict.remedies`: what the hand-off's Next
-    line reads), plus how many were recorded at landing once the final run released any."""
+    line reads), plus how many were recorded at landing once any was released."""
     surfaces = ', '.join(sorted({e.surface or UNKNOWN for e, _, _ in live}))
     held = f'{surfaces}; remedy {release_verdict.remedies(live)}'
     if not released:
         return f'{len(live)}' + (f' ({held})' if live else '')
     checked = f'{len(live) + len(released)} recorded at landing; '
-    checked += ('' if not live else f'{len(released)} ') + 're-checked on the final run: no longer affects the results'
+    checked += ('' if not live else f'{len(released)} ') + 'released: caps at qualified, not the floor'
     return f'{len(live)} (' + (f'{held}; ' if live else '') + checked + ')'
 
 
@@ -1295,7 +1294,7 @@ RELINKED_RUNG = 'Suite: qualified (ungated set)'
 #: tests that reconcile it against `hooks/anchors.json` and against the recipe's ladder derive the
 #: set instead of hand-listing it — a hand-list stays green for a rung added as an inline literal,
 #: which is the same inert-mechanism shape this file exists to close.
-RUNGS: tuple[str, ...] = (VALIDATED, QUALIFIED, NOT_QUALIFIED, RELINKED_RUNG)
+RUNGS: tuple[str, ...] = (QUALIFIED, NOT_QUALIFIED, RELINKED_RUNG)
 
 
 def blocking_unresolved(art: Path, run_dir: Path | None) -> int | None:
@@ -1332,8 +1331,8 @@ def licensed_anchor(pin: dict | None, *, release_gate: dict | None, blocking_unr
     `blocking_unresolved` (:func:`blocking_unresolved`) is REQUIRED: a positive count caps the anchor at
     `not yet qualified`, because the hand-off's Next line already sends that suite back to a repair and a
     suite landed with a blocking defect that still corrupts the final scores is not qualified. The count is the
-    LIVE one: an eval entry the final run re-checked (`release_verdict.blocking_split`) caps at `qualified` instead,
-    through `validation_holds`. `None` (no readable log) does not cap:
+    LIVE one: an eval entry the final run re-checked, or an entry on our own tooling with no world fault under it
+    (`release_verdict.blocking_split`), caps at `qualified` instead, through `validation_holds`. `None` (no readable log) does not cap:
     the release gate stays the authority there. A coverage block reaches this count only through
     `release_gate.block_causes` — the EFFECTIVE gate, after the overrules recorded on the eval set — never
     through the raw `guard_coverage_gate` beside it (deliverable.md), so a cause an overrule released is not
@@ -1343,13 +1342,11 @@ def licensed_anchor(pin: dict | None, *, release_gate: dict | None, blocking_unr
 
     `release_gate is None` means the final audit carried no release gate bound at the final stage
     (see :func:`read_audit`), which is NOT the same as a clear one: an unread gate has judged
-    nothing, and claiming `validated` off it would be the model-authored guess this verb replaces.
+    nothing, and claiming a rung off it would be the model-authored guess this verb replaces.
     It lands on the floor rung and says so.
 
-    `pin is None` is the same shape and used to be the opposite: absent, unreadable and
-    not-a-mapping all collapsed to "not relinked", so a CORRUPT pin beside a non-blocking audit
-    printed `Suite: validated` at exit 0 without a word about the pin — while `cmd_check` and
-    `_repoint` REFUSE on that identical state.
+    `pin is None` is the same shape: absent, unreadable and not-a-mapping each land on the floor rung, the
+    state `cmd_check` and `_repoint` REFUSE on, and never read as "not relinked".
 
     `moved` (:func:`moved_coordinates` of the pin, REQUIRED) is the detected drift, and `None` when it
     could not be computed. A REFUSING axis voids the recording every rung reads from, so it caps the
@@ -1361,11 +1358,9 @@ def licensed_anchor(pin: dict | None, *, release_gate: dict | None, blocking_unr
     `final_run_not_uploaded` (REQUIRED, computed by `cmd_anchor`) says the relinked set's own final run is scored on
     disk with no upload recorded. It changes only the relinked branch's `why`, never the rung.
 
-    A `set_lineage` word this version does not know is the FOURTH unknown, and it used to be the
-    one exception to the rule above: any truthy string that was not exactly `relink` read as
-    "adopted" AND suppressed the fallback, so a pin declaring `set-relinked` beside a lineage of
-    `graft` — or `Relink`, a case slip — printed `Suite: validated`. An unrecognized word is not
-    evidence of adoption; it is no evidence at all, and the declared staleness beside it still is.
+    A `set_lineage` word this version does not know is the FOURTH unknown. Only exactly `relink` reads as a
+    relink; any other word (`graft`, or `Relink`, a case slip) is not evidence of adoption. It is no evidence
+    at all, and the declared staleness beside it still is.
     """
     if pin is None:
         return NOT_QUALIFIED, 'the lane pin could not be read, so which set this hand-off ships cannot be established'
@@ -1407,7 +1402,7 @@ def licensed_anchor(pin: dict | None, *, release_gate: dict | None, blocking_unr
             )
         return anchor, (
             f'qualified under the older gate (no release gate recorded): {source} predates the release gate, so its '
-            f'{gate_name} is read, and it is not blocking. `validated` needs the release gate; to read one, {rerun}, and re-run `lane_pin.py anchor`'
+            f'{gate_name} is read, and it is not blocking; to read the release gate instead, {rerun}, and re-run `lane_pin.py anchor`'
         )
     untyped = '' if release_verdict.typed(release_gate) else ' (an untyped verdict from an older backend, read from its blocking bit alone)'
     if release_gate['blocking']:
@@ -1421,7 +1416,8 @@ def licensed_anchor(pin: dict | None, *, release_gate: dict | None, blocking_unr
             if holds
         ]
         return anchor, f'the release gate of {source} is BLOCKING ({" and ".join(holding) or "no coverage was computed"}){untyped}'
-    named = f', names {len(release_verdict.gate_risks(release_gate))} risk(s)' if anchor == QUALIFIED else ''
+    risks = len(release_verdict.gate_risks(release_gate))
+    named = f', names {risks} risk(s)' if risks else ''
     return anchor, f'the release gate of {source} is not blocking{named}{untyped} and ' + ('it read the set being shipped' if final_run else 'the gated set was adopted')
 
 
@@ -1607,12 +1603,12 @@ def cmd_anchor(args: argparse.Namespace) -> int:
     stage = 'final' if audited else _run_json_stage(run_dir)
     not_uploaded = final_run_not_uploaded(pin, run_dir, stage)
     anchor, why = licensed_anchor(pin, release_gate=gate, blocking_unresolved=blocks, moved=moved, final_run_not_uploaded=not_uploaded)
-    # What the workdir still says against `validated` (`release_verdict.validation_holds`): a measurement that did not
-    # hold, a critic older than the last harness/env edit, no client pin over the loop. A hold only ever lowers the rung.
+    # What the workdir says beside the gate (`release_verdict.validation_holds`): a measurement that did not hold, no
+    # client pin over the loop. Every hold is recorded on the anchor by id; only one that lowers the rung joins the why.
     holds = release_verdict.validation_holds(workdir, run_dir, client_pin_required=True)
     anchor, held = release_verdict.capped_rung(anchor, holds)
     if held:
-        why = f'{why}; not validated: {"; ".join(held)}'
+        why = f'{why}; held below qualified: {"; ".join(held)}'
     # The rung is the HAND-OFF's, so a build that has not handed off (`bench_manifest.open_build`: its phase record
     # ends before `report landed`) licenses the floor, whatever its gate says: its suite is still the build's draft.
     from bench_manifest import _suite_state, open_build  # noqa: PLC0415 - the phase record's one reader
@@ -1658,8 +1654,7 @@ def cmd_anchor(args: argparse.Namespace) -> int:
         'blocking_remedies': [remedy for _, _, remedy in live],
         'blocking_released': [why for _, why in released],
         # Every risk the anchor names, each by its `kind`: the gate's (the `why`'s "names N risk(s)") and the released entries
-        # that stay a named risk on the suite (an audit-proven false red of a check only the backend judges, said in the
-        # `why`'s "not validated" clause).
+        # that stay a named risk on the suite (an audit-proven false red of a check only the backend judges).
         'named_risks': [*(release_verdict.gate_risks(gate) if gate is not None else []),
                         *release_verdict.named_risks(released, release_verdict.policy_display_names(workdir)),
                         *([{'kind': FINAL_RUN_NOT_UPLOADED, 'display_name': 'final run not uploaded', 'run': run_dir.name if run_dir else None,

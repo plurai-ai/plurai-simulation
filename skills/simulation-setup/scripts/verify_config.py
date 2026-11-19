@@ -123,6 +123,14 @@ except Exception:  # pragma: no cover — core absent; try the legacy SDK shim
 #: was specified under; YAML carries it as an ordinary key.
 _AGENT_IO_KEY = 'agent.io'
 
+#: The variable names the agent child receives. A ROOT key, like `agent.io`; the SDK also reads the nested
+#: `agent: {env: …}` spelling, and `_check_agent_env_at_root` warns on it so one spelling is written.
+_AGENT_ENV_KEY = 'agent.env'
+#: The variable-name rule and the backend token names the SDK refuses in an `agent.env` list, restated from
+#: `plurai.child_env._VARIABLE_NAME` / `plurai.host_effects.BACKEND_TOKEN_ENV` (this script runs without the SDK).
+_ENV_VARIABLE_NAME = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
+_BACKEND_TOKEN_ENV = ('PLURAI_TOKEN', 'NETWORK__API_KEY')
+
 #: Everything `agent.io` may declare — and nothing else. An unknown subkey is REFUSED BY NAME
 #: rather than warned about, for the reason `render_actions`' shape is: a declaration nobody
 #: reads is worse than no declaration, because the author believes a channel is covered.
@@ -189,6 +197,7 @@ class Code(StrEnum):
     symptom→cause row, and every documented code is a member.
     """
 
+    AGENT_ENV_DECLARED_NOT_AT_ROOT = 'agent_env_declared_not_at_root'  # warn: `env:` nested under `agent:`; read, but every other reader spells it as the ROOT key `agent.env`
     AGENT_HOST_USER_SURFACES_UNDECLARED = 'agent_host_user_surfaces_undeclared'  # the agent-host route (Agentforce) declares no `world_state.user_surfaces`; its Agent API shows the user only the agent's replies
     AGENT_HOST_RENDER_ACTIONS_UNDECLARED = 'agent_host_render_actions_undeclared'  # the agent-host route (Agentforce) declares no `render_actions`; the persona's view of its typed actions is then never filtered
     AGENT_IO_DECLARED_NOT_AT_ROOT = 'agent_io_declared_not_at_root'  # `io:` nested under a parent key; only the ROOT `agent.io` is read
@@ -225,6 +234,7 @@ class Code(StrEnum):
     GUARD_SEES_MOCK = 'guard_sees_mock'  # a declared guard reads a store or a result field the mock never reaches: the agent's guard runs blind
     GUARDS_INVALID = 'guards_invalid'  # `guards:` is not a list of `{name, cite, watches, reads: store|result, via|fields}` over declared tools
     HARNESS_SINGLE_INSTANCE_INVALID = 'harness_single_instance_invalid'  # `harness.single_instance` is not a list of non-blank resource strings; the runner refuses it at start
+    HARNESS_CLOCK_INVALID = 'harness_clock_invalid'  # warn: `harness.clock` is not one of pinned, store, told, host
     HANDOVER_KIND_NOT_DECLARED = 'handover_kind_not_declared'  # a `.document_fields` entry hands over documents and `agent.io.input` omits `file`
     HARNESS_UNKNOWABLE = 'harness_unknowable'  # warn: no harness source was read, so every config<->harness check stood down
     HELPER_NAMING_CONVENTION_DRIFT = 'helper_naming_convention_drift'  # warn: a near-miss helper filename the discovery walk ignores
@@ -1470,6 +1480,25 @@ def _check_harness_single_instance(config: dict[str, Any]) -> list[Finding]:
     )]
 
 
+#: The routes `harness.clock` declares (the turn smoke's `verify_smoke.CLOCK_ROUTES` plus `host`).
+HARNESS_CLOCK_ROUTES = ('pinned', 'store', 'told', 'host')
+
+
+def _check_harness_clock(config: dict[str, Any]) -> list[Finding]:
+    """``harness.clock`` names how the scenario's date reaches the agent: one of :data:`HARNESS_CLOCK_ROUTES`, or absent. A
+    warning: the smoke then checks no delivery."""
+    harness = config.get('harness')
+    if not isinstance(harness, dict) or 'clock' not in harness or harness['clock'] in HARNESS_CLOCK_ROUTES:
+        return []
+    return [Finding(
+        severity='warn',
+        code=Code.HARNESS_CLOCK_INVALID,
+        message=(f'`harness.clock: {harness["clock"]!r}` is no route: declare one of {", ".join(HARNESS_CLOCK_ROUTES)} (lower case), '
+                 'how the scenario\'s date reaches the agent, so the turn smoke can check it was delivered.'),
+        skill_step='Step 4',
+    )]
+
+
 def _check_world_real_writer_unowned(config: dict[str, Any]) -> list[Finding]:
     """Warn when a ``mode: real`` tool resolves to ``write_strategy: real`` while the world is the mock's.
 
@@ -2695,6 +2724,42 @@ def _nested_io_parents(config: dict[str, Any]) -> list[str]:
     return sorted(key for key, value in config.items() if isinstance(value, dict) and isinstance(value.get('io'), dict))
 
 
+def _env_list_defect(raw: Any) -> str | None:
+    """Why `raw` is not a list of variable names the agent may ask for; None when it is. The SDK's rule
+    (`plurai.child_env._env_list_defect`): one bad entry and the SDK takes no name from the list."""
+    if not isinstance(raw, list):
+        return f'it is a {type(raw).__name__}, not a list of variable names'
+    for name in raw:
+        if not isinstance(name, str) or not _ENV_VARIABLE_NAME.fullmatch(name):
+            return f'it lists {name!r}, which is not an environment variable name'
+        if name in _BACKEND_TOKEN_ENV:
+            return f'it lists {name}, the backend token, which reaches the agent only as PLURAI_TOKEN passed on by the runner'
+    return None
+
+
+def _check_agent_env_at_root(config: dict[str, Any]) -> list[Finding]:
+    """`env:` written under the `agent:` block, where the root key `agent.env:` belongs.
+
+    A warning, never a gate. A well-formed nested list is read by the SDK, so the agent child still receives the
+    names; it is named because the dotted spelling invites the nesting (`agent.tool_content_envelope` IS nested) and
+    earlier SDK releases read only the root key. A malformed one (the SDK's own rule, `_env_list_defect`) is IGNORED
+    by the SDK as a whole, so the message says none of its names reaches the agent.
+    """
+    block = config.get('agent')
+    if not isinstance(block, dict) or 'env' not in block:
+        return []
+    defect = _env_list_defect(block['env'])
+    if defect is not None:
+        message = (f'`agent: {{env: …}}` is ignored: {defect}, so none of its names reaches the agent. Write '
+                   f'`{_AGENT_ENV_KEY}: [NAME, …]` at the root, beside `{_AGENT_IO_KEY}:`, a list of variable names only.')
+    else:
+        message = (f'`agent: {{env: …}}` is read, but write the list at the root as `{_AGENT_ENV_KEY}:`, beside '
+                   f'`{_AGENT_IO_KEY}:` (a literal dot, not nested under `agent:`): that is the spelling every SDK release reads.')
+    if _AGENT_ENV_KEY in config:
+        message += f' `{_AGENT_ENV_KEY}:` is also present at the root; keep one list there.'
+    return [Finding(severity='warn', code=Code.AGENT_ENV_DECLARED_NOT_AT_ROOT, message=message, skill_step='Step 8')]
+
+
 def _check_agent_io(config: dict[str, Any]) -> list[Finding]:
     """`agent.io:` declares what the agent can be HANDED — or is absent.
 
@@ -3745,7 +3810,9 @@ def _check_store_confirmation(config: dict[str, Any], workdir: Path, topology: d
         findings.append(Finding(severity='fail', code=Code.ENDPOINTS_UNDECLARED, skill_step='Step 3d', message=(
             f'egress says `none_discovered`, but {len(named)} tool(s) reach a store ({", ".join(named[:6])}'
             f'{", …" if len(named) > 6 else ""}). Declare every endpoint variable a store or vendor client reads, loopback '
-            'included, and each code fallback default as a host row, so the harness pins them and an unmocked path fails fast.')))
+            'included, and each code fallback default as a host row, so the harness pins them and an unmocked path fails fast. '
+            'A tool that reads only stores the harness creates and the agent\'s bundled files spells each `;`-separated part of '
+            'its `reads_from` / `writes_to` as the confirmed target alone (its `mkdtemp:` or `bundled:` prefix allowed), with nothing beside it.')))
     return findings
 
 
@@ -6548,6 +6615,7 @@ def verify(
     findings.extend(_check_world_state_owner(config))
     findings.extend(_check_world_state_slots(config))
     findings.extend(_check_harness_single_instance(config))
+    findings.extend(_check_harness_clock(config))
     findings.extend(_check_world_real_writer_unowned(config))
     findings.extend(_check_world_shared_ok(config))
     findings.extend(_check_world_field_required(config))
@@ -6561,6 +6629,7 @@ def verify(
     findings.extend(_check_agent_host_declares_render_actions(config, route=_declared_route(config_path.parent)))
     findings.extend(_check_render_actions_declared(config, route=_declared_route(config_path.parent)))
     findings.extend(_check_render_actions(config))
+    findings.extend(_check_agent_env_at_root(config))
     findings.extend(_check_agent_io(config))
     findings.extend(_check_file_input_has_document_field(config, config_path.parent))
     findings.extend(_check_handover_declares_document_kinds(config, config_path.parent))

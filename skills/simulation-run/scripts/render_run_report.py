@@ -1983,7 +1983,6 @@ def render_graded_nothing_md(spec: dict) -> list[str]:
     items = [i for i in (spec.get("coverage_debt") or []) if isinstance(i, dict)]
     if not items:
         return []
-    blocking = spec.get("coverage_debt_blocking")
     L = ["## Graded nothing", "",
          "_Policies the backend recorded as measuring nothing across this set — not a verdict "
          "about the agent in either direction. Each line is the backend's own; nothing here is "
@@ -1995,19 +1994,9 @@ def render_graded_nothing_md(spec: dict) -> list[str]:
         why = _cell(str(item.get("detail") or kind))
         remedy = _DEBT_REMEDY.get(kind, f"`{_cell(kind)}` — see the eval set")
         L.append(f"| `{subject}` | {why} | {remedy} |")
-    # Scoped to the delivery set on purpose. The rollup's own rule 2 puts the verdict effect on
-    # FINAL sets only: a qualification pass is a small sample that legitimately grades less, and
-    # a demotion that fires on every qualification run demotes nothing.
-    # Whether the rollup blocks is the backend's own bit (`coverage_debt_blocking`), and the cap is the
-    # ROLLUP's, never each row's: a waived row does not block, and a waiver is the operator's decision and
-    # never customer report content, so neither the waiver nor a per-row cap is said here.
-    if blocking is not False:
-        L += ["", "_On a FINAL/delivery set, this rollup caps the suite at "
-              "`qualified-with-gaps`, never `validated`; on a qualification pass it is a reading, not "
-              "a demotion — the rule lives in `/simulation-generate-suite` Step 6._", ""]
-    else:
-        L += [""]
-    return L
+    # The rollup moves no rung (`qualified` is the ceiling), and a waiver is the operator's decision, never customer
+    # report content: the panel states the gaps and nothing about the suite's standing.
+    return [*L, ""]
 
 
 def _names(values: list | None) -> str:
@@ -2991,13 +2980,18 @@ def render_regressions_detail_md(spec: dict) -> list[str]:
             mode = " · single hop" if single_hop else " · full replays" if row.get("replay_mode") == "full" else ""
             anywhere = "— (single hop: the issue turn only)" if single_hop else _cell_counts(row.get("anywhere"))
             caveat = _mapping(row.get("replay_caveat"))
-            jobs = ", ".join(f'`{_cell(str(j))}`' for j in _list(caveat.get("jobs")))
-            job_open = (f' · **job open at the cut** ({jobs}): started before the cut and unfinished there; the replay starts without it'
-                        if caveat.get("reason") == "job_open_at_cut" else "")
+            reasons = {str(r) for r in _list(caveat.get("reasons"))} | ({str(caveat["reason"])} if caveat.get("reason") else set())
+            said = {
+                "job_open_at_cut": lambda: (f' · **job open at the cut** ({", ".join(f"`{_cell(str(j))}`" for j in _list(caveat.get("jobs")))}): '
+                                            'started before the cut and unfinished there; the replay starts without it'),
+                "world_written_before_cut": lambda: (f' · **world written before the cut** (turns {", ".join(_cell(str(n)) for n in _list(caveat.get("turns")))}): '
+                                                     'the replay may answer over a world without those changes'),
+            }
+            caveats = "".join(say() for reason, say in said.items() if reason in reasons)
             reduced = int(row.get("restore_reduced") or 0)
             dropped = (f' · **resumed state dropped** on {reduced} replay(s): the harness did not restore it, so nothing was measured at the cut'
                        if reduced else "")
-            L.append(f'| `{_cell(str(row.get("folder") or row.get("scenario")))}`{moved}{invalid}{mode}{job_open}{dropped} | '
+            L.append(f'| `{_cell(str(row.get("folder") or row.get("scenario")))}`{moved}{invalid}{mode}{caveats}{dropped} | '
                      f'`{_cell(str(row.get("owner") or "?"))}` ({_OWNER_SOURCE.get(str(row.get("owner_source")), "none")}) | {_cell_counts(row.get("at_cut"))} | '
                      f'{anywhere} | {at_record} | {clear_cell} |')
         L += ["", "_At the cut reads the owner on the turn the folder was recorded on; Anywhere reads it on the whole replay. "

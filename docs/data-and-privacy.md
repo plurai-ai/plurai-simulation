@@ -10,7 +10,8 @@ build the env (traces, documents and knowledge base, scenario bundles, document 
 Besides these commands and the backend calls the flows make, one thing leaves your machine: on Claude Code, the overview
 page is published to claude.ai as a private page at the end of a run. It shows the run's content (conversations, verdicts,
 scenarios and findings) whatever the anonymization posture: `anonymize:` governs only what is uploaded while the env is
-built, never the simulation run or its page.
+built, never the simulation run or its page. A scenario made from a production trace shows the user and agent messages
+of the production turns it resumes from (never tool results or system prompts).
 
 **Local anonymization is opt-in defense-in-depth on top of that, not the only control.** Each
 simulation env declares its **anonymization posture** once, via a top-level `anonymize: true | false`

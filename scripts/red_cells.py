@@ -2,6 +2,7 @@
 """Every red verdict unit of a local run under the backend's item names, and red-cell audit rows as overrules.
 
     red_cells.py list      --run-dir "$OUT" --greens <n> --workdir "$WORKDIR" [--split-dir <dir>] [--patterns <file>] [--out <file>]
+    red_cells.py list      --run-dir "$OUT" --unaudited [--split-dir <dir>] [--out <file>]
     red_cells.py patterns  --run-dir "$OUT" [--audit <rows.json>]… [--out <file>]
     red_cells.py overrules --run-dir "$OUT" [--audit <rows.json>]… (--run-upload-id <id> | --refusal <file> [--refusal …])
                            [--overrule-unevaluated "<reason>"] [--out <file>]
@@ -38,6 +39,10 @@ policy) with a red trial, ONE pass unit of another trial, a doubtful one first, 
 ``<workdir>/policies_config.yaml``. The first unit of each stakes policy with no red in the run is drawn before the
 rounds; each round then draws :data:`GREEN_DRAW`, cut at ``n``. A sampled green's row is
 ``CONFIRMED PASS`` / ``FALSE PASS`` / ``UNDECIDABLE``; a FALSE PASS quotes the violating reply.
+
+UNAUDITED (``list --unaudited``). Only the red units the run's own audit rules none of (:func:`unaudited_units`), grouped
+like ``list``, with no greens: the full audit already drew them. A verdict an applied overrule restored after the audit
+was listed is such a unit; ``verdict_corrections.py check`` names each one (exit 6).
 
 KNOWN PATTERNS. The suite's final audit is the official run's prior: ``patterns`` writes the rulings of a run still
 standing (one decided verdict of :data:`PATTERN_VERDICTS`, the unit still as ruled, its quote verified), grouped by
@@ -696,6 +701,27 @@ def ruled_units(run: Run, rows: Sequence[Mapping[str, Any]]) -> Tuple[Dict[Unit,
     return ruled, skipped
 
 
+def unaudited_units(run: Run, rows: Sequence[Mapping[str, Any]]) -> List[Unit]:
+    """The run's red units no audit row rules (:func:`ruled_units`): the one definition of a red "not checked". A verdict
+    an applied overrule restored after the audit was listed is one (``verdict_corrections`` RESTORED)."""
+    return list(unaudited_why(run, rows))
+
+
+def unaudited_why(run: Run, rows: Sequence[Mapping[str, Any]]) -> Dict[Unit, Optional[str]]:
+    """:func:`unaudited_units`, each with why a row of its item and policy did not rule it (:func:`ruled_units`' skip
+    reason: another ``policy_fingerprint``, an earlier attempt, a turn that names no unit), or None when no row names it."""
+    ruled, skipped = ruled_units(run, rows)
+    found: Dict[Unit, Optional[str]] = {unit: None for unit in run.red_units() if unit not in ruled}
+    for entry in skipped:
+        row = rows[entry['row']]  # a skipped row always names an item and a policy
+        cell = (normalize_item(row['item']), str(row['policy']))
+        turns = _turns(row.get('turn'))
+        for unit, why in found.items():
+            if why is None and unit[:2] == cell and (turns in (None, [None]) or unit[2] in turns):
+                found[unit] = entry['why']
+    return found
+
+
 def _reason(row: Mapping[str, Any], verdict: str, unit: Unit) -> str:
     item, policy, turn_idx = unit
     where = f'{item} {policy}' + ('' if turn_idx is None else f' T{turn_idx}')
@@ -1204,6 +1230,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             p.add_argument('--greens', type=int, help=f'also list at most this many sampled pass units (GREENS); required, >= 1: {GREENS_REQUIRED}')
             p.add_argument('--workdir', help='the dir holding policies_config.yaml, which names the stakes policies --greens samples; required')
             p.add_argument('--patterns', help="the suite's audit_patterns.json: attach its patterns at this run's eval revision (KNOWN PATTERNS); absent → none")
+            p.add_argument('--unaudited', action='store_true',
+                           help="list only the red units the run's own audit rules none of (UNAUDITED); --greens and --workdir do not apply")
         else:
             p.add_argument('--audit', action='append', default=[], help="a red-cell audit rows file (repeatable); default: the run's own audit")
             p.add_argument('--refusal', action='append', help="a refused end_edit_session result (JSON), or a list of its findings; "
@@ -1237,7 +1265,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument('--run-dir', help="the final run dir: its own audit, when no --audit is given")
     p.add_argument('--out', help='write the JSON here instead of stdout')
     args = ap.parse_args(argv)
-    if args.cmd == 'list' and (args.greens is None or args.greens < 1 or not args.workdir):
+    if args.cmd == 'list' and not args.unaudited and (args.greens is None or args.greens < 1 or not args.workdir):
         sub.choices['list'].error(f'list needs --greens <n> (n >= 1) and --workdir "$WORKDIR": {GREENS_REQUIRED}')
     if args.cmd == 'attribution':
         try:
@@ -1260,6 +1288,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 0
     try:
         run = Run(Path(args.run_dir))
+        if args.cmd == 'list' and args.unaudited:
+            found = unaudited_units(run, audit_rows(run, []))
+            _emit_groups(run, found, {'run_dir': str(run.out), 'items': sorted(run.dirs), 'red_units': len(found), 'green_units': 0, 'unaudited': True},
+                         args.split_dir, args.out)
+            return 0
         if args.cmd == 'list':
             found = run.red_units()
             index: Dict[str, Any] = {'run_dir': str(run.out), 'items': sorted(run.dirs), 'red_units': len(found)}

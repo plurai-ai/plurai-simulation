@@ -107,6 +107,7 @@ class Code(StrEnum):
     NATIVE_TOOL_TRAIL_MISSING = 'native_tool_trail_missing'  # `agent.native_tools` is declared and the harness never passes `plurai.confine` a trail or returns no `tool_trail`
     NO_DOTENV_LOAD = 'no_dotenv_load'  # nothing loads a `.env`, so the child subprocess runs without the agent's env
     ENV_FILE_NOT_LOADED = 'env_file_not_loaded'  # warn: the bench declares `harness.env_file` and no dotenv call names it
+    DOCUMENTS_RESTORED_UNWIRED = 'documents_restored_unwired'  # warn: the bench declares `harness.resume.documents: restored` and seed_state never calls `seeded_documents`
     PAYLOAD_MESSAGES_AS_HISTORY = 'payload_messages_as_history'  # the turn payload's `messages` read as prior history
     SEED_STATE_BAD_SIGNATURE = 'seed_state_bad_signature'  # `seed_state` does not take `(agent_context, world_state, resume_seed)`
     SEED_STATE_IGNORES_RESUME_POINT = 'seed_state_ignores_resume_point'  # the seed is taken and its `resume_point` is never named
@@ -4456,6 +4457,45 @@ def env_file_findings(source: str, workspace: Path) -> list[Finding]:
     )]
 
 
+def documents_restored_findings(source: str, workspace: Path) -> list[Finding]:
+    """``documents_restored_unwired`` (warn): the ``bench_manifest.json`` beside simulate.py declares
+    ``harness.resume.documents: restored`` and nothing ``seed_state`` reaches (itself, or a local function it names, split
+    helpers included) calls ``seeded_documents``. A regression replay then carries the document in the seeded messages
+    while the side channel the agent reads it from stays empty."""
+    declared = _declared_resume(workspace)
+    if not isinstance(declared, dict) or declared.get('documents') != 'restored':
+        return []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    local_fns = _local_functions(tree)
+    seed = local_fns.get('seed_state')
+    stack, seen = ([seed] if seed is not None else []), set()
+    while stack:
+        fn = stack.pop()
+        if id(fn) in seen:
+            continue
+        seen.add(id(fn))
+        for node in ast.walk(fn):
+            name = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else None
+            if name == 'seeded_documents':
+                return []
+            if name in local_fns:
+                stack.append(local_fns[name])
+    return [Finding(
+        severity='warn',
+        code=Code.DOCUMENTS_RESTORED_UNWIRED,
+        message=(
+            'bench_manifest.json declares harness.resume.documents: restored, but seed_state never calls seeded_documents, '
+            'so a resumed conversation\'s handed-over document never reaches the channel invoke_agent hands the agent. Refill '
+            'that channel from seeded_documents(resume_seed["messages"]) in the restoring write '
+            '(references/resumed-seed-state.md, Documents in the seed), or drop the declaration.'
+        ),
+        skill_step='Step 8.5',
+    )]
+
+
 def _declared_native_tools(workspace: Path) -> tuple[str, ...]:
     """``agent.native_tools`` of :func:`_harness_config`, or ``()`` when none are declared or it is unreadable."""
     document = _harness_config(workspace)
@@ -5694,6 +5734,7 @@ def main(argv: list[str] | None = None) -> int:
         + document_read_off_payload_findings(source, _declared_document_fields(args.path.parent), shape=_declared_shape(args.path.parent))
         + store_endpoint_findings(source, args.path.parent)
         + env_file_findings(source, args.path.parent)
+        + documents_restored_findings(source, args.path.parent)
         + mock_error_findings
     )
     fails = [f for f in findings if f.severity == 'fail']

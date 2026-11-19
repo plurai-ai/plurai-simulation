@@ -39,7 +39,7 @@ your new work is authoring the title and summary of any scenario that has no bac
 │       relink evals → audit vs the final suite → close gaps additively      │
 │  4. fetch meta + build suite.json (coverage, complexity, evals, schema)    │
 │  5. render → scenarios.md, evals.md, charts/*.svg, scenarios/*.md          │
-│  6. present the VALIDATED suite (short, link-forward) → /simulation-run    │
+│  6. present the suite (short, link-forward) → /simulation-run              │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -220,7 +220,7 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/flow-window.sh" sanction blocker
 ```
 
 then ask in plain product language, offering both exits — supply it now and continue, or drop to a
-static-only suite (build + review, no run, no "validated" badge). Apply the answer and resume
+static-only suite (build + review, no run, no suite rung). Apply the answer and resume
 autonomously; this is a one-shot ask at the point of discovery, not a new checkpoint habit.
 
 ## Report doctrine — the final message presents the PRODUCT, not the build
@@ -1053,7 +1053,7 @@ Four rules, and they cost nothing to follow:
       hand-off.
   - **Run prerequisites (the quality gate NEEDS a live run).** This command's whole
     value is the qualification run (Step 3); a suite that can't run gets only a static review and no
-    "validated" badge. Check BOTH run preconditions NOW, before any generation spend:
+    suite rung. Check BOTH run preconditions NOW, before any generation spend:
     1. **Agent provider key** — verify it exactly as `/simulation-run` Step 0 does: run
        `source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"; "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/bench_manifest.py" provider-key; echo "PROVIDER_KEY_EXIT=$?"`
        (`0` present; `1` missing; `3` the bench names no provider, so infer it from the agent's
@@ -1073,7 +1073,7 @@ Four rules, and they cost nothing to follow:
     user (sanctioned ask — first run
     `bash "${CLAUDE_PLUGIN_ROOT}/scripts/flow-window.sh" sanction blocker`; plain language, like the
     observability-key ask in `/simulation-run` Step 1a): provide it now, or explicitly choose a
-    static-only suite (build + review, no run, no "validated" badge). Ask for the material, never
+    static-only suite (build + review, no run, no suite rung). Ask for the material, never
     for a verdict on a gate's line. NEVER silently build the full suite and discover at the
     end that it can't be scored — the user finds out at the finish line, after the spend.
   - **State the wall-clock shape UP FRONT (whether or not a gate question fires).**
@@ -1918,8 +1918,9 @@ still says so, in one line — write it now:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
 rm -f "$ART/auto_regressions.json" "$ART/auto_regressions.txt"
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" auto-plan "$ART/agent_findings.md" \
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" auto-plan "$ART/agent_findings.md" \
   --regressions-dir "$WORKDIR/regressions" --static-only > "$ART/auto_regressions.json"
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" auto-report "$ART/auto_regressions.json" --findings "$ART/agent_findings.md" > "$ART/auto_regressions.txt"
 ```
@@ -2869,7 +2870,7 @@ mechanical finding, write EVERY one of them to `$ART/deferrals.md` immediately �
    decide. **The ONLY reason to involve the user is a defect you absolutely cannot fix without
    information only they have** — a grounding mismatch where seeded values the live tools
    can't return must be replaced with real data (real records via `/upload-scenario-bundle`).
-   In that one case, surface the SPECIFIC ask and do **not** report the suite as validated.
+   In that one case, surface the SPECIFIC ask and do **not** report the suite as qualified.
 
    **A SCENARIO or HARNESS repair still needs a re-run before the audit** — a `simulate.py` fix
    or a mock patch changes how the agent behaves, and no cheap check observes that — but the
@@ -3107,14 +3108,21 @@ mechanical finding, write EVERY one of them to `$ART/deferrals.md` immediately �
        final run started after both and voided no scenario on a seed that did not land.
      - **A backend blocker on a check only the backend judges** (a `beat_resolution` check — no client edit reaches
        it) is recorded `--surface backend --policy <check>`. When the final run's red-cell audit rules that check's
-       failures FALSE RED, the anchor lands it as a named risk at **qualified**; otherwise it caps like any other.
+       failures FALSE RED, or the check fails nothing on the final run and reached a verdict there, the anchor lands
+       it as a named risk at **qualified**; otherwise it caps like any other.
+     - **A blocker in our own tooling** (the plugin or the SDK) is recorded `--surface plugin|sdk`, with
+       `--policy <check>` once per check it affects (a check graded on the row; an ordinary judged eval is
+       `--surface eval`). On a scored final run with a readable audit and no world fault on its checks, the anchor
+       releases it at **qualified** as an internal tooling risk (never in the customer's banner) when its checks
+       cannot be re-checked or their false reds were corrected. A check still wrong on the final run, or no final run
+       or readable audit, keeps it the floor with remedy `ours` (never an eval edit); a world fault makes it a rebuild.
      - Only if an eval-side blocker genuinely cannot be fixed from here (it needs a scenario
        regeneration, or real records only the user has) does it join the same
        **BLOCKING — UNRESOLVED** list, naming the eval and what it fails to measure. An eval entry caps the rung
        only while the final run still carries a wrong or unchecked verdict on that eval (`lane_pin.py anchor`
        re-checks it).
 
-     Never land a blocking defect silently; a suite reported as validated while carrying a judge
+     Never land a blocking defect silently; a suite reported as qualified while carrying a judge
      that cannot discriminate is the false verdict this floor exists to prevent.
    - **Target-clause FALSE REDs become rulings, here, before the final draw.** They have no rubric
      for `/edit-evals` to fix, and a fresh draw re-derives the clause. Write every `target_clause`
@@ -3154,7 +3162,7 @@ mechanical finding, write EVERY one of them to `$ART/deferrals.md` immediately �
    - **The real-data escalation still overrides this.** The carve-out above — a grounding
      mismatch only the user can resolve with real records — is BLOCKING by definition and
      cannot be fixed by you, so landing does not apply: surface the specific ask and do NOT
-     report the suite as validated. Landing means "stop polishing", never "stop escalating".
+     report the suite as qualified. Landing means "stop polishing", never "stop escalating".
    - **Landing is YOUR call, and it is not a critic sign-off.** The critic and the audit decide
      what is wrong; at the landing you are consciously accepting known gaps. Record which in
      `$ART/loop_log.md` — see Step 3b (deliverable file).
@@ -3188,7 +3196,7 @@ product terms what's missing, offer supply-it-now vs static-only, and continue o
 once static-only is the user's *choice* do you fall back to a single critic pass over the scenarios
 + evals + harness (findings-only, best-effort — the critic has no run artifacts to reproduce
 against, so coherence is a guess), remind the user what to provide to finish scoring, and not report
-the suite as validated.
+the suite as qualified.
 
 ## Gate exit — record regressions from the confirmed findings
 
@@ -3254,8 +3262,9 @@ Then plan, from the findings file and the folders already on disk:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
 rm -f "$ART/auto_regressions.json" "$ART/auto_regressions.txt"
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" auto-plan "$ART/agent_findings.md" \
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" auto-plan "$ART/agent_findings.md" \
   --regressions-dir "$WORKDIR/regressions" --run "$RUN" \
   [--harness-wide "<title>"]… [--accepted-harness "<title>"]… [--bench-scenario <name>]… [--bench-cell <scenario>:<policy>]… [--bench-policy <name>]… [--no-auto-regressions] \
   > "$ART/auto_regressions.json"

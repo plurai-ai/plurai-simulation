@@ -295,9 +295,13 @@ def _json_object(path: Path) -> dict | None:
 
 def suite_line(run_dir: Path) -> str | None:
     """The run's own `Suite:` rung, said beside the rung the suite hand-off landed on, when the two differ; else `None`."""
+    if str(Path(__file__).resolve().parent) not in sys.path:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from release_verdict import read_rung  # noqa: PLC0415 - sibling script: a stored rung read as this version reads it
+
     verdict = _json_object(run_dir / 'release_verdict.json')
     landed = _json_object(run_dir.parent.parent / 'suite_anchor.json') if run_dir.parent.name == 'runs' else None
-    rung, anchor = (verdict or {}).get('rung'), (landed or {}).get('anchor')
+    rung, anchor = read_rung((verdict or {}).get('rung')), read_rung((landed or {}).get('anchor'))
     if not (isinstance(rung, str) and rung and isinstance(anchor, str) and anchor):
         return None
     landed_on = anchor.strip('*')

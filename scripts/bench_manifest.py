@@ -2478,8 +2478,8 @@ def carry_forward(check: dict[str, Any], signature: str, was: dict[str, Any] | N
     when = _passed_at(was, prior)
     # What the pass recorded beside its status: its proof, its runtime witnesses (`agent.entry` is
     # proved by nothing else), its settled findings, and a contract's PRD binding (the suite's
-    # contract gate reads it, and a reuse holds only over the PRD it passed on).
-    kept = {key: was[key] for key in ('evidence', 'witnesses', 'findings', 'prd_sha256') if key in was}
+    # contract gate reads it, and a reuse holds only over the PRD it passed on), and a smoke's probe lines.
+    kept = {key: was[key] for key in ('evidence', 'witnesses', 'findings', 'prd_sha256', *PROBE_LINE_PREFIXES) if key in was}
     witnessed = signature_witnesses_the_world(check)
     if witnessed and passed_signature and passed_signature == signature:
         return {
@@ -2882,6 +2882,32 @@ def _run_check(check: dict[str, Any], doc: dict[str, Any], workdir: Path, timeou
         return {'status': STATUS_NOT_RUN, 'reason': f'could not start: {relative_text(str(exc), workdir)}'}
 
     evidence = select_evidence(done.stdout, done.stderr, done.returncode)
+    return {**_check_outcome(check, doc, done, evidence, argv, workdir), **probe_lines(check, done.stdout)}
+
+
+#: A smoke's own probe lines kept on its result beside the one evidence line (:func:`select_evidence`): `{key: the
+#: line that opens with the prefix}`, carried on a reused or stale result too (:func:`carry_forward`). The sibling-turn
+#: probe runs only on the `--turn` smoke, after every hard gate passed, and then says one line whatever it did — `✓` ran
+#: clean, `⚠` warned, `~` not measured / probe error / skipped; a turn smoke that failed a hard gate prints none.
+PROBE_LINE_PREFIXES = {'sibling_turn': ('✓ sibling turn:', '⚠ sibling turn:', '~ sibling turn:')}
+
+
+def probe_lines(check: dict[str, Any], stdout: str) -> dict[str, str]:
+    """The smoke `check`'s probe lines (:data:`PROBE_LINE_PREFIXES`) from its `stdout`, the last of each; `{}` for any
+    other check kind or a smoke that printed none."""
+    if check.get('kind') != 'smoke':
+        return {}
+    out: dict[str, str] = {}
+    for line in (stdout or '').splitlines():
+        for key, prefixes in PROBE_LINE_PREFIXES.items():
+            if line.strip().startswith(prefixes):
+                out[key] = line.strip()[:400]
+    return out
+
+
+def _check_outcome(check: dict[str, Any], doc: dict[str, Any], done: subprocess.CompletedProcess[str], evidence: str,
+                   argv: list[str], workdir: Path) -> dict[str, Any]:
+    """The result of a check that ran to its exit, from its exit status and its one `evidence` line."""
     if check['runner'] == 'python' and done.returncode != 0 and (m := _IMPORT_ERROR_RE.match(evidence)):
         # An interpreter that cannot import the agent measured nothing about it: a prerequisite.
         unset = '' if os.environ.get('PLURAI_CHILD_PYTHON') else " — set PLURAI_CHILD_PYTHON to the agent's interpreter"

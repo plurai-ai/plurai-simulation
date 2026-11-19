@@ -1852,8 +1852,8 @@ def _inline_judge_rubrics(data: dict) -> list[tuple[str, str]]:
 
 
 # ── Permit-vs-forbid contradiction ────────────────────────────────────────────────────────
-# The five predicate FAMILIES are the backend's own carve-out vocabulary
-# (`diagnostic_agent/jobs/kinds/eval_jobs.py`, `_CARVE_OUT_*`) — a second vocabulary would
+# The five predicate FAMILIES are the backend's own carve-out vocabulary (its carve-out predicates and its
+# section-title rule) — a second vocabulary would
 # drift from the one the backend repairs against and the two would disagree about the same
 # rubric. The GUARDS around them are this copy's own, and they exist because the two copies
 # run at different moments against a different cost:

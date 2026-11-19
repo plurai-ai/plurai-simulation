@@ -184,6 +184,9 @@ async def seed_state(initial_agent_context, initial_world_state, resume_seed=Non
     if entities and thread_id is None:
         raise plurai.HarnessFault('world entities were provided but no mock session is active')
     request = _remember_request(thread_id, initial_agent_context) if thread_id else {}
+    # The scenario's date (`harness.clock`): record the route where it is handed over — `told` when a request key above
+    # carries initial_agent_context['current_date'] into the agent's input, `store` when this harness writes it into the
+    # agent's own store: plurai.clock_delivered('told') / plurai.clock_delivered('store'). `host`: nothing.
     if not resume_seed:
         return None
     if not thread_id:

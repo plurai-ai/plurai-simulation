@@ -94,6 +94,7 @@ declare ``harness.resume.mode: unsupported`` — when Init refuses a canned ``ty
 The remedy is restoring every seed message. Only where the conversation lives in a session the harness cannot write,
 declare ``harness.resume.mode: unsupported``; a harness that records its session and resumes it is not one, and one
 whose turns report that recording (``cli_session``) is not offered the canned seed, which cannot carry it.
+On an undeclared bench it then drives extra children to catch copies that collide (``_sibling_turn_probe``); ``PLURAI_SMOKE_SIBLING_TURN=0`` skips them.
 
 Every mode first refuses, exit 1 and before any child is driven, a harness that references an SDK
 attribute or module (``plurai.<name>``, ``from plurai.<module> import <name>``) the child's installed
@@ -151,6 +152,8 @@ import os
 import re
 import subprocess
 import sys
+import time
+import traceback
 import unicodedata
 from collections import Counter
 from datetime import datetime
@@ -269,6 +272,9 @@ class SmokeGate(StrEnum):
     SIBLING_INIT_FAILED = 'sibling_init_failed'  # Init alone passed, the final run's trials Init'd at once did not: a resource one process holds
     SIBLING_CROSS_TALK = 'sibling_cross_talk'  # siblings Init'd, and one read back a sibling's probe row or lost its own: one shared store
     EXCLUSIVE_UNNEEDED = 'exclusive_unneeded'  # the config declares what one process holds, and siblings ran isolated: it serializes for nothing
+    SIBLING_TURN_FAILED = 'sibling_turn_failed'  # the opener answered alone, and beside siblings driven at once one raised or delivered nothing
+    CLOCK_UNDELIVERED = 'clock_undelivered'  # `harness.clock` declares a route that hands the agent the date, and none was recorded: a warning
+    CLOCK_ROUTE_UNKNOWN = 'clock_route_unknown'  # `harness.clock` holds a value that is no route (pinned, store, told, host): a warning
 
 
 #: The failures a passing smoke carries as warnings: minted as findings that hold nothing (`gate_ledger.NON_HOLDING`),
@@ -276,7 +282,8 @@ class SmokeGate(StrEnum):
 _WARNING_GATES: frozenset[SmokeGate] = frozenset(
     {
         SmokeGate.TRAIL_TOOL_UNTYPED, SmokeGate.SIBLING_INIT_FAILED, SmokeGate.SIBLING_CROSS_TALK, SmokeGate.EXCLUSIVE_UNNEEDED,
-        SmokeGate.TRAIL_RESULT_MISSING, SmokeGate.TOOL_HISTORY_DROPPED,
+        SmokeGate.TRAIL_RESULT_MISSING, SmokeGate.TOOL_HISTORY_DROPPED, SmokeGate.SIBLING_TURN_FAILED, SmokeGate.CLOCK_UNDELIVERED,
+        SmokeGate.CLOCK_ROUTE_UNKNOWN,
     }
 )
 
@@ -651,13 +658,129 @@ def _real_request_block(simulate_path: Path) -> RequestBlock:
 
 
 def _init_request_block(simulate_path: Path) -> tuple[RequestBlock, frozenset[str]]:
-    """``(the Init smoke's request block, the store-only field names)``: a real slot's block, else one planted
-    value per declared request key."""
+    """``(the Init smoke's request block, the names no request-key check holds the harness to)``: a real slot's block, else
+    one planted value per declared request key. The names are the store-only fields and the run clock (the clock delivery
+    line speaks for it)."""
     request_block = _real_request_block(simulate_path)
     planted, store_only = _planted_request_block(simulate_path)
     if not request_block.values and planted:
         request_block = RequestBlock(planted, 'values planted for every declared request key (no scenario slot is fetched yet)')
     return request_block, store_only
+
+
+#: The run clock's keys (the backend's `RUN_CLOCK_KEYS`; `bench_manifest.RUN_CLOCK_KEYS`, kept equal by test): every
+#: scenario carries one. No request-key check holds the harness to them: the clock delivery line speaks for the date.
+_RUN_CLOCK_KEYS: tuple[str, ...] = ('current_date', 'today')
+#: The `harness.clock` routes that hand the agent the scenario's date; the SDK records the one taken
+#: (`ChildProcess.clock_delivery`). `host` is an agent that reads only its own or its framework's clock.
+CLOCK_ROUTES: tuple[str, ...] = ('pinned', 'store', 'told')
+CLOCK_HOST = 'host'
+#: The date the turn smoke plants when a delivering route is declared and the block carries no clock: a real run always
+#: carries one, and a route has no date to hand over without it.
+_PLANTED_CLOCK = '2026-03-14T09:30:00+00:00'
+#: The call each route makes where it hands the date over.
+_CLOCK_CALLS = {
+    'pinned': '`plurai.pin_now(<module>, initial_agent_context)` in `seed_state` for each module that reads the clock',
+    'store': "`plurai.clock_delivered('store')` where the harness writes the date into the agent's own store",
+    'told': "`plurai.clock_delivered('told')` where the harness puts the date into the agent's own input",
+}
+#: `ChildProcess.clock_delivery` on an SDK that records no clock delivery.
+_NO_CLOCK_RECORD = object()
+#: `harness.clock` when no YAML reader could read the config: said, never read as undeclared.
+CLOCK_UNREADABLE = '<unreadable>'
+
+
+def _config_documents(simulate_path: Path) -> list[object] | None:
+    """Every ``plurai.config.yaml`` beside the harness that parses (:data:`_CONFIG_RELPATHS` under its folder and the
+    folder above), each file once, in search order; None when no YAML reader is importable."""
+    try:
+        import yaml  # noqa: PLC0415 — deferred; this file is testable without pyyaml
+    except Exception:  # noqa: BLE001 — no reader: the caller says so
+        return None
+    documents: list[object] = []
+    seen: set[Path] = set()
+    for root in (simulate_path.parent, simulate_path.parent.parent):
+        for relpath in _CONFIG_RELPATHS:
+            path = root / relpath
+            try:
+                key = path.resolve()
+            except OSError:
+                key = path
+            if key in seen:
+                continue
+            try:
+                document = yaml.safe_load(path.read_text(encoding='utf-8'))
+            except Exception:  # noqa: BLE001 — absent or unreadable: verify_config owns its shape
+                continue
+            seen.add(key)
+            documents.append(document)
+    return documents
+
+
+def _declared_clock(simulate_path: Path) -> str | None:
+    """``harness.clock`` from the first plurai.config.yaml found (as written), None when it is undeclared or no config is
+    there, and :data:`CLOCK_UNREADABLE` when no YAML reader is importable."""
+    documents = _config_documents(simulate_path)
+    if documents is None:
+        return CLOCK_UNREADABLE
+    if not documents:
+        return None
+    harness = documents[0].get('harness') if isinstance(documents[0], dict) else None
+    clock = harness.get('clock') if isinstance(harness, dict) else None
+    return str(clock).strip() if clock not in (None, '') else None
+
+
+def _planted_clock_values(values: dict, declared: str | None) -> dict:
+    """``values`` with a planted ``current_date`` when ``declared`` is a delivering route and they hold no clock."""
+    if declared not in CLOCK_ROUTES or any(key in values for key in _RUN_CLOCK_KEYS):
+        return values
+    return {**values, 'current_date': _PLANTED_CLOCK}
+
+
+def _with_planted_clock(request_block: RequestBlock, declared: str | None) -> RequestBlock:
+    """``request_block`` carrying a planted ``current_date`` (:func:`_planted_clock_values`), its source saying so."""
+    values = _planted_clock_values(request_block.values, declared)
+    if values is request_block.values:
+        return request_block
+    return request_block._replace(values=values, source=f'{request_block.source}; current_date planted for the declared clock route')
+
+
+def _say_clock(notes: list[str], measured: list[SmokeFailure], declared: str | None, recorded: object, file: str) -> None:
+    """The clock delivery line (:func:`_clock_delivery`) added to ``notes`` / ``measured``, once each."""
+    note, warning = _clock_delivery(declared, recorded, file)
+    if note and note not in notes:
+        notes.append(note)
+    if warning and warning not in measured:
+        measured.append(warning)
+
+
+def _clock_delivery(declared: str | None, recorded: object, file: str) -> tuple[str | None, SmokeFailure | None]:
+    """``(note, warning)``: whether the route ``harness.clock`` declares recorded its delivery. ``recorded`` is
+    ``ChildProcess.clock_delivery`` after ``finalize`` (:data:`_NO_CLOCK_RECORD` on an SDK that keeps none). A delivering
+    route with nothing recorded is the CLOCK_UNDELIVERED warning and a value that is no route the CLOCK_ROUTE_UNKNOWN one;
+    neither holds. `host` says nothing; undeclared or unreadable is a note."""
+    if declared == CLOCK_HOST:
+        return None, None
+    if declared is None:
+        return '~ clock delivery: harness.clock not declared — not checked.', None
+    if declared == CLOCK_UNREADABLE:
+        return '~ clock delivery: plurai.config.yaml could not be read (no YAML reader), so harness.clock was not checked.', None
+    if declared not in CLOCK_ROUTES:
+        message = (f'⚠ clock delivery: `harness.clock: {declared}` is no route — declare one of pinned, store, told or host '
+                   '(lower case), so the run can check the scenario\'s date reached the agent.')
+        return None, SmokeFailure(SmokeGate.CLOCK_ROUTE_UNKNOWN, message, file, {'declared': declared})
+    if recorded is _NO_CLOCK_RECORD:
+        return '~ clock delivery: not measured — this plurai build records no clock delivery.', None
+    if recorded is None:
+        message = (
+            f"⚠ clock delivery: plurai.config.yaml declares `harness.clock: {declared}`, and the harness recorded no delivery of "
+            f"the scenario's date — call {_CLOCK_CALLS[declared]} (the agent's plurai must be one that records it: upgrade an "
+            f"older one), or declare `harness.clock: host` when the agent reads only its own clock."
+        )
+        return None, SmokeFailure(SmokeGate.CLOCK_UNDELIVERED, message, file, {'declared': declared})
+    if recorded != declared:
+        return f'⚠ clock delivery: plurai.config.yaml declares `harness.clock: {declared}`, and the harness recorded `{recorded}` — declare the route it takes.', None
+    return f'✓ clock delivery: the harness recorded the `{declared}` route it declares.', None
 
 
 #: `.document_fields` format -> the media type the backend folds a generated binary document as; a text
@@ -669,34 +792,26 @@ _TYPED_PLANTS: tuple[tuple[str, Callable[[], object]], ...] = (('list', list), (
 
 
 def _planted_request_block(simulate_path: Path) -> tuple[dict, frozenset[str]]:
-    """``(one planted value per DECLARED request key, the store-only field names)`` when no slot is fetched.
+    """``(one planted value per DECLARED request key, the names no request-key check holds the harness to)`` when no slot
+    is fetched: the store-only field names and the run clock (the clock delivery line speaks for it).
 
     The request keys are every ``agent_context.fields`` entry of ``plurai.config.yaml`` whose
     ``inject`` includes ``request`` (or is absent: the default) and every ``.document_fields[].field``,
     in the shape the backend folds it. A store-only field rides the seeded world, so it is never planted.
     """
-    try:
-        import yaml  # noqa: PLC0415 — deferred; this file is testable without pyyaml
-    except Exception:  # noqa: BLE001 — no reader, nothing declared to plant
-        return {}, frozenset()
     planted: dict = {}
     store_only: set[str] = set()
-    for root in (simulate_path.parent, simulate_path.parent.parent):
-        for relpath in _CONFIG_RELPATHS:
-            try:
-                document = yaml.safe_load((root / relpath).read_text(encoding='utf-8'))
-            except Exception:  # noqa: BLE001 — absent or unreadable: verify_config owns its shape
-                continue
-            fields = ((document or {}).get('agent_context') or {}).get('fields') if isinstance(document, dict) else None
-            for name, spec in (fields.items() if isinstance(fields, dict) else ()):
-                inject = spec.get('inject') if isinstance(spec, dict) else None
-                channels = {inject} if isinstance(inject, str) else set(inject) if isinstance(inject, list) else {'request'}
-                if 'request' in channels:
-                    kind = str(spec.get('type') or '').lower() if isinstance(spec, dict) else ''
-                    planted[str(name)] = next((make() for k, make in _TYPED_PLANTS if kind.startswith(k)), f'plurbo-smoke-{name}')
-                else:
-                    store_only.add(str(name))
-    return planted, frozenset(store_only - set(planted))
+    for document in _config_documents(simulate_path) or ():
+        fields = ((document or {}).get('agent_context') or {}).get('fields') if isinstance(document, dict) else None
+        for name, spec in (fields.items() if isinstance(fields, dict) else ()):
+            inject = spec.get('inject') if isinstance(spec, dict) else None
+            channels = {inject} if isinstance(inject, str) else set(inject) if isinstance(inject, list) else {'request'}
+            if 'request' in channels:
+                kind = str(spec.get('type') or '').lower() if isinstance(spec, dict) else ''
+                planted[str(name)] = next((make() for k, make in _TYPED_PLANTS if kind.startswith(k)), f'plurbo-smoke-{name}')
+            else:
+                store_only.add(str(name))
+    return planted, frozenset(store_only - set(planted)).union(_RUN_CLOCK_KEYS)
 
 
 #: The reference code a planted TEXT document carries, one per `.document_fields` entry (`QUARTZ-17`, `QUARTZ-18`, …):
@@ -1425,6 +1540,9 @@ def _input_delivery(
     ``documents`` are the planted document fields: a read (a copy reads every key) is not delivery, so the ✓ line
     never names one — the document delivery line speaks for it.
     """
+    keys = [key for key in keys if str(key) not in _RUN_CLOCK_KEYS]
+    if not keys:
+        return ('~ input delivery: the only request key is the run clock — the clock delivery line speaks for it.', None)
     unread = sorted(set(recorded or ()) - store_only)
     if recorded is None:
         return ('⚠ input delivery: no read record (this plurai build keeps none, or a mock handler can serve the keys on '
@@ -1468,6 +1586,7 @@ async def _run_smoke(simulate_path: Path, *, drive_turn: bool = False, witness: 
         OrchestratorAdapterError,
     )
 
+    started = time.monotonic()
     # What the config says this agent RENDERS. Read up front: it decides how an empty turn 1 is
     # explained, and whether the render probe below runs at all.
     surface = _declared_render_surface(simulate_path)
@@ -1541,6 +1660,11 @@ async def _run_smoke(simulate_path: Path, *, drive_turn: bool = False, witness: 
         # A fetched slot or `agent.smoke_inputs` value under a document field is withheld too, as a scored run withholds it.
         handed = {plant.field for plant in documents}
         request_block = request_block._replace(values={k: v for k, v in request_block.values.items() if k not in handed})
+    clock = _declared_clock(simulate_path)
+    if drive_turn:
+        request_block = _with_planted_clock(request_block, clock)
+        if clock not in CLOCK_ROUTES:  # nothing to read back: said now, the delivering routes after Finalize
+            _say_clock(notes, measured, clock, _NO_CLOCK_RECORD, simulate_path.name)
     notes.append(
         f'✓ request block: {", ".join(sorted(map(str, request_block.values)))} from {request_block.source}.'
         if request_block.values
@@ -1563,30 +1687,35 @@ async def _run_smoke(simulate_path: Path, *, drive_turn: bool = False, witness: 
     child = ChildProcess(simulate_path)
     witness_kwargs = witness.init_kwargs(ChildProcess.init) if witness is not None else {}
     records_session = False
+    # The Init every child of this smoke gets (the sibling probe's too), beside its own thread id.
+    shared_init = {
+        'mock_service_url': 'http://localhost:8199',
+        # 'local' = in-process mock session. The default 'connect' PROBES the URL and
+        # raises when nothing listens — and at this step nothing does (env-gen deploys
+        # the mock later), so every smoke run failed as category=other and the SKILL's
+        # stub-loop chased phantom modules. Smoke tests LOADING, not mock reachability.
+        'mock_mode': 'local',
+        # Param 2 is the STORE: a fetched slot's own world, else the declared smoke world
+        # under --turn, else `{}` (this step runs before env-gen deploys anything; on an
+        # all-real bench the store stays empty for the whole run). Param 1 carries the
+        # `inject: request` values — those arrive on every real turn 1, so an empty one
+        # smokes an envelope no run sends.
+        'initial_world_state': world,
+        'initial_agent_context': request_block.values,
+        'scenario_metadata': {'scenario_name': 'smoke', **channel_plan},
+    }
+    # The solo opener the sibling probe repeats side by side, and how long the Init and it took.
+    opener_content: Any = None
+    solo_init_s, solo_turn_s = 0.0, 0.0
     try:
         async with child:
             if witness_kwargs:
                 # The witness is cumulative since Init, so every reply is observed and the last decides.
                 driven = child.user_turn
                 child.user_turn = lambda *a, **k: _observed(witness, driven(*a, **k))  # type: ignore[method-assign]
-            await child.init(
-                thread_id='smoke-test',
-                mock_service_url='http://localhost:8199',
-                # 'local' = in-process mock session. The default 'connect' PROBES the URL and
-                # raises when nothing listens — and at this step nothing does (env-gen deploys
-                # the mock later), so every smoke run failed as category=other and the SKILL's
-                # stub-loop chased phantom modules. Smoke tests LOADING, not mock reachability.
-                mock_mode='local',
-                # Param 2 is the STORE: a fetched slot's own world, else the declared smoke world
-                # under --turn, else `{}` (this step runs before env-gen deploys anything; on an
-                # all-real bench the store stays empty for the whole run). Param 1 carries the
-                # `inject: request` values — those arrive on every real turn 1, so an empty one
-                # smokes an envelope no run sends.
-                initial_world_state=world,
-                initial_agent_context=request_block.values,
-                scenario_metadata={'scenario_name': 'smoke', **channel_plan},
-                **witness_kwargs,
-            )
+            init_started = time.monotonic()
+            await child.init(thread_id='smoke-test', **shared_init, **witness_kwargs)
+            solo_init_s = time.monotonic() - init_started
             if (raised := _world_read_raised(child, simulate_path)) is not None:
                 notes.append(f'✗ world read: the world could not be read after seed_state: {raised.observed["read_error"]}')
                 measured.append(raised)
@@ -1607,7 +1736,9 @@ async def _run_smoke(simulate_path: Path, *, drive_turn: bool = False, witness: 
                 # Turn 0 carries the handed-over documents as `file` parts beside her words, the shape a scenario that
                 # hands one over with the opener sends; a later turn's part is the input probe below.
                 opener_content = [{'type': 'text', 'text': opener}, *(plant.value for plant in documents)] if documents else opener
+                turn_started = time.monotonic()
                 reply = await child.user_turn(0, opener_content)
+                solo_turn_s = time.monotonic() - turn_started
                 if not _turn_delivered_something(reply):
                     silent = (
                         '✗ turn smoke: turn 1 delivered neither speech nor an action — one symptom, three possible '
@@ -1680,15 +1811,16 @@ async def _run_smoke(simulate_path: Path, *, drive_turn: bool = False, witness: 
                     if plant.token is None
                 )
                 returned = _trail_returned_entries(getattr(r, 'agent_state', None) for r in (reply, reply2))
-                if not returned:
+                answered = [e for e in returned if str(e.get('status') or '').strip().lower() != _TRAIL_DENIED]
+                if not answered:
                     notes.append(
                         _trail_lane_unwritten(simulate_path, (reply, reply2))
                         or '~ trail results: not exercised — the smoke turns reported no tool call that returned.'
                     )
-                elif all(entry.get('result') is None for entry in returned):
-                    measured.append(SmokeFailure(SmokeGate.TRAIL_RESULT_MISSING, _TRAIL_RESULT_MISSING, simulate_path.name, {'entries': str(len(returned))}))
+                elif all(entry.get('result') is None for entry in answered):
+                    measured.append(SmokeFailure(SmokeGate.TRAIL_RESULT_MISSING, _TRAIL_RESULT_MISSING, simulate_path.name, {'entries': str(len(answered))}))
                 else:
-                    notes.append(f'✓ trail results: {sum(e.get("result") is not None for e in returned)} of {len(returned)} returned tool calls carry their result.')
+                    notes.append(f'✓ trail results: {sum(e.get("result") is not None for e in answered)} of {len(answered)} returned tool calls carry their result.')
                 _record_trail_names(simulate_path, returned, render_verbs, measured, notes)
                 if surface.unreadable:
                     # THE FOURTH no-verdict state. `RenderSurface` split "declares no render
@@ -1946,13 +2078,16 @@ async def _run_smoke(simulate_path: Path, *, drive_turn: bool = False, witness: 
                     if failure is not None:
                         measured.append(failure)
                 handed_parts = bool(documents) or _HANDOVER_PART_KIND in io.input_parts
-                if request_block.values or handed_parts:
+                if request_block.values or handed_parts or clock in CLOCK_ROUTES:
                     # Every request key rode Init and turn 1, and every handed-over document rode a turn as a `file`
-                    # part; the SDK records which of each the harness READ — the two apart (`unread_inputs`, `unread_parts`).
+                    # part; the SDK records which of each the harness READ — the two apart (`unread_inputs`, `unread_parts`) —
+                    # and the clock route it recorded (`clock_delivery`).
                     await child.finalize()
                     measured[:] = _read_parts_delivered(getattr(child, 'unread_parts', None), measured, notes)
                     if (unread_parts := _unread_parts(getattr(child, 'unread_parts', None), measured, file=simulate_path.name)) is not None:
                         measured.append(unread_parts)
+                    if clock in CLOCK_ROUTES:
+                        _say_clock(notes, measured, clock, getattr(child, 'clock_delivery', _NO_CLOCK_RECORD), simulate_path.name)
                 if request_block.values:
                     note, failing = _input_delivery(
                         simulate_path, request_block.values, getattr(child, 'unread_inputs', None), store_only, lane='the turn-1 payload', preempted=False,
@@ -2009,6 +2144,13 @@ async def _run_smoke(simulate_path: Path, *, drive_turn: bool = False, witness: 
             measured.append(sibling)
     if any(f.gate not in _WARNING_GATES for f in measured):
         return _with_remedy(_with_measured((0, ''), measured, notes), world_remedy)
+    if drive_turn:
+        sibling_turn, note = await _sibling_turn(
+            simulate_path, shared_init, opener_content,
+            solo_init_s=solo_init_s, solo_turn_s=solo_turn_s, started=started,
+        )
+        notes.extend([note] if note else [])
+        measured.extend([sibling_turn] if sibling_turn else [])
     warned = [f.message for f in measured]
     if drive_turn:
         ok = '✓ smoke OK — simulate.py loaded, responded to Init, and completed two real agent turns'
@@ -2040,6 +2182,8 @@ def _world_read_raised(child: Any, simulate_path: Path) -> SmokeFailure | None:
 #: A trail entry's ``status`` naming a FAILED dispatch: the plugin's trail contract (``build_run_json._TRAIL_FAILED_STATUSES``),
 #: restated because this file runs standing alone. A failed dispatch has no result to record.
 _TRAIL_FAILED_STATUSES = frozenset({'error', 'unavailable', 'failed', 'failure', 'refused', 'not_dispatchable'})
+#: The bridge's `denied`: a call the agent's own guard refused. It is still a call the trail names, and it has no result.
+_TRAIL_DENIED = 'denied'
 _TRAIL_RESULT_MISSING = (
     '⚠ trail results: every tool-trail entry whose dispatch did not fail carries no `result`, so every judge would grade '
     "the tool calls blind — record each tool's returned value as the entry's `result` at the tool wrapper"
@@ -2558,10 +2702,23 @@ _CROSS_TALK_REMEDY = (
     '"partition before rewriting"; example_simulate.py PHASE 1c); else declare its copies as `world_state.slots`'
 )
 
+#: The cite a resource taken on a turn is declared with: it names the resource and says when it is taken.
+_TURN_STAGE_CITE = '`["model gateway\'s fixed state dir, taken on the first turn"]`'
+
 _EXCLUSIVE_UNNEEDED_REMEDY = (
     'siblings Init\'d, seeded and read back their own rows side by side, so the declaration serializes a resource they did '
     'not collide on: the final run then holds every conversation behind one agent process. Drop it, unless the resource is '
-    'taken only after Init (on a turn)'
+    f'taken only after Init (on a turn) and its cite says so, as {_TURN_STAGE_CITE} does: keep that one'
+)
+
+_SIBLING_TURN_REMEDY = (
+    'something it starts or writes on the host when it runs (at Init or on a turn) is shared (a child service, a fixed port, '
+    'a state or config dir). Give each copy its own in simulate.py before the agent or its child starts: a state/config dir '
+    'from `tempfile.mkdtemp()`, port 0 or a free port (example_simulate.py PHASE 1c `free_loopback_port`), set in '
+    '`os.environ`, then re-run the smoke once. If it still warns, declare `harness.single_instance` only when the shared '
+    'resource can be named in the agent\'s code, with a cite that names it and says when it is taken (at Init, or on the '
+    f'first turn), e.g. {_TURN_STAGE_CITE}; else leave it undeclared and carry this warning as a named risk. If the '
+    'sibling\'s error is the model provider\'s own (`ProviderInfra`), re-run the smoke once before acting'
 )
 
 
@@ -2753,6 +2910,198 @@ def _sibling_finding(declared: _SiblingDeclaration, observed: _SiblingObservatio
     return SmokeFailure(SmokeGate.SIBLING_CROSS_TALK, line, file, {'observed': observed.detail})
 
 
+#: Set to ``0`` to skip the turn smoke's sibling probe (:func:`_sibling_turn_probe`); on by default.
+SIBLING_TURN_ENV = 'PLURAI_SMOKE_SIBLING_TURN'
+#: Tests set this to re-raise a defect of the probe's own code instead of printing it as a probe error.
+_PROBE_DEFECTS_RAISE = False
+
+#: The ``smoke_turn`` check's limit (``scripts/bench_manifest.py`` ``_TIMEOUT_DEFAULT``), restated: this file runs standing alone.
+_SMOKE_TURN_BUDGET_S = 900.0
+#: What the check's clock has spent before :func:`_run_smoke` starts its own: the interpreter's start and this file's imports.
+_SMOKE_STARTUP_MARGIN_S = 15.0
+#: A probe child's caps: this multiple of the solo child's measured Init, and of its measured opener, never under the floor.
+_SIBLING_TURN_FACTOR = 2.0
+_SIBLING_TURN_FLOOR_S = 60.0
+#: One phase's close, its children closed at once: the SDK's worst case for one close (the shutdown wait, the terminate
+#: grace, the group kill and its waits) is about 20 s, plus a margin.
+_SIBLING_TURN_CLOSE_S = 25.0
+
+
+def sibling_turn_enabled() -> bool:
+    """Whether the ``--turn`` smoke drives the sibling probe (:data:`SIBLING_TURN_ENV` is not ``0``)."""
+    return os.environ.get(SIBLING_TURN_ENV, '').strip() != '0'
+
+
+def _turn_unmeasured(why: str) -> str:
+    """The note of a sibling probe that measured nothing."""
+    return f'~ sibling turn: not measured ({why})'
+
+
+def _turn_skipped(why: str) -> str:
+    """The note of a sibling probe this bench does not run."""
+    return f'~ sibling turn: skipped ({why}).'
+
+
+class _ProbeStartFailed(Exception):
+    """A probe child could not be started (its spawn raised): nothing was measured."""
+
+
+class _TurnOutcome(NamedTuple):
+    """One probe child's Init and opener: ``failed`` is the typed fact (``raised <class>`` / ``delivered nothing``), empty
+    when it delivered; ``capacity`` when the raise carried the SDK's typed capacity or credit block; ``detail`` the error
+    text, which is only ever ``observed``; ``exc_type`` the raise's own class and ``child_exc_class`` the child's."""
+
+    thread_id: str
+    failed: str = ''
+    capacity: bool = False
+    detail: str = ''
+    exc_type: str = ''
+    child_exc_class: str = ''
+
+    @property
+    def raised(self) -> bool:
+        return bool(self.exc_type)
+
+    def fact(self) -> str:
+        return f'{self.failed}: {self.detail}' if self.detail else self.failed
+
+
+def _refusal_readers() -> list[Callable[[BaseException], object]]:
+    """The SDK's typed capacity and credit readers (``capacity_block_of`` / ``credit_block_of``); an SDK without them has none."""
+    readers = []
+    for module, reader in (('plurai.capacity', 'capacity_block_of'), ('plurai.credit', 'credit_block_of')):
+        try:
+            readers.append(getattr(importlib.import_module(module), reader))
+        except Exception:  # noqa: BLE001, S112 — an older SDK: nothing typed
+            continue
+    return readers
+
+
+def _turn_outcome(thread_id: str, result: object, readers: list[Callable[[BaseException], object]]) -> _TurnOutcome:
+    """What one probe child's ``gather`` result says: a reply, or whatever its Init or opener raised."""
+    if isinstance(result, BaseException):
+        exc_type = type(result).__name__
+        child = str(getattr(result, 'child_exc_class', None) or '')
+        failed = f'raised {child} ({exc_type})' if child and child != exc_type else f'raised {exc_type}'
+        typed = any(read(result) is not None for read in readers)
+        return _TurnOutcome(thread_id, failed, typed, _one_line(result, 300), exc_type, child)
+    return _TurnOutcome(thread_id) if _turn_delivered_something(result) else _TurnOutcome(thread_id, 'delivered nothing')
+
+
+async def _sibling_turn_children(
+    simulate_path: Path, init: dict, opener: object, thread_ids: list[str], caps: tuple[float, float], readers: list[Callable[[BaseException], object]]
+) -> list[_TurnOutcome]:
+    """One child per thread id, all started together; each Inits with ``init`` and drives ``opener``, each call under its cap
+    through the SDK's own per-call timeout (it terminates the child and raises ``AgentTurnTimeout``). All are closed at once
+    through the SDK's close (its process group, by id) once every one answered. A child that could not be started raises
+    :class:`_ProbeStartFailed`."""
+    from plurai._subprocess import ChildProcess  # noqa: PLC0415 — deferred, as in _run_smoke
+
+    init_cap, turn_cap = caps
+
+    async def drive(child: Any, thread_id: str) -> Any:
+        child.agent_turn_timeout = init_cap
+        await child.init(thread_id=thread_id, **init)
+        child.agent_turn_timeout = turn_cap
+        return await child.user_turn(0, opener)
+
+    children: list[Any] = []
+    try:
+        try:
+            for _ in thread_ids:
+                child = ChildProcess(simulate_path)
+                await child.__aenter__()
+                children.append(child)
+        except Exception as exc:  # noqa: BLE001 — a spawn that failed measured nothing
+            raise _ProbeStartFailed(f'{type(exc).__name__}: {_one_line(exc, 300)}') from exc
+        results = await asyncio.gather(*(drive(child, thread_id) for child, thread_id in zip(children, thread_ids)), return_exceptions=True)
+    finally:
+        closes = asyncio.gather(*(child.__aexit__(None, None, None) for child in children), return_exceptions=True)
+        try:
+            await asyncio.wait_for(closes, _SIBLING_TURN_CLOSE_S)
+        except TimeoutError:
+            pass  # a close past its allowance is cancelled; the SDK's close reaps the child's group on a cancel too
+    return [_turn_outcome(thread_id, result, readers) for thread_id, result in zip(thread_ids, results)]
+
+
+async def _sibling_turn_probe(
+    simulate_path: Path, init: dict, opener: object, *, solo_init_s: float, solo_turn_s: float, started: float
+) -> tuple[SmokeFailure | None, str | None]:
+    """``(warning, note)`` — the turn smoke's sibling probe, run on a bench that declares neither ``harness.single_instance``
+    nor world copies, once the solo opener delivered and nothing but warnings was measured.
+
+    :data:`_SIBLING_CHILDREN` children get the solo child's Init and opener at once, on fresh thread ids, each call capped
+    at twice the solo child's (never under the floor). A sibling that raised (but not with the SDK's typed capacity or credit
+    block) sends ONE fresh child to drive the opener alone; siblings that only delivered nothing send two, one after the
+    other. Every alone child clean is ``sibling_turn_failed``; one failing measured nothing, and the note carries both
+    failures. Skipped when what is left of the check's budget cannot hold the siblings and an alone child (and the second
+    alone child, before it starts)."""
+    init_cap = max(_SIBLING_TURN_FLOOR_S, _SIBLING_TURN_FACTOR * solo_init_s)
+    turn_cap = max(_SIBLING_TURN_FLOOR_S, _SIBLING_TURN_FACTOR * solo_turn_s)
+    phase = init_cap + turn_cap + _SIBLING_TURN_CLOSE_S
+
+    def fits(phases: int) -> bool:
+        return time.monotonic() - started + _SMOKE_STARTUP_MARGIN_S + phases * phase <= _SMOKE_TURN_BUDGET_S
+
+    no_budget = _turn_unmeasured('budget') + ' — the solo turns used most of the check\'s time.'
+    if not fits(2):
+        return None, no_budget
+    readers = _refusal_readers()
+    tag = os.urandom(3).hex()
+    thread_ids = [f'smoke-sibling-turn-{tag}-{n}' for n in range(_SIBLING_CHILDREN)]
+    siblings = await _sibling_turn_children(simulate_path, init, opener, thread_ids, (init_cap, turn_cap), readers)
+    failed = [outcome for outcome in siblings if outcome.failed and not outcome.capacity]
+    if not failed:
+        if any(outcome.capacity for outcome in siblings):
+            return None, _turn_unmeasured('the backend refused a sibling\'s mocked tool call for capacity or credit') + '.'
+        return None, f'✓ sibling turn: {_SIBLING_CHILDREN} children answered the opener side by side.'
+    # The failure the finding names, whatever order the siblings answered in: a raise first, then by its fact.
+    first = min(failed, key=lambda outcome: (not outcome.raised, outcome.failed))
+    for run in range(1 if first.raised else 2):
+        if run and not fits(1):
+            return None, no_budget
+        [alone] = await _sibling_turn_children(simulate_path, init, opener, [f'smoke-sibling-turn-{tag}-alone{run}'], (init_cap, turn_cap), readers)
+        if alone.failed:
+            return None, _turn_unmeasured(
+                f'the alone re-drive also failed: {alone.fact()}; a sibling had failed with {first.fact()}; '
+                'either the siblings left shared host state broken or the failure is transient'
+            )
+    line = f'⚠ sibling turn: {_SIBLING_CHILDREN} children drove the opener at once and one {first.failed} — {_SIBLING_TURN_REMEDY}.'
+    observed = {'thread_id': first.thread_id, 'exc_type': first.exc_type, 'child_exc_class': first.child_exc_class, 'sibling_error': first.detail}
+    return SmokeFailure(SmokeGate.SIBLING_TURN_FAILED, line, simulate_path.name, observed), None
+
+
+async def _sibling_turn(
+    simulate_path: Path, init: dict, opener: object, *, solo_init_s: float, solo_turn_s: float, started: float
+) -> tuple[SmokeFailure | None, str | None]:
+    """The sibling probe of the `--turn` smoke, reached only once every hard gate passed (:func:`_sibling_turn_probe`): a
+    warning, or a note saying what it did — ran clean, measured nothing, hit a probe error, or was skipped and why — so the
+    recorded smoke result keeps the probe's own line. A defect of the probe's own code is a note and a traceback on
+    stderr, never a driver crash."""
+    try:
+        if not sibling_turn_enabled():
+            return None, _turn_skipped(f'{SIBLING_TURN_ENV}=0')
+        try:
+            import yaml  # noqa: F401, PLC0415 — deferred; this file is testable without pyyaml
+        except Exception:  # noqa: BLE001 — no reader: an unread declaration is never probed as an absent one
+            return None, _turn_unmeasured('no YAML reader, so the config\'s declarations could not be read') + '.'
+        declared = _sibling_declaration(simulate_path)
+        if declared is None:
+            return None, _turn_skipped('the config declares one shared world: an `external` owner or `slots: 1`')
+        if declared.exclusive:
+            return None, _turn_skipped(f'the config declares {", ".join(declared.exclusive)}')
+        if declared.slots:
+            return None, _turn_skipped(f'the config declares {declared.slots} world copies')
+        return await _sibling_turn_probe(simulate_path, init, opener, solo_init_s=solo_init_s, solo_turn_s=solo_turn_s, started=started)
+    except _ProbeStartFailed as exc:
+        return None, _turn_unmeasured(f'could not start the probe children: {exc}')
+    except Exception as exc:  # noqa: BLE001 — the probe warns or measures nothing; it never ends the smoke
+        traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
+        if _PROBE_DEFECTS_RAISE:
+            raise
+        return None, f'~ sibling turn: probe error (bug) {type(exc).__name__}: {_one_line(exc, 300)}'
+
+
 async def _observed(witness: _EntryWitness, turn: Awaitable[Any]) -> Any:
     return witness.observe(await turn)
 
@@ -2811,10 +3160,13 @@ async def _run_pipeline_smoke(simulate_path: Path, witness: _EntryWitness | None
     # Every request key rides Init and the invoke; the SDK records which ones the harness READ, and a
     # returned PipelineError leaves the child alive, so the record is taken whichever way the pass ended.
     store_only = _planted_request_block(simulate_path)[1]
+    clock = _declared_clock(simulate_path)
     render_verbs = _declared_render_surface(simulate_path).verbs
     notes: list[str] = []
     #: An unread key is recorded and the remaining worlds still run: a non-holding finding never cuts the pass.
     measured: list[SmokeFailure] = []
+    if clock not in CLOCK_ROUTES:  # nothing to read back: said once, the delivering routes after each Finalize
+        _say_clock(notes, measured, clock, _NO_CLOCK_RECORD, simulate_path.name)
     capture = _StderrCaptureHandler()
     capture.setLevel(logging.DEBUG)
     sdk_logger = logging.getLogger('plurai._subprocess')
@@ -2823,6 +3175,7 @@ async def _run_pipeline_smoke(simulate_path: Path, witness: _EntryWitness | None
     try:
         for index, entry in enumerate(entries, start=1):
             where = f'world {index} of {len(entries)} ({len(entry["world"].get("entities") or {})} entities)'
+            entry = {**entry, 'inputs': _planted_clock_values(dict(entry['inputs']), clock)}
             keys = sorted(set(map(str, entry['inputs'])) - store_only)
             try:
                 async with ChildProcess(simulate_path) as child:
@@ -2855,8 +3208,11 @@ async def _run_pipeline_smoke(simulate_path: Path, witness: _EntryWitness | None
                     if witness is not None:
                         witness.observe(result)
                     _record_trail_names(simulate_path, _trail_returned_entries([getattr(result, 'outputs', None)]), render_verbs, measured, notes)
-                    if keys:
+                    if keys or clock in CLOCK_ROUTES:
                         await child.finalize()
+                    if clock in CLOCK_ROUTES:
+                        _say_clock(notes, measured, clock, getattr(child, 'clock_delivery', _NO_CLOCK_RECORD), simulate_path.name)
+                    if keys:
                         note, failing = _input_delivery(
                             simulate_path, keys, getattr(child, 'unread_inputs', None), store_only, lane=_PIPELINE_LANE, preempted=False,
                         )
@@ -4045,7 +4401,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         '--turn',
         action='store_true',
-        help='Also drive real agent turns (needs the provider key; one LLM call each) — two always, turn 2 probing that the harness carries history across turns (the stateless-harness check), plus one turn per declaration the config makes that this run can confirm: the render surface (only with PLURAI_SMOKE_RENDER_PROBE=1), each non-text `agent.io.input` part kind, and `agent.io.may_open`.',
+        help='Also drive real agent turns (needs the provider key; one LLM call each) — two always, turn 2 probing that the harness carries history across turns (the stateless-harness check), plus one turn per declaration the config makes that this run can confirm: the render surface (only with PLURAI_SMOKE_RENDER_PROBE=1), each non-text `agent.io.input` part kind, and `agent.io.may_open`. On an undeclared bench it then drives extra children to catch copies that collide; PLURAI_SMOKE_SIBLING_TURN=0 skips them.',
     )
     parser.add_argument(
         '--pipeline',
@@ -4198,11 +4554,12 @@ _MODE_GATES: dict[str, frozenset[Category | SmokeGate]] = {
         SmokeGate.TURN_SILENT, SmokeGate.RENDER_SILENT, SmokeGate.INPUT_PART_REFUSED, SmokeGate.MAY_OPEN_REFUSED, SmokeGate.MAY_OPEN_SILENT,
         SmokeGate.REQUEST_KEY_UNREAD, SmokeGate.TRAIL_RESULT_MISSING, SmokeGate.CANNED_RESUME_REFUSED, SmokeGate.CHANNEL_REFUSED,
         SmokeGate.DOCUMENT_UNDELIVERED, SmokeGate.WORLD_READ_RAISED, SmokeGate.TRAIL_TOOL_UNDECLARED, SmokeGate.TRAIL_TOOL_UNTYPED,
-        SmokeGate.TOOL_HISTORY_DROPPED,
+        SmokeGate.TOOL_HISTORY_DROPPED, SmokeGate.SIBLING_TURN_FAILED, SmokeGate.CLOCK_UNDELIVERED, SmokeGate.CLOCK_ROUTE_UNKNOWN,
     }),
     'pipeline': frozenset({
         *(c for c in Category if c != Category.AGENT_INTERPRETER), SmokeGate.SDK_API_GAP, SmokeGate.AGENT_RAISED, SmokeGate.HARNESS_RAISED,
-        SmokeGate.REQUEST_KEY_UNREAD, SmokeGate.TRAIL_TOOL_UNDECLARED, SmokeGate.TRAIL_TOOL_UNTYPED,
+        SmokeGate.REQUEST_KEY_UNREAD, SmokeGate.TRAIL_TOOL_UNDECLARED, SmokeGate.TRAIL_TOOL_UNTYPED, SmokeGate.CLOCK_UNDELIVERED,
+        SmokeGate.CLOCK_ROUTE_UNKNOWN,
     }),
     'host_route': frozenset({SmokeGate.SDK_API_GAP, SmokeGate.REQUEST_KEY_UNREAD}),
     'seed_world': frozenset({SmokeGate.SDK_API_GAP, SmokeGate.SEED_WORLD_REFUSED, SmokeGate.SEED_READBACK_GAP, SmokeGate.RESET_LEFTOVER}),
@@ -4221,6 +4578,7 @@ _REMEDY: dict[Category | SmokeGate, str] = {
     SmokeGate.SIBLING_INIT_FAILED: _SIBLING_REMEDY,
     SmokeGate.SIBLING_CROSS_TALK: _CROSS_TALK_REMEDY,
     SmokeGate.EXCLUSIVE_UNNEEDED: _EXCLUSIVE_UNNEEDED_REMEDY,
+    SmokeGate.SIBLING_TURN_FAILED: _SIBLING_TURN_REMEDY,
 }
 
 

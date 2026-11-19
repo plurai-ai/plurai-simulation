@@ -618,7 +618,8 @@ plan the recordings with the planner the suite build uses, so the plan names its
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" auto-plan "$ART/agent_findings.md" \
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" auto-plan "$ART/agent_findings.md" \
   --regressions-dir "$WORKDIR/regressions" --run "<the run dir Step 0 picked>" --acceptance --bench-cells-from-audit \
   [--bench-from "$ART/auto_regressions.json"] [--bench-scenario <name>]… [--bench-cell <scenario>:<policy>]… \
   [--bench-policy <check>]… [--harness-wide "<title>"]… > "$ART/fixes_regressions.json"

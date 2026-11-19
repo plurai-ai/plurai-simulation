@@ -1,23 +1,23 @@
 {
-  "version": "0.56.10",
+  "version": "0.56.12",
   "plugin": "0.55",
-  "tag": "simulation-report@0.56.10",
-  "fetched_at": "2026-11-10T22:04:38Z",
+  "tag": "simulation-report@0.56.12",
+  "fetched_at": "2026-11-18T13:29:06Z",
   "sha256": {
-    "index.html": "6aefc964697642a1152647534539975a8eb520cc2ce4df17d8d95acb0b4cf648",
-    "schema.json": "7fcabcad0458ce3f5c64c4495030d6962ff6c309e96d555d559c962a58e50558",
-    "fill_report.py": "3c7cd18ab5fbee3202478380f9cee080c30f5180957e38f37676981fab15d90f",
-    "manifest.json": "95b4ec8f7dc0184ba19fb1cccf74296be665535a51d98123c43897cc4039f527"
+    "index.html": "e7a34d7ea0511259095bdf95f09a14dae49651fb2e8e31da1d490ae09853cc2b",
+    "schema.json": "e4f3460689aa632688219139dd48e6be4a558081a427bb1774953ba29310fabc",
+    "fill_report.py": "5b2d7cc39727f675a7bdcdeec55a783ccd7b51c1cd4ea2bb1daeb7ee18ab52ad",
+    "manifest.json": "d6da822f59c845571e56edb129b8ec4aea1d8d52aae8c0aca3524a5a9a826bb7"
   },
   "manifest": {
-    "version": "0.56.10",
+    "version": "0.56.12",
     "plugin": "0.55",
     "sha256": {
-      "index.html": "6aefc964697642a1152647534539975a8eb520cc2ce4df17d8d95acb0b4cf648",
-      "fill_report.py": "3c7cd18ab5fbee3202478380f9cee080c30f5180957e38f37676981fab15d90f",
-      "schema.json": "7fcabcad0458ce3f5c64c4495030d6962ff6c309e96d555d559c962a58e50558"
+      "index.html": "e7a34d7ea0511259095bdf95f09a14dae49651fb2e8e31da1d490ae09853cc2b",
+      "fill_report.py": "5b2d7cc39727f675a7bdcdeec55a783ccd7b51c1cd4ea2bb1daeb7ee18ab52ad",
+      "schema.json": "e4f3460689aa632688219139dd48e6be4a558081a427bb1774953ba29310fabc"
     },
-    "schema_hash": "7fcabcad0458ce3f5c64c4495030d6962ff6c309e96d555d559c962a58e50558",
+    "schema_hash": "e4f3460689aa632688219139dd48e6be4a558081a427bb1774953ba29310fabc",
     "anchors": [
       "scan",
       "traces",

@@ -731,6 +731,14 @@ def _has_confirmed_finding(path: Path) -> bool:
     return False
 
 
+def _release_verdict():  # noqa: ANN202 - a module
+    """`scripts/release_verdict.py`, the one reader of a stored rung (`read_rung`: a stored `Suite: validated` is qualified)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import release_verdict  # noqa: PLC0415
+
+    return release_verdict
+
+
 def _bench_manifest():  # noqa: ANN202 - a module
     """`scripts/bench_manifest.py`, the phase record's one reader and writer (stdlib only)."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -1035,8 +1043,10 @@ def _apply_env_file(workdir: Path, recorded: object) -> str:
 
 
 def _anchor(workdir: Path) -> str | None:
+    """The rung the suite landed on, read as this version reads a stored rung (`release_verdict.read_rung`)."""
+    read_rung = _release_verdict().read_rung
     record = _read_json(_art(workdir) / 'suite_anchor.json')
-    value = record.get('anchor') if isinstance(record, dict) else None
+    value = read_rung(record.get('anchor')) if isinstance(record, dict) else None
     return value if isinstance(value, str) else None
 
 
@@ -1139,7 +1149,8 @@ def run_summary(workdir: Path) -> str:
     verdict = _read_json(run_dir / 'release_verdict.json')
     if isinstance(verdict, dict):
         # The Agent line rides beside the rung: the closing is the one place a `/simulate` run states the agent's verdict.
-        line += ''.join(f' {v.rstrip(".")}.' for v in (verdict.get('rung'), verdict.get('agent_line'), verdict.get('customer_banner'))
+        read_rung = _release_verdict().read_rung
+        line += ''.join(f' {v.rstrip(".")}.' for v in (read_rung(verdict.get('rung')), verdict.get('agent_line'), verdict.get('customer_banner'))
                         if isinstance(v, str) and v.strip())
     return line
 

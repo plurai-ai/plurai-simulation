@@ -413,6 +413,16 @@ which is why the recorder refuses such a cut.
 
 A bridge harness resumes through its entry's `seed` export; an entry with none declares `entry.resume: {unsupported: <reason>}` in `bridge/bridge.map.json`.
 
+### Documents in the seed
+
+A seeded human message keeps the `file` parts the user handed over, exactly as the live turn received them. Restore the
+messages unchanged, and when `invoke_agent` moves a handed-over document into a side channel (the template's
+`content_part` mode, `ATTACHMENTS_FIELD`), refill that channel in the same write from
+`seeded_documents(resume_seed["messages"])` (`_documents.py`); then declare
+`"harness": {"resume": {"mode": "replay", "documents": "restored"}}` in `bench_manifest.json`. Only that declaration
+lets a regression replay carry a document. Never declare it for `by_path` or a Claude Code CLI session: rewriting a
+seeded message to name a planted path breaks the runner's turn-1 excision.
+
 ## The nine things that make this work (or silently not)
 
 Points 1–5 are the transcript half and apply to every seed. Points 6–9 are the start-node half

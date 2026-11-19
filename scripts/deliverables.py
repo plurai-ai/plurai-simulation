@@ -596,6 +596,17 @@ NOT_GATED: dict[str, str] = {
     # Read by simulation-report 0.56.8.
     'artifacts/run_warnings.json': 'no step writes it yet: the plugin warnings the page lists have no writer in this release; '
                                    'the page leaves the Plugin warnings panel out without it',
+    # Read by simulation-report 0.56.12; every one is optional on the page.
+    'artifacts/runs/*/finding_attribution.json': 'scored_findings.py attribute writes it for an audited final run, and the suite and '
+                                                 'run rows already WARN when it is missing (attribution_gaps); the page shows no '
+                                                 'finding links without it',
+    'artifacts/scenarios/*/resume_seed.yaml': 'a slot file the backend lists only for a scenario resumed from recorded turns (a trace '
+                                              'or regression scenario); fetch_slot_bundle.py lands it when listed, and the page shows '
+                                              'no resumed turns without it',
+    'regressions/*/resume_pin.json': "the SDK converter's pin for a recorded regression cut (plurai convert-trace), and a suite may "
+                                     'record no regression; the page shows no pin details without it',
+    'trace_scenarios/*/resume_pin.json': "the SDK converter's pin for a trace scenario (plurai convert-trace), written only when "
+                                         '/trace-to-scenarios ran; the page shows no pin details without it',
 }
 
 

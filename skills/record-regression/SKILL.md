@@ -255,7 +255,8 @@ That is by design, and it is a decision, so make it deliberately rather than by 
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" pick "<the run dir from Step 0>" --policy "<the failed policy>" \
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" pick "<the run dir from Step 0>" --policy "<the failed policy>" \
   --workdir "$WORKDIR" --out "$ART/regression_picks/regression_<issue_slug>.json"
 ```
 
@@ -269,7 +270,8 @@ changed a world its pin cannot restore. Relay any refusal as written.
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" pick "<the run dir from Step 0>" --workdir "$WORKDIR" \
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" pick "<the run dir from Step 0>" --workdir "$WORKDIR" \
   --plan "<the plan>" --finding "<finding_id>" --out "$ART/regression_picks/regression_<issue_slug>.json"
 ```
 
@@ -313,6 +315,9 @@ job (a tool result whose `_plurai_runtime` is `mode: job, status: running`) and 
 before the cut. The replay's mock does not have that job. Record the folder anyway, at the same cut: the
 run report marks it. On a harness that reports its calls on `agent_state.tool_trail`, the run report reads
 only the last pinned turn's trail, so a job opened earlier and still open shows only in this pick's output.
+**`world_written_before_cut` with its `turns`** (a scenario that was itself resumed, over a seeded world) means the
+history before the cut changed that world and the replay's world may lack those changes: record the resumed shape
+anyway; the run report marks it. A caveat can carry both reasons (`reasons`).
 
 `shape: opener-only` means the issue is on turn 0. There is no history to seed, and the converter
 refuses that cut — Step 5 writes the recorded opener instead, and Step 6 does not run. `shape: opener-rooted`
@@ -397,7 +402,8 @@ scenario name: a later trial's folder shares trial 1's name, so a rebuilt path r
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" write "$WORKDIR/regressions" \
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" write "$WORKDIR/regressions" \
   --slug "<issue_slug>" \
   --roles-file "$ART/regression_paragraph.md" \
   --issue-from "<the transcript Step 4 printed>" --cut-turn <K>
@@ -408,7 +414,8 @@ is lifted from:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" write "$WORKDIR/regressions" \
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" write "$WORKDIR/regressions" \
   --slug "<issue_slug>" \
   --roles-file "$ART/regression_paragraph.md" \
   --first-talk-from "<the transcript Step 4 printed>" \
@@ -433,6 +440,11 @@ reason, and nothing is written: `workspace_written_before_cut` — the run wrote
 cut, and a replay starts in a fresh scenario folder without them, so record at an earlier turn or
 from another scenario; `no_cli_session` — the harness recorded no session for that turn, so route
 it to `/simulation-setup-python`.
+
+**A document the user handed over on or before the cut rides the pin.** `write` refuses the cut, writing nothing, when
+one cannot, naming the reason: `anonymized_posture`, `cli_session`, `harness_does_not_restore`, `by_reference`,
+`unsupported_part` or `attachment_only_turn`. Record that issue before the document's turn or from another conversation;
+never strip the document to make it record.
 
 ## Step 6 — convert the conversation into the folder (resumed shape only)
 
@@ -483,6 +495,18 @@ scenario. Never delete a folder this record did not write: Step 5 refuses an exi
 the one checked here is always this record's own, and an older folder the checker refuses is
 reported by `regressions.py list` and the suite build, never removed here. Do not edit
 a pin: it is the record of what the conversation was.
+
+Then check the pin carries every document the conversation handed over through the cut:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" verify-carry \
+  --folder "$WORKDIR/regressions/regression_<issue_slug>" \
+  --transcript "<the transcript Step 4 printed>" --cut-turn <K>
+```
+
+Exit 0 is clean; **2 means its replay would answer without a document** — delete the folder
+(`rm -r "$WORKDIR/regressions/regression_<issue_slug>"`) and say why.
 
 ## Step 6b — keep the trace scenario's world facts (resumed shape only)
 

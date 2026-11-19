@@ -28,9 +28,11 @@ THE SCENARIO'S OWN FOLDERS ARE NOT EXPOSURE (:func:`own_folders`). The scenario'
 the two roots the run records per turn (`agent_state.host_effects.cwd` / `.shell_home`) — are where the run put the
 agent to work, so a path inside one of them (`<cwd>/outputs/memo.docx`) names the scenario's workspace, not the operator,
 in every output scanned. They are masked before any kind is read, with or without the macOS `/private` prefix. A
-recorded folder that IS a marker or holds one (a working folder at the home folder or the temp folder itself) is no
-exemption: masking it would hide the operator's own paths. The home folder and temp paths outside those folders, and
-the email and name markers, still count.
+recorded folder strictly below a child of the temp folder exempts its own parent, the root the harness made for the
+scenario, so the state folder beside the working folder is the scenario's too; a sibling session under that root's own
+parent stays exposure. A recorded folder that IS a marker or holds one (a working folder at the home folder or the temp
+folder itself) is no exemption: masking it would hide the operator's own paths. The home folder and temp paths outside
+those folders, and the email and name markers, still count.
 
 THE CELL (:func:`scenario_cell`). `build_run_json` adds it to the scenario's verdicts like any other cell; a finding
 names the kind (:data:`KIND_TEXT`) and where, never the value, and carries no quote; `kinds` lists the kinds exposed.
@@ -351,17 +353,26 @@ def _host_effects(turn: object) -> Mapping:
 
 def own_folders(transcript: Mapping, markers: Iterable[Marker]) -> list[str]:
     """The scenario's own working folder and shell home, as the run recorded them on any turn (:data:`OWN_FOLDER_KEYS`),
-    without a `/private` prefix, longest first. A folder that is a `local_path` marker or holds one is left out."""
+    without a `/private` prefix, longest first. A recorded folder whose parent lies strictly under a `temp` marker brings
+    that parent, the root the harness made for the scenario (`<temp>/<root>/<cwd>` beside `<temp>/<root>/<state>`); a
+    parent that is the temp folder itself brings nothing. A folder that is a `local_path` marker or holds one is left out."""
+    markers = list(markers)
     marked = [_unprivate(m.value) for m in markers if m.kind == 'local_path']
+    temps = [_unprivate(m.value) for m in markers if m.kind == 'local_path' and m.source == 'temp']
     found: set[str] = set()
     for turn in transcript.get('turns') or []:
         effects = _host_effects(turn)
         for key in OWN_FOLDER_KEYS:
             raw = effects.get(key)
             folder = _path_marker(raw if isinstance(raw, str) else None)
-            folder = _unprivate(folder) if folder else None
-            if folder and not any(m == folder or _under(m, folder) for m in marked):
-                found.add(folder)
+            folder = (_unprivate(folder).rstrip('/') or '/') if folder else None  # `<cwd>/` is `<cwd>`
+            if not folder:
+                continue
+            parent = folder.rsplit('/', 1)[0]
+            roots = [parent] if any(_under(parent, t) for t in temps) else []
+            for candidate in (folder, *roots):
+                if not any(m == candidate or _under(m, candidate) for m in marked):
+                    found.add(candidate)
     return sorted(found, key=lambda f: (-len(f), f))
 
 

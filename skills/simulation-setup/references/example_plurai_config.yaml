@@ -124,6 +124,19 @@ agent.io:
   input: [text]           # e.g. [text, file] for an agent that reads an attached document
   may_open: false
 
+# --- Variables the agent child receives ---
+# Names only, never values: each variable the agent reads that the SDK's allow-list does not already pass.
+# Write it at the root as `agent.env:`, beside `agent.io:`; verify_config.py warns on `agent: {env: ...}`.
+agent.env: []             # e.g. [AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT]
+
+# --- How the scenario's date reaches the agent ---
+# `pinned`: seed_state calls plurai.pin_now on each module that reads the clock; `store`: the harness writes
+# current_date into the agent's own store and calls plurai.clock_delivered('store'); `told`: it puts the date into
+# the agent's own input and calls plurai.clock_delivered('told'); `host`: the agent reads only its own or its
+# framework's clock (every Claude Code agent).
+harness:
+  clock: pinned
+
 # --- Closed-class detectors (OPTIONAL) ---
 # `<entity>.<field>` -> the regex that recognises a member of that CLOSED SET. A closed set is a
 # value list the customer's sources enumerate exhaustively — every order code, every documentation
@@ -210,6 +223,7 @@ tools:
         evidence: [our_backend/db/queries.py:41]
         fields:
           # A field cited at a file:line is `declared`; one with no `evidence` stays `inferred`.
+          # Fields (and `item_fields`, also the items of a str field carrying encoded JSON) come off the line that builds the value, cited beside the type's.
           # `max_chars: <int>` (optional, on `fields` or `item_fields`) declares that the real tool or its provider
           # truncates this string field to that length; its `evidence` cites the line that truncates it or reads the
           # provider's truncated field. The mock serves the field cut to it. Omit it when nothing truncates.

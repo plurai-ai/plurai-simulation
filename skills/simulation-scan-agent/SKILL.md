@@ -605,9 +605,13 @@ live tools in `serves:` (the mock is a mocked surface, the tools stay live), a r
 the agent's own in-tree implementation when it is the run path's only one — never a storage class the harness writes. The seeded world is the SCENARIO's world (the rows each scenario seeds), never a
 fixture the harness rebuilds identically for every conversation. A harness-owned store (in-process
 fixture, work folder, leg-local database) is declared under `world_state` and seeded from the scenario by
-`seed_state`, whatever the tools' mode. An external store the run must not write is served through a
-declared read-through overlay, or its type is declined with a cited `not_seedable` fact and the
-state-dependent families on it are a named coverage gap.
+`seed_state`, whatever the tools' mode. A field or file the agent's code parses by exact keys, validates, or looks up by
+key is never free text: the scan closes it (a cited `type: enum[...]` or a `checks` `in` set copied from the real
+values), states the rule in its `description` citing the code line, or, for a file a real tool parses (a build or
+project config, a manifest a CLI reads), declares it with a cited `not_seedable` fact: a generated copy breaks that
+tool, so the harness keeps the real file and the families that would vary it are a named coverage gap. An external
+store the run must not write is served through a declared read-through overlay, or its type is declined with a cited
+`not_seedable` fact and the state-dependent families on it are a named coverage gap.
 
 **Every store the agent connects to is simulated as a whole by default** — every tool that writes it (creates, updates,
 cancels, refunds, sends, commits, escalates) AND every tool that reads it is `mocked` at its system's seam, and each
@@ -1362,6 +1366,9 @@ Each `warning:` line goes into the scan summary as is (a refused literal; a know
 script copied; an article the chunker splits). A `fix:` line is for you, never the summary. Never answer either by
 writing or editing a knowledge file.
 
+**Record the production hosts first: run Step 3d's sweep (`record_egress.py`), by its rules below, before this
+verify, because the verify's config check reads the `egress:` block.**
+
 **Run it through the bench manifest, which is also what runs every other check.** The contract's
 flags are no longer typed here: `--corpus`, `--suffixes` and `--stateless-finding` are read from
 the manifest's `sources` and `surfaces.agent_context.finding`, so a forgotten flag is a
@@ -1377,8 +1384,8 @@ echo "VERIFY_EXIT=$?"
 
 It runs the verifiers, both smokes, the surface assertion, the probes (with no network) and this contract
 — each `run`, `reused`, `not_run` or `not_applicable` by the manifest's own policy, never by a
-judgement made again here. (The egress sweep is still Step 3d's own call: `kind: egress` exists in
-the schema, no builtin runs it yet.) It writes `$ART/verification.json` and prints the
+judgement made again here. (The egress sweep is Step 3d's own call, run before this verify: `kind: egress`
+exists in the schema, no builtin runs it yet.) It writes `$ART/verification.json` and prints the
 run-integrity line Step 5 must carry verbatim.
 
 | `VERIFY_EXIT` | meaning | what you do |
@@ -1487,6 +1494,8 @@ and decides each held finding there (repair or overrule) before it spends.
 
 ### Step 3d — declare the agent's PRODUCTION hosts
 
+**Run it before Step 3c's verify** (Step 3c says where); after that verify, re-run it only to repair what a finding names.
+
 Isolation here is BY CONFIG: the harness redirects a base URL, so an endpoint the agent holds in
 its OWN code still points at the customer's live system and a simulated user would drive a real
 write. The SDK blocks each declared production host inside a guarded Python agent's process, and
@@ -1538,7 +1547,8 @@ exactly what reads as "checked and clean".
   default (the host used when the variable is unset) is a `host` row; a corpus index the retrieval tools read is not one
   (name its variable in the map's `grounding.endpoint_env`, never pinned),
   nor a variable that also drives something else (a region a model client reads: rebind the store client instead). With a
-  store tool on the config, `none_discovered` is refused (`endpoints_undeclared`). The harness ASSIGNS every `env` row a
+  store tool on the config, `none_discovered` is refused (`endpoints_undeclared`); a tool reading only harness-created
+  and bundled stores is none when each part of its `reads_from` / `writes_to` is the confirmed target alone. The harness ASSIGNS every `env` row a
   literal (`os.environ["<VAR>"] = …`): the mock's URL (`plurai.mock_service_url()`) or an `http://<name>.invalid` host
   for a simulated store or vendor, the entry's `target` for a confirmed one, the served double for an `agent_fake` entry's `env`; a `setdefault`, an inherited or a computed
   value fails (`endpoint_env_unpinned`). An agent the harness does not launch (`entry_symbol.executes: external` with no

@@ -48,6 +48,8 @@ COPIED_INTO_WORKDIR: dict[str, str] = {
     'trusted-python.sh': 'scripts/trusted-python.sh',
     _BRIDGE['paths']['host']: 'skills/simulation-setup-bridge/references/host/bridge_host.py',
     **{f'{BRIDGE_RUNTIME_DIR}/{name}': f'{BRIDGE_RUNTIME}/{name}' for name in _BRIDGE['paths']['runtime_files']},
+    # Copied by B3 only for an agent whose turn runs the Claude Code CLI; off `runtime_files`, so an absent copy holds nothing.
+    f'{BRIDGE_RUNTIME_DIR}/adapters/claude_cli.mjs': f'{BRIDGE_RUNTIME}/adapters/claude_cli.mjs',
 }
 
 

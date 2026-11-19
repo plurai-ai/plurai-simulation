@@ -394,9 +394,13 @@ NON_HOLDING: Final[frozenset[str]] = frozenset(
         'plugin.smoke.sibling_init_failed',
         'plugin.smoke.sibling_cross_talk',
         'plugin.smoke.exclusive_unneeded',
+        'plugin.smoke.sibling_turn_failed',
         # --- smoke: a turn's tool record warns (a void tool returns nothing; a paraphrased value trips the history probe) ---
         'plugin.smoke.trail_result_missing',
         'plugin.smoke.tool_history_dropped',
+        # --- smoke: a declared clock route that recorded no delivery warns; the route may be an older harness's inline pin ---
+        'plugin.smoke.clock_undelivered',
+        'plugin.smoke.clock_route_unknown',
     }
 )
 

@@ -1,18 +1,18 @@
 # Third-party notices
 
-The Plurai Simulation Plugin includes third-party software inside its report page (`scripts/report/index.html`, simulation-report 0.56.8). These components stay under their own licenses, reproduced below. The plugin's own [LICENSE](LICENSE) does not apply to them and does not limit the rights these licenses give you.
+The Plurai Simulation Plugin includes third-party software inside its report page (`scripts/report/index.html`, simulation-report 0.56.12). These components stay under their own licenses, reproduced below. The plugin's own [LICENSE](LICENSE) does not apply to them and does not limit the rights these licenses give you.
 
 | Component | Version | License |
 | --- | --- | --- |
-| @ark-ui/react | 5.37.2 | MIT |
+| @ark-ui/react | 5.40.0 | MIT |
 | @dicebear/core | 9.4.3 | MIT |
 | @dicebear/notionists-neutral | 9.4.2 | MIT |
 | @floating-ui/core | 1.8.0 | MIT |
 | @floating-ui/dom | 1.8.0 | MIT |
 | @floating-ui/utils | 0.2.12 | MIT |
 | @fontsource/ibm-plex-mono | 5.2.7 | OFL-1.1 |
-| @internationalized/date | 3.12.2 | Apache-2.0 |
-| @internationalized/number | 3.6.6 | Apache-2.0 |
+| @internationalized/date | 3.12.4 | Apache-2.0 |
+| @internationalized/number | 3.6.9 | Apache-2.0 |
 | @pandacss/preset-panda | 1.11.4 | MIT |
 | @pandacss/types | 1.11.4 | MIT |
 | @phosphor-icons/react | 2.1.10 | MIT |
@@ -24,85 +24,87 @@ The Plurai Simulation Plugin includes third-party software inside its report pag
 | @types/json-schema | 7.0.15 | MIT |
 | @types/mdast | 4.0.4 | MIT |
 | @types/ms | 2.1.0 | MIT |
-| @types/react | 19.2.17 | MIT |
+| @types/react | 19.3.0 | MIT |
 | @types/unist | 2.0.11 | MIT |
 | @types/unist | 3.0.3 | MIT |
 | @ungap/structured-clone | 1.4.0 | ISC |
-| @zag-js/accordion | 1.41.2 | MIT |
-| @zag-js/anatomy | 1.41.2 | MIT |
-| @zag-js/angle-slider | 1.41.2 | MIT |
-| @zag-js/aria-hidden | 1.41.2 | MIT |
-| @zag-js/async-list | 1.41.2 | MIT |
-| @zag-js/auto-resize | 1.41.2 | MIT |
-| @zag-js/avatar | 1.41.2 | MIT |
-| @zag-js/carousel | 1.41.2 | MIT |
-| @zag-js/cascade-select | 1.41.2 | MIT |
-| @zag-js/checkbox | 1.41.2 | MIT |
-| @zag-js/clipboard | 1.41.2 | MIT |
-| @zag-js/collapsible | 1.41.2 | MIT |
-| @zag-js/collection | 1.41.2 | MIT |
-| @zag-js/color-picker | 1.41.2 | MIT |
-| @zag-js/color-utils | 1.41.2 | MIT |
-| @zag-js/combobox | 1.41.2 | MIT |
-| @zag-js/core | 1.41.2 | MIT |
-| @zag-js/date-input | 1.41.2 | MIT |
-| @zag-js/date-picker | 1.41.2 | MIT |
-| @zag-js/date-utils | 1.41.2 | MIT |
-| @zag-js/dialog | 1.41.2 | MIT |
-| @zag-js/dismissable | 1.41.2 | MIT |
-| @zag-js/dom-query | 1.41.2 | MIT |
-| @zag-js/drawer | 1.41.2 | MIT |
-| @zag-js/editable | 1.41.2 | MIT |
-| @zag-js/file-upload | 1.41.2 | MIT |
-| @zag-js/file-utils | 1.41.2 | MIT |
-| @zag-js/floating-panel | 1.41.2 | MIT |
-| @zag-js/focus-trap | 1.41.2 | MIT |
-| @zag-js/focus-visible | 1.41.2 | MIT |
-| @zag-js/highlight-word | 1.41.2 | MIT |
-| @zag-js/hover-card | 1.41.2 | MIT |
-| @zag-js/i18n-utils | 1.41.2 | MIT |
-| @zag-js/image-cropper | 1.41.2 | MIT |
-| @zag-js/interact-outside | 1.41.2 | MIT |
-| @zag-js/json-tree-utils | 1.41.2 | MIT |
-| @zag-js/listbox | 1.41.2 | MIT |
-| @zag-js/live-region | 1.41.2 | MIT |
-| @zag-js/marquee | 1.41.2 | MIT |
-| @zag-js/menu | 1.41.2 | MIT |
-| @zag-js/navigation-menu | 1.41.2 | MIT |
-| @zag-js/number-input | 1.41.2 | MIT |
-| @zag-js/pagination | 1.41.2 | MIT |
-| @zag-js/password-input | 1.41.2 | MIT |
-| @zag-js/pin-input | 1.41.2 | MIT |
-| @zag-js/popover | 1.41.2 | MIT |
-| @zag-js/popper | 1.41.2 | MIT |
-| @zag-js/presence | 1.41.2 | MIT |
-| @zag-js/progress | 1.41.2 | MIT |
-| @zag-js/qr-code | 1.41.2 | MIT |
-| @zag-js/radio-group | 1.41.2 | MIT |
-| @zag-js/rating-group | 1.41.2 | MIT |
-| @zag-js/react | 1.41.2 | MIT |
-| @zag-js/rect-utils | 1.41.2 | MIT |
-| @zag-js/remove-scroll | 1.41.2 | MIT |
-| @zag-js/scroll-area | 1.41.2 | MIT |
-| @zag-js/scroll-snap | 1.41.2 | MIT |
-| @zag-js/select | 1.41.2 | MIT |
-| @zag-js/signature-pad | 1.41.2 | MIT |
-| @zag-js/slider | 1.41.2 | MIT |
-| @zag-js/splitter | 1.41.2 | MIT |
-| @zag-js/steps | 1.41.2 | MIT |
-| @zag-js/store | 1.41.2 | MIT |
-| @zag-js/switch | 1.41.2 | MIT |
-| @zag-js/tabs | 1.41.2 | MIT |
-| @zag-js/tags-input | 1.41.2 | MIT |
-| @zag-js/timer | 1.41.2 | MIT |
-| @zag-js/toast | 1.41.2 | MIT |
-| @zag-js/toggle | 1.41.2 | MIT |
-| @zag-js/toggle-group | 1.41.2 | MIT |
-| @zag-js/tooltip | 1.41.2 | MIT |
-| @zag-js/tour | 1.41.2 | MIT |
-| @zag-js/tree-view | 1.41.2 | MIT |
-| @zag-js/types | 1.41.2 | MIT |
-| @zag-js/utils | 1.41.2 | MIT |
+| @zag-js/accordion | 1.47.0 | MIT |
+| @zag-js/anatomy | 1.47.0 | MIT |
+| @zag-js/angle-slider | 1.47.0 | MIT |
+| @zag-js/aria-hidden | 1.47.0 | MIT |
+| @zag-js/async-list | 1.47.0 | MIT |
+| @zag-js/auto-resize | 1.47.0 | MIT |
+| @zag-js/avatar | 1.47.0 | MIT |
+| @zag-js/carousel | 1.47.0 | MIT |
+| @zag-js/cascade-select | 1.47.0 | MIT |
+| @zag-js/checkbox | 1.47.0 | MIT |
+| @zag-js/clipboard | 1.47.0 | MIT |
+| @zag-js/collapsible | 1.47.0 | MIT |
+| @zag-js/collection | 1.47.0 | MIT |
+| @zag-js/color-picker | 1.47.0 | MIT |
+| @zag-js/color-utils | 1.47.0 | MIT |
+| @zag-js/combobox | 1.47.0 | MIT |
+| @zag-js/core | 1.47.0 | MIT |
+| @zag-js/date-input | 1.47.0 | MIT |
+| @zag-js/date-picker | 1.47.0 | MIT |
+| @zag-js/date-utils | 1.47.0 | MIT |
+| @zag-js/dialog | 1.47.0 | MIT |
+| @zag-js/dismissable | 1.47.0 | MIT |
+| @zag-js/dom-query | 1.47.0 | MIT |
+| @zag-js/drawer | 1.47.0 | MIT |
+| @zag-js/editable | 1.47.0 | MIT |
+| @zag-js/file-upload | 1.47.0 | MIT |
+| @zag-js/file-utils | 1.47.0 | MIT |
+| @zag-js/floating-panel | 1.47.0 | MIT |
+| @zag-js/focus-trap | 1.47.0 | MIT |
+| @zag-js/focus-visible | 1.47.0 | MIT |
+| @zag-js/highlight-word | 1.47.0 | MIT |
+| @zag-js/hotkeys | 1.47.0 | MIT |
+| @zag-js/hover-card | 1.47.0 | MIT |
+| @zag-js/i18n-utils | 1.47.0 | MIT |
+| @zag-js/image-cropper | 1.47.0 | MIT |
+| @zag-js/interact-outside | 1.47.0 | MIT |
+| @zag-js/json-tree-utils | 1.47.0 | MIT |
+| @zag-js/listbox | 1.47.0 | MIT |
+| @zag-js/live-region | 1.47.0 | MIT |
+| @zag-js/marquee | 1.47.0 | MIT |
+| @zag-js/menu | 1.47.0 | MIT |
+| @zag-js/navigation-menu | 1.47.0 | MIT |
+| @zag-js/number-input | 1.47.0 | MIT |
+| @zag-js/pagination | 1.47.0 | MIT |
+| @zag-js/password-input | 1.47.0 | MIT |
+| @zag-js/pin-input | 1.47.0 | MIT |
+| @zag-js/popover | 1.47.0 | MIT |
+| @zag-js/popper | 1.47.0 | MIT |
+| @zag-js/presence | 1.47.0 | MIT |
+| @zag-js/progress | 1.47.0 | MIT |
+| @zag-js/qr-code | 1.47.0 | MIT |
+| @zag-js/radio-group | 1.47.0 | MIT |
+| @zag-js/rating-group | 1.47.0 | MIT |
+| @zag-js/react | 1.47.0 | MIT |
+| @zag-js/rect-utils | 1.47.0 | MIT |
+| @zag-js/remove-scroll | 1.47.0 | MIT |
+| @zag-js/scroll-area | 1.47.0 | MIT |
+| @zag-js/scroll-snap | 1.47.0 | MIT |
+| @zag-js/select | 1.47.0 | MIT |
+| @zag-js/signature-pad | 1.47.0 | MIT |
+| @zag-js/slider | 1.47.0 | MIT |
+| @zag-js/splitter | 1.47.0 | MIT |
+| @zag-js/steps | 1.47.0 | MIT |
+| @zag-js/store | 1.47.0 | MIT |
+| @zag-js/switch | 1.47.0 | MIT |
+| @zag-js/tabs | 1.47.0 | MIT |
+| @zag-js/tags-input | 1.47.0 | MIT |
+| @zag-js/timer | 1.47.0 | MIT |
+| @zag-js/toast | 1.47.0 | MIT |
+| @zag-js/toc | 1.47.0 | MIT |
+| @zag-js/toggle | 1.47.0 | MIT |
+| @zag-js/toggle-group | 1.47.0 | MIT |
+| @zag-js/tooltip | 1.47.0 | MIT |
+| @zag-js/tour | 1.47.0 | MIT |
+| @zag-js/tree-view | 1.47.0 | MIT |
+| @zag-js/types | 1.47.0 | MIT |
+| @zag-js/utils | 1.47.0 | MIT |
 | bail | 2.0.2 | MIT |
 | ccount | 2.0.1 | MIT |
 | character-entities | 2.0.2 | MIT |
@@ -181,22 +183,22 @@ The Plurai Simulation Plugin includes third-party software inside its report pag
 | property-information | 7.2.0 | MIT |
 | proxy-compare | 3.0.1 | MIT |
 | proxy-memoize | 3.0.1 | MIT |
-| react | 19.2.7 | MIT |
-| react-dom | 19.2.7 | MIT |
+| react | 19.3.1 | MIT |
+| react-dom | 19.3.1 | MIT |
 | react-markdown | 10.1.0 | MIT |
 | remark-breaks | 4.0.0 | MIT |
 | remark-gfm | 4.0.1 | MIT |
 | remark-parse | 11.0.0 | MIT |
 | remark-rehype | 11.1.2 | MIT |
 | remark-stringify | 11.0.0 | MIT |
-| scheduler | 0.27.0 | MIT |
+| scheduler | 0.28.0 | MIT |
 | space-separated-tokens | 2.0.2 | MIT |
 | stringify-entities | 4.0.4 | MIT |
 | style-to-js | 1.1.21 | MIT |
 | style-to-object | 1.0.14 | MIT |
 | trim-lines | 3.0.1 | MIT |
 | trough | 2.2.0 | MIT |
-| tslib | 2.8.1 | 0BSD |
+| tslib | 2.9.1 | 0BSD |
 | unified | 11.0.5 | MIT |
 | unist-util-is | 6.0.1 | MIT |
 | unist-util-position | 5.0.0 | MIT |
@@ -207,13 +209,13 @@ The Plurai Simulation Plugin includes third-party software inside its report pag
 | vfile | 6.0.3 | MIT |
 | vfile-message | 4.0.3 | MIT |
 | yaml | 2.9.1 | ISC |
-| zod | 4.5.4 | MIT |
+| zod | 4.6.7 | MIT |
 | zustand | 5.0.14 | MIT |
 | zwitch | 2.0.4 | MIT |
 
 ## License texts
 
-### @ark-ui/react 5.37.2
+### @ark-ui/react 5.40.0
 
 ~~~~text
 MIT License
@@ -477,7 +479,7 @@ FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 ~~~~
 
-### @internationalized/date 3.12.2
+### @internationalized/date 3.12.4
 
 ~~~~text
 Apache License
@@ -683,7 +685,7 @@ Apache License
    limitations under the License.
 ~~~~
 
-### @internationalized/number 3.6.6
+### @internationalized/number 3.6.9
 
 ~~~~text
 Apache License
@@ -1355,7 +1357,7 @@ MIT License
     SOFTWARE
 ~~~~
 
-### @types/react 19.2.17
+### @types/react 19.3.0
 
 ~~~~text
 MIT License
@@ -1453,7 +1455,7 @@ OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ~~~~
 
-### @zag-js/accordion 1.41.2
+### @zag-js/accordion 1.47.0
 
 ~~~~text
 MIT License
@@ -1479,7 +1481,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/anatomy 1.41.2
+### @zag-js/anatomy 1.47.0
 
 ~~~~text
 MIT License
@@ -1505,7 +1507,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/angle-slider 1.41.2
+### @zag-js/angle-slider 1.47.0
 
 ~~~~text
 MIT License
@@ -1531,7 +1533,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/aria-hidden 1.41.2
+### @zag-js/aria-hidden 1.47.0
 
 ~~~~text
 MIT License
@@ -1557,7 +1559,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/async-list 1.41.2
+### @zag-js/async-list 1.47.0
 
 ~~~~text
 MIT License
@@ -1583,7 +1585,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/auto-resize 1.41.2
+### @zag-js/auto-resize 1.47.0
 
 ~~~~text
 MIT License
@@ -1609,7 +1611,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/avatar 1.41.2
+### @zag-js/avatar 1.47.0
 
 ~~~~text
 MIT License
@@ -1635,7 +1637,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/carousel 1.41.2
+### @zag-js/carousel 1.47.0
 
 ~~~~text
 MIT License
@@ -1661,7 +1663,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/cascade-select 1.41.2
+### @zag-js/cascade-select 1.47.0
 
 ~~~~text
 MIT License
@@ -1687,7 +1689,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/checkbox 1.41.2
+### @zag-js/checkbox 1.47.0
 
 ~~~~text
 MIT License
@@ -1713,7 +1715,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/clipboard 1.41.2
+### @zag-js/clipboard 1.47.0
 
 ~~~~text
 MIT License
@@ -1739,7 +1741,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/collapsible 1.41.2
+### @zag-js/collapsible 1.47.0
 
 ~~~~text
 MIT License
@@ -1765,7 +1767,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/collection 1.41.2
+### @zag-js/collection 1.47.0
 
 ~~~~text
 MIT License
@@ -1791,7 +1793,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/color-picker 1.41.2
+### @zag-js/color-picker 1.47.0
 
 ~~~~text
 MIT License
@@ -1817,7 +1819,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/color-utils 1.41.2
+### @zag-js/color-utils 1.47.0
 
 ~~~~text
 MIT License
@@ -1843,7 +1845,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/combobox 1.41.2
+### @zag-js/combobox 1.47.0
 
 ~~~~text
 MIT License
@@ -1869,7 +1871,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/core 1.41.2
+### @zag-js/core 1.47.0
 
 ~~~~text
 MIT License
@@ -1895,7 +1897,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/date-input 1.41.2
+### @zag-js/date-input 1.47.0
 
 ~~~~text
 MIT License
@@ -1921,7 +1923,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/date-picker 1.41.2
+### @zag-js/date-picker 1.47.0
 
 ~~~~text
 MIT License
@@ -1947,7 +1949,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/date-utils 1.41.2
+### @zag-js/date-utils 1.47.0
 
 ~~~~text
 MIT License
@@ -1973,7 +1975,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/dialog 1.41.2
+### @zag-js/dialog 1.47.0
 
 ~~~~text
 MIT License
@@ -1999,7 +2001,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/dismissable 1.41.2
+### @zag-js/dismissable 1.47.0
 
 ~~~~text
 MIT License
@@ -2025,7 +2027,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/dom-query 1.41.2
+### @zag-js/dom-query 1.47.0
 
 ~~~~text
 MIT License
@@ -2051,7 +2053,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/drawer 1.41.2
+### @zag-js/drawer 1.47.0
 
 ~~~~text
 MIT License
@@ -2077,7 +2079,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/editable 1.41.2
+### @zag-js/editable 1.47.0
 
 ~~~~text
 MIT License
@@ -2103,7 +2105,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/file-upload 1.41.2
+### @zag-js/file-upload 1.47.0
 
 ~~~~text
 MIT License
@@ -2129,7 +2131,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/file-utils 1.41.2
+### @zag-js/file-utils 1.47.0
 
 ~~~~text
 MIT License
@@ -2155,7 +2157,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/floating-panel 1.41.2
+### @zag-js/floating-panel 1.47.0
 
 ~~~~text
 MIT License
@@ -2181,7 +2183,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/focus-trap 1.41.2
+### @zag-js/focus-trap 1.47.0
 
 ~~~~text
 MIT License
@@ -2207,7 +2209,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/focus-visible 1.41.2
+### @zag-js/focus-visible 1.47.0
 
 ~~~~text
 MIT License
@@ -2233,7 +2235,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/highlight-word 1.41.2
+### @zag-js/highlight-word 1.47.0
 
 ~~~~text
 MIT License
@@ -2259,7 +2261,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/hover-card 1.41.2
+### @zag-js/hotkeys 1.47.0
 
 ~~~~text
 MIT License
@@ -2285,7 +2287,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/i18n-utils 1.41.2
+### @zag-js/hover-card 1.47.0
 
 ~~~~text
 MIT License
@@ -2311,7 +2313,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/image-cropper 1.41.2
+### @zag-js/i18n-utils 1.47.0
 
 ~~~~text
 MIT License
@@ -2337,7 +2339,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/interact-outside 1.41.2
+### @zag-js/image-cropper 1.47.0
 
 ~~~~text
 MIT License
@@ -2363,7 +2365,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/json-tree-utils 1.41.2
+### @zag-js/interact-outside 1.47.0
 
 ~~~~text
 MIT License
@@ -2389,7 +2391,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/listbox 1.41.2
+### @zag-js/json-tree-utils 1.47.0
 
 ~~~~text
 MIT License
@@ -2415,7 +2417,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/live-region 1.41.2
+### @zag-js/listbox 1.47.0
 
 ~~~~text
 MIT License
@@ -2441,7 +2443,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/marquee 1.41.2
+### @zag-js/live-region 1.47.0
 
 ~~~~text
 MIT License
@@ -2467,7 +2469,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/menu 1.41.2
+### @zag-js/marquee 1.47.0
 
 ~~~~text
 MIT License
@@ -2493,7 +2495,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/navigation-menu 1.41.2
+### @zag-js/menu 1.47.0
 
 ~~~~text
 MIT License
@@ -2519,7 +2521,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/number-input 1.41.2
+### @zag-js/navigation-menu 1.47.0
 
 ~~~~text
 MIT License
@@ -2545,7 +2547,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/pagination 1.41.2
+### @zag-js/number-input 1.47.0
 
 ~~~~text
 MIT License
@@ -2571,7 +2573,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/password-input 1.41.2
+### @zag-js/pagination 1.47.0
 
 ~~~~text
 MIT License
@@ -2597,7 +2599,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/pin-input 1.41.2
+### @zag-js/password-input 1.47.0
 
 ~~~~text
 MIT License
@@ -2623,7 +2625,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/popover 1.41.2
+### @zag-js/pin-input 1.47.0
 
 ~~~~text
 MIT License
@@ -2649,7 +2651,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/popper 1.41.2
+### @zag-js/popover 1.47.0
 
 ~~~~text
 MIT License
@@ -2675,7 +2677,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/presence 1.41.2
+### @zag-js/popper 1.47.0
 
 ~~~~text
 MIT License
@@ -2701,7 +2703,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/progress 1.41.2
+### @zag-js/presence 1.47.0
 
 ~~~~text
 MIT License
@@ -2727,7 +2729,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/qr-code 1.41.2
+### @zag-js/progress 1.47.0
 
 ~~~~text
 MIT License
@@ -2753,7 +2755,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/radio-group 1.41.2
+### @zag-js/qr-code 1.47.0
 
 ~~~~text
 MIT License
@@ -2779,7 +2781,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/rating-group 1.41.2
+### @zag-js/radio-group 1.47.0
 
 ~~~~text
 MIT License
@@ -2805,7 +2807,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/react 1.41.2
+### @zag-js/rating-group 1.47.0
 
 ~~~~text
 MIT License
@@ -2831,7 +2833,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/rect-utils 1.41.2
+### @zag-js/react 1.47.0
 
 ~~~~text
 MIT License
@@ -2857,7 +2859,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/remove-scroll 1.41.2
+### @zag-js/rect-utils 1.47.0
 
 ~~~~text
 MIT License
@@ -2883,7 +2885,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/scroll-area 1.41.2
+### @zag-js/remove-scroll 1.47.0
 
 ~~~~text
 MIT License
@@ -2909,7 +2911,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/scroll-snap 1.41.2
+### @zag-js/scroll-area 1.47.0
 
 ~~~~text
 MIT License
@@ -2935,7 +2937,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/select 1.41.2
+### @zag-js/scroll-snap 1.47.0
 
 ~~~~text
 MIT License
@@ -2961,7 +2963,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/signature-pad 1.41.2
+### @zag-js/select 1.47.0
 
 ~~~~text
 MIT License
@@ -2987,7 +2989,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/slider 1.41.2
+### @zag-js/signature-pad 1.47.0
 
 ~~~~text
 MIT License
@@ -3013,7 +3015,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/splitter 1.41.2
+### @zag-js/slider 1.47.0
 
 ~~~~text
 MIT License
@@ -3039,7 +3041,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/steps 1.41.2
+### @zag-js/splitter 1.47.0
 
 ~~~~text
 MIT License
@@ -3065,7 +3067,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/store 1.41.2
+### @zag-js/steps 1.47.0
 
 ~~~~text
 MIT License
@@ -3091,7 +3093,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/switch 1.41.2
+### @zag-js/store 1.47.0
 
 ~~~~text
 MIT License
@@ -3117,7 +3119,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/tabs 1.41.2
+### @zag-js/switch 1.47.0
 
 ~~~~text
 MIT License
@@ -3143,7 +3145,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/tags-input 1.41.2
+### @zag-js/tabs 1.47.0
 
 ~~~~text
 MIT License
@@ -3169,7 +3171,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/timer 1.41.2
+### @zag-js/tags-input 1.47.0
 
 ~~~~text
 MIT License
@@ -3195,7 +3197,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/toast 1.41.2
+### @zag-js/timer 1.47.0
 
 ~~~~text
 MIT License
@@ -3221,7 +3223,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/toggle 1.41.2
+### @zag-js/toast 1.47.0
 
 ~~~~text
 MIT License
@@ -3247,7 +3249,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/toggle-group 1.41.2
+### @zag-js/toc 1.47.0
 
 ~~~~text
 MIT License
@@ -3273,7 +3275,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/tooltip 1.41.2
+### @zag-js/toggle 1.47.0
 
 ~~~~text
 MIT License
@@ -3299,7 +3301,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/tour 1.41.2
+### @zag-js/toggle-group 1.47.0
 
 ~~~~text
 MIT License
@@ -3325,7 +3327,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/tree-view 1.41.2
+### @zag-js/tooltip 1.47.0
 
 ~~~~text
 MIT License
@@ -3351,7 +3353,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/types 1.41.2
+### @zag-js/tour 1.47.0
 
 ~~~~text
 MIT License
@@ -3377,7 +3379,59 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### @zag-js/utils 1.41.2
+### @zag-js/tree-view 1.47.0
+
+~~~~text
+MIT License
+
+Copyright (c) 2021 Chakra UI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+~~~~
+
+### @zag-js/types 1.47.0
+
+~~~~text
+MIT License
+
+Copyright (c) 2021 Chakra UI
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+~~~~
+
+### @zag-js/utils 1.47.0
 
 ~~~~text
 MIT License
@@ -5531,7 +5585,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ~~~~
 
-### react 19.2.7
+### react 19.3.1
 
 ~~~~text
 MIT License
@@ -5557,7 +5611,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ~~~~
 
-### react-dom 19.2.7
+### react-dom 19.3.1
 
 ~~~~text
 MIT License
@@ -5742,7 +5796,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ~~~~
 
-### scheduler 0.27.0
+### scheduler 0.28.0
 
 ~~~~text
 MIT License
@@ -5929,7 +5983,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ~~~~
 
-### tslib 2.8.1
+### tslib 2.9.1
 
 ~~~~text
 Copyright (c) Microsoft Corporation.
@@ -6205,7 +6259,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ~~~~
 
-### zod 4.5.4
+### zod 4.6.7
 
 ~~~~text
 MIT License

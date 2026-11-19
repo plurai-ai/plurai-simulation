@@ -23,7 +23,8 @@ verification.json exists, fills like any other. The page's data-report-plugin at
 version it was built against; comparing that to the vendored pin is the Plugin's --check, not this
 script's. YAML dates and anything else JSON cannot carry land as strings. The report is the same
 whatever the workdir's anonymization posture: plurai.config.yaml `anonymize:` governs only the
-uploads that build the Environment, and this script never reads it. A Scenario's seeded world
+uploads that build the Environment, and this script never reads it. A replay ships only the user and
+agent messages of the production turns it resumed from (its resume_seed). A Scenario's seeded world
 (initial_world_state.yaml, else the copy a transcript was injected with) ships slim, each entity cut
 to its kind, the human key the page names it by (case or order number, name, subject, first and last
 name, title), its status and the fields some shipped Attempt's final_world_state.json changed; that
@@ -104,6 +105,7 @@ HTML_TAG = re.compile(r'<html\b[^>]*>')
 ATTR = re.compile(r'([a-z-]+)="([^"]*)"')
 TRANSCRIPT = 'artifacts/runs/*/*/transcript.json'
 TRIAL_TRANSCRIPT = 'artifacts/runs/*/trial_*/*/transcript.json'
+SPOKEN = ('human', 'ai')
 JUDGED = ('scored', 'goal_undecided')
 CONTEXT = 'artifacts/scenarios/*/agent_context.yaml'
 RUN = 'artifacts/runs/*/run.json'
@@ -706,6 +708,14 @@ def read_evidence(evidence: Any) -> Any:
     return kept
 
 
+def read_seed(transcript: Any) -> Any:
+    seed = transcript.get('resume_seed') if isinstance(transcript, dict) else None
+    if not isinstance(seed, dict) or not isinstance(seed.get('messages'), list):
+        return transcript
+    spoken = [message for message in seed['messages'] if isinstance(message, dict) and message.get('type') in SPOKEN]
+    return {**transcript, 'resume_seed': {**seed, 'messages': spoken}}
+
+
 def read_ledger(ledger: Any) -> Any:
     if not isinstance(ledger, dict):
         return ledger
@@ -1009,6 +1019,7 @@ def degrade(files: dict[str, Any], soft: int, playing: str | None = None) -> lis
         passing = [scenario for scenario in passing_scenarios(files, latest) if f'artifacts/runs/{latest}/{scenario}/transcript.json' in files]
         for scenario in passing:
             files[f'artifacts/runs/{latest}/{scenario}/transcript.json']['turns'] = []
+            files[f'artifacts/runs/{latest}/{scenario}/transcript.json'].pop('resume_seed', None)
         if passing:
             cut.append({'kind': 'passing_turns', 'items': passing})
             if payload_bytes(files) <= soft:
@@ -1091,6 +1102,8 @@ def fill(report: str, workdir: Path) -> tuple[str, dict[str, Any]]:
             value = read_chunks(value)
         if pattern == LEDGER:
             value = read_ledger(value)
+        if pattern in (TRANSCRIPT, TRIAL_TRANSCRIPT):
+            value = read_seed(value)
         if pattern == ANOMALIES:
             value = read_anomalies(value, tool_names(raw.get(TOPOLOGY)))
         if pattern in (TOOL_EVENTS, TRIAL_TOOL_EVENTS) and read_calls(value):

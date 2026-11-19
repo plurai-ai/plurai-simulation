@@ -994,7 +994,7 @@ uncovered demand is a gap this suite ships with and says so — that is the hone
 silent full-looking set is the one this checklist exists to prevent.
 
 **Presentation is Step 6's job** — it states only the provenance this run earned
-(validated / qualified-with-gaps / not-yet-qualified). Do not summarise the suite here.
+(qualified / not-yet-qualified). Do not summarise the suite here.
 
 ## Step 4 — build `$ART/suite.json`
 
@@ -1362,9 +1362,7 @@ qualification run (N scenarios): …`, ending "The final run gives the verdict o
 `Agent: …`: only the audited final run's verdict is the agent's, and that run can still stop early (a final run
 not yet audited prints no Agent line). Put it directly under the
 anchor line, as its own line, never merged into it or reworded. **Use what it prints, verbatim.** `report_guard` requires
-that exact line, so a rung chosen from the ladder below instead of computed will be blocked. It never licenses
-`validated` over an unclean scored measurement, a critic older than the last harness or environment edit (log each such
-edit as `harness-fix` / `env-fix`), or a loop no client pin governed.
+that exact line, so a rung chosen from the ladder below instead of computed will be blocked.
 
 Audit, then anchor, then message — anchoring before the last audit records a rung the audit is
 about to overturn.
@@ -1375,15 +1373,10 @@ the hand-off is unanchored: stop and fix it rather than composing the message an
 The ladder below is the vocabulary the verb chooses FROM — here so a reader knows what each rung
 means, not so the session picks one:
 
-> **Suite: validated** — N scenarios · M evals · K of M simulated tools reached · quality gate ✓. Catches &lt;the 2-3 sharpest behaviours, in the customer's domain language&gt;.
+> **Suite: qualified** — N scenarios · M evals · K of M simulated tools reached. Catches &lt;the 2-3 sharpest behaviours, in the customer's domain language&gt;.
 
-— only when a fresh independent critic returned a CLEAN report (Step 3).
-
-> **Suite: qualified** — N scenarios · M evals · K of M simulated tools reached. Catches &lt;the 2-3 sharpest behaviours&gt;.
-
-— when the loop LANDED with accepted gaps (Step 3's landing pass). The gaps themselves
-stay out of the message — the anchor word "qualified" (vs "validated") plus the coverage
-number carry the provenance difference; the artifacts carry the detail.
+— the ceiling: the final release gate is clear (Step 3's landing pass). Accepted gaps stay out of the message; the
+artifacts carry the detail.
 
 > **Suite: qualified (ungated set)** — N scenarios · M evals · K of M simulated tools reached. Catches &lt;the 2-3 sharpest behaviours&gt;.
 
@@ -1406,36 +1399,12 @@ actually called, the same numbers as the first coverage card. Write `at least K 
 true. With no `coverage.reached` (no scored run) leave the clause out — never a flow percentage, which is a share of
 the flow graph, not of the agent's tools.
 
-**Judge-side coverage DEBT decides between the first two lines, and the rollup decides it — not
-your reading of the run.** Three carriers report it under one name: the scenario job's and the
-eval job's `detail.coverage_debt`, and the `score_run` RESULT dict's `coverage_debt`; each sets
-`coverage_debt_blocking` (`any item not waived`) beside it. On the FINAL/delivery set ONE
-unwaived item is enough — a policy that reached no verdict on any scenario, a guard false
-set-wide, a must-catch polarity left unmeasured, a pinned probe nothing grades, planned knowledge
-turns unrealized set-wide. `Suite: qualified` is then the best line available and `validated` is
-not, until each item is resolved or explicitly accepted with a recorded reason. A green suite
-that tests no knowledge because its knowledge judges were suppressed is the shape this rule
-exists to stop shipping as validated.
-
-**The ADOPTION GATE demotes on the same axis, read off the solvability verdicts.** `validated` claims the machinery
-was proved; two states mean it was not, and each makes `qualified` the best line available: the gate could not run at all
-(no qualification upload, or a pin that had moved), or the solvability check returned a non-empty `untested` /
-`quarantined` list.
-
-**A suite built over FIX-FIRST findings demotes too.** Read the contract the way Step 0 did —
-`"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/bench_manifest.py" contract-gate` — never
-`scan_contract.json` directly (a STALE artifact still says `proceed: true`). Any exit but `0`
-demotes: `1` means the suite was built over a finding that still holds, `2`/`3`/`4` mean no
-current verdict exists. The scenarios and evals carry those premises, so `validated` is not
-available — `qualified` is. A finding Step 0 overruled no longer holds: the gate reads `0` over it
-and nothing demotes.
-The one exception is a `3` whose gate line reads `as not_applicable` (the recorded status, not a
-path or reason that merely contains the word): the bench declares no corpus, so no verdict was owed,
-and it neither demotes nor blocks `validated`. Every other `3` demotes.
-
-**Census findings NEVER demote.** Flow coverage at count=3, a short-by-design qualification
-batch, thin-corpus notes: those describe what a qualification sample IS, not a gap in what the
-final set grades. A rule that fires on every suite stops meaning anything.
+**Judge-side coverage DEBT is read off the rollup — not your reading of the run.** Three carriers report it
+under one name: the scenario job's and the eval job's `detail.coverage_debt`, and the `score_run` RESULT dict's
+`coverage_debt`; each sets `coverage_debt_blocking` (`any item not waived`) beside it. On the FINAL/delivery set each
+unwaived item — a policy that reached no verdict on any scenario, a guard false set-wide, a must-catch polarity left
+unmeasured, a pinned probe nothing grades, planned knowledge turns unrealized set-wide — is resolved or explicitly
+accepted with a recorded reason.
 
 **Record the items VERBATIM; never re-derive them.** A job's `coverage_debt` and a
 `score_run` rollup carry no row of their own in the loop log, so record the items with
@@ -1641,11 +1610,11 @@ The Next line is a dispatch:
 |---|---|
 | an agent crash — a qualification run.json row carries `error_kind: agent_raised`, or a qualification scenario's `transcript.json` carries `pipeline_io.error` | Next: **`/simulation-fixes`** — your agent raised &lt;the exception, quoted&gt; before the suite could score it; it hands you the fix, then **`/simulation-run`** to score it. |
 | the hand-off presents a scored final run (`runs/final-*/run.json` rendered on the page), with no `blocking-unresolved` entry still affecting the results (`blocking — unresolved: 0`) and a final release verdict that does not BLOCK | In the suite's own run: &lt;the `passes` line `run_numbers.py chat` prints for that `run.json`, pasted verbatim — never counted by hand&gt;. Next: **`/simulation-fixes`** for the ones that failed; **`/simulation-run`** re-scores the agent after a fix. When every one passed: Next: **`/simulation-run`** re-scores it whenever the agent changes. Never "to score the agent": that run already scored it. |
-| no `blocking-unresolved` entry still affecting the results (`lane_pin.py scope` prints `blocking — unresolved: 0`; an eval entry the final run re-checked, a backend entry its audit proved a false red, or a plugin/SDK entry whose checks the final run re-checked, no longer counts) | Next: **`/simulation-run`** to score the agent against it. |
+| no `blocking-unresolved` entry still affecting the results (`lane_pin.py scope` prints `blocking — unresolved: 0`; an entry the final run released no longer counts) | Next: **`/simulation-run`** to score the agent against it. |
 | the final release verdict BLOCKS and its `remedy` is not `rebuild_suite` | no Next line: the verdict line already names the one action. |
 | one or more whose remedy includes `rebuild` (`lane_pin.py scope` prints `blocking — unresolved: <N> (<surfaces>; remedy rebuild…)`: a scenario, harness or env entry, the simulated world answering wrong, or a backend check held by a scenario, harness or scanned-fact cause), or `unknown`, none of them an agent crash | Next: **`/simulation-generate-suite`** — rebuilds the suite for your agent; then **`/simulation-run`** to score it. |
-| one or more, none `rebuild`, at least one `eval:<checks>` (`… remedy eval:<checks>[, ours]`: an eval entry, or a plugin/SDK entry naming a check whose verdict is still wrong or unchecked), none of them an agent crash | Next: ask me to edit the evals — repair &lt;exactly the checks after `eval:`&gt;; then **`/simulation-run`** to score it. After a presented scored final run, the first row's pass sentence leads, and the ask ends "then **`/simulation-run`** to re-score it". |
-| one or more, every one ours (`… remedy ours)`: a plugin/SDK/backend entry naming no check, a crashed job, or a backend entry on a check only the backend judges that the final run did not prove wrong), none of them an agent crash | The fault is ours, and the agent's results stand: the first row's pass sentence and **`/simulation-fixes`** lead as for a clean suite (with no scored final run: Next: **`/simulation-run`** to score it). No eval ask and no rebuild. |
+| one or more, none `rebuild`, at least one `eval:<checks>` (`… remedy eval:<checks>[, ours]`: an eval entry whose verdict is still wrong or unchecked), none of them an agent crash | Next: ask me to edit the evals — repair &lt;exactly the checks after `eval:`&gt;; then **`/simulation-run`** to score it. After a presented scored final run, the first row's pass sentence leads, and the ask ends "then **`/simulation-run`** to re-score it". |
+| one or more, every one ours (`… remedy ours)`: a plugin, SDK or backend entry the final run did not release), none of them an agent crash | The fault is ours, and the agent's results stand: the first row's pass sentence and **`/simulation-fixes`** lead as for a clean suite (with no scored final run: Next: **`/simulation-run`** to score it). No eval ask and no rebuild. |
 
 **Keep the blank lines.** Markdown joins consecutive lines into a single paragraph, so a
 hand-off written as five lines in a row reaches the customer as one unbroken block with the
@@ -1774,8 +1743,8 @@ transcript the OLD harness produced. So:
 2. **Edit the harness file.**
 3. **Run the wiring verifier this plugin ships, then re-verify the bench** — `verify_simulate.py` checks
    the contract you just touched (with the envelope flag); the after-edit re-verify re-runs
-   `verify_config`, the smokes and the bridge over the edited harness. A check left `stale` holds the
-   rung below `validated`:
+   `verify_config`, the smokes and the bridge over the edited harness. A check left `stale` is recorded on the
+   anchor:
 
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"

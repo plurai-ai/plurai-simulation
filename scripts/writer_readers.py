@@ -473,13 +473,15 @@ def unconfirmed_real_readers(config: dict[str, Any], corpus: frozenset[str]) -> 
 def store_tools(config: dict[str, Any]) -> list[str]:
     """The tools that name a store: a mocked one that reads or writes one, or a real one that reads one other than the
     agent's own bundled files (a write-free `agent_bundled` reader reaches no endpoint) or the stores the harness creates
-    (a real tool whose reads, and writes when it writes, are all :func:`harness_only` reaches no endpoint)."""
+    (a real tool whose reads are all :func:`harness_or_bundled_only`, and whose writes when it writes are all
+    :func:`harness_only`, reaches no endpoint)."""
     return sorted(
         name for name, entry in _tools(config).items()
         if (mode(entry) == 'mock' and (_names_store(_descriptor(entry).get('reads_from')) or writes(entry)))
         or (mode(entry) == 'real' and _names_store(reads := _descriptor(entry).get('reads_from'))
             and (writes(entry) or not _bundled_only(config, reads))
-            and not (harness_only(config, reads) and (not writes(entry) or harness_only(config, _descriptor(entry).get('writes_to')))))
+            and not (harness_or_bundled_only(config, reads)
+                     and (not writes(entry) or harness_only(config, _descriptor(entry).get('writes_to')))))
     )
 
 
@@ -507,14 +509,28 @@ def bundled_read(config: dict[str, Any], reads: Any) -> bool:
     return bool(answers) and None not in answers and 'agent_bundled' in answers
 
 
+def _exact_parts(config: dict[str, Any], prose: Any, *, bundled: bool) -> bool:
+    """:func:`harness_only`, and with `bundled` an `agent_bundled` path (with or without `bundled:`) counts as a part too."""
+    targets = confirmed_targets(config)
+    allowed = [(i, HARNESS_CREATED_PREFIXES) for i, a in targets.items() if a == 'harness_created']
+    allowed += [(i, (BUNDLED_PREFIX,)) for i, a in targets.items() if bundled and a == 'agent_bundled']
+    text = _store(prose)
+    parts = [part.strip() for part in text.split(';') if part.strip()]
+    return bool(parts) and '://' not in text and all(
+        any(part == i or part in (f'{prefix} {i}' for prefix in prefixes) for i, prefixes in allowed) for part in parts)
+
+
 def harness_only(config: dict[str, Any], prose: Any) -> bool:
     """`prose` (a `reads_from` / `writes_to`) names only stores the harness creates: each of its `;`-separated parts IS a
     `harness_created` target (in-process, a folder it makes, its run dir), with or without its prefix, and none is a
     connection string. A part that only contains a target may name an endpoint beside it."""
-    harness = [i for i, a in confirmed_targets(config).items() if a == 'harness_created']
-    parts = [part.strip() for part in _store(prose).split(';') if part.strip()]
-    return bool(parts) and '://' not in _store(prose) and all(
-        any(part == i or part in (f'{prefix} {i}' for prefix in HARNESS_CREATED_PREFIXES) for i in harness) for part in parts)
+    return _exact_parts(config, prose, bundled=False)
+
+
+def harness_or_bundled_only(config: dict[str, Any], prose: Any) -> bool:
+    """`prose` (a `reads_from`) names only stores the harness creates and the agent's own bundled files: each part IS a
+    `harness_created` target or an `agent_bundled` path, exactly as :func:`harness_only` matches, so it reaches no endpoint."""
+    return _exact_parts(config, prose, bundled=True)
 
 
 def corpus_tools(workdir: Path, topology: dict[str, Any] | None) -> frozenset[str]:

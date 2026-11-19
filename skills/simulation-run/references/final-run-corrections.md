@@ -59,6 +59,15 @@ The one thing that crosses is the suite's `$ART/audit_patterns.json`: a hint to 
      python3 "${CLAUDE_PLUGIN_ROOT}/scripts/verdict_corrections.py" check --run-dir "$OUT" --report "<the same envelope>"
    ```
 
+   `check` exit 6 names each red no audit row rules (a verdict an applied overrule restored after the audit was listed).
+   Unlike 3 and 4, exit 6 never holds the scores. Audit those reds once per run, with this list as the auditor's only input:
+   `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/red_cells.py" list --run-dir "$OUT" --unaudited --split-dir "$ART/red_cells_unaudited"`.
+   Save its rows with step 1's save (`--stage final`, the delta-audit path) and upload block, then run step 2's labels,
+   then this step's `build` and `check` again (a `FALSE RED` there is corrected like any other red and still counts as
+   landed for exit 3). An exit 6 after that pass, or on any later `build` (step 3b), is a loop-log note
+   (`append_loop_log.py --kind note --lane eval --finding "red not audited: <item> <policy>"`), never a block, and the
+   scores post.
+
 3a. **Attribute — before the re-render.** Attribute this run's violations — each `TRUE RED` and `FALSE PASS` shows ONE finding's defect, a new one, or none, and a model reader decides which, never the check it failed:
    `source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"; READS="$ART/finding_reads/$(basename "$OUT")"; mkdir -p "$READS"; "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/scored_findings.py" to-read --workdir "$WORKDIR" --run "$(basename "$OUT")" --render "$READS" > "$READS/brief.json"`
    (`$PLURAI_PY`: it reads `policies_config.yaml` and each scenario's premise through PyYAML). The brief holds every

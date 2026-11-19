@@ -29,7 +29,9 @@ installed dependencies are not: `npm ci` rebuilds them from the hashed lockfile,
 The REQUIRED bridge files (`bridge_required_files`) are one list, shared with `stage-inputs.sh`
 (`--bridge-files`): the map, the host, the map's `entry.path`, every `modules.*.replace` and
 `local.*.impl` file, and the runtime's `constants.json` `paths.runtime_files`. An absent one hashes
-as `null` here, and is reported MISSING there.
+as `null` here, and is reported MISSING there. Every OTHER hashed file under `bridge/` (`--bridge-extras`:
+an adapter, a script `simulate.py` spawns) is staged too, so the staged set is the hashed set and a
+clone fingerprints like the bench it came from; a bench without one is not missing anything.
 
 THE DECLARED ENTRY WRAPPER. A bench may drive the agent through a file the operator wrote beside
 it (a runner `simulate.py` imports, which in turn imports the product). It is harness, not agent,
@@ -64,10 +66,11 @@ Usage:
     harness_fingerprint.py --quiet               # print the bare hex, nothing else
     harness_fingerprint.py --entry-wrapper       # print {declared, findings} for harness.entry_wrapper
     harness_fingerprint.py --bridge-files        # print the bridge bench's required files, one per line
+    harness_fingerprint.py --bridge-extras       # print the other hashed files under bridge/ to stage, one per line
 
 Exit 0 on success; 2 when the workdir cannot be resolved. `--bridge-files` exits 1 when the map
 cannot be read or names a path outside `bridge/` (each reason on stderr; the paths it could derive
-are still printed).
+are still printed). `--bridge-extras` always exits 0.
 """
 
 from __future__ import annotations
@@ -452,6 +455,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--quiet', action='store_true', help='print the bare fingerprint, not the JSON')
     parser.add_argument('--entry-wrapper', action='store_true', help='print {declared, findings} for harness.entry_wrapper; advisory, exit 0')
     parser.add_argument('--bridge-files', action='store_true', help="print the bridge bench's required files, one per line (stage-inputs.sh reads it)")
+    parser.add_argument('--bridge-extras', action='store_true', help='print every other hashed file under bridge/, one per line (stage-inputs.sh reads it)')
     args = parser.parse_args(argv)
 
     workdir = resolve_workdir(args.workdir)
@@ -461,6 +465,11 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems:
             print(f'harness_fingerprint: {problem}', file=sys.stderr)
         return 1 if problems else 0
+    if args.bridge_extras:
+        # Staged, not hashed: a hidden directory or a `node_modules` anywhere under bridge/ is never the bench's source.
+        extras = set(bridge_files(workdir)) - set(bridge_required_files(workdir)[0])
+        print('\n'.join(sorted(f for f in extras if not any(part.startswith('.') or part == 'node_modules' for part in f.split('/')[:-1]))))
+        return 0
     lang = args.lang or detect_lang(workdir)
     if args.entry_wrapper:
         report = {'declared': declared_entry_wrapper(workdir), 'findings': entry_wrapper_findings(workdir)}

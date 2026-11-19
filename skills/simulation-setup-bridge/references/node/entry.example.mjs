@@ -46,6 +46,8 @@ export async function turn({ text, parts, thread_id, turn_index, request }) {
   // final step's `response.messages` alone, which on AI SDK 7 drops earlier steps' tool calls and results:
   //   import { turnMessages } from './runtime/adapters/ai_sdk.mjs';
   //   history.get(thread_id).push(userMessage, ...(await turnMessages(result)));
+  // An agent whose turn runs the Claude Code CLI (stream-json): return withDenials(trail, stream) from
+  // ./runtime/adapters/claude_cli.mjs, the raw stream kept through the agent's own runner seam (SKILL.md B3).
   return {
     text: result.text, // PLACEHOLDER
     trail: null,

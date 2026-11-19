@@ -480,7 +480,8 @@
           "properties": {
             "mode": {"enum": ["replay", "unsupported"]},
             "reason": {"enum": ["history_not_writable"], "description": "required with mode unsupported: the agent's conversation lives in a session the harness cannot write (a hosted session that opens empty, or a bridge entry with no seed export)"},
-            "evidence": {"type": "string", "description": "required with mode unsupported: <path>:<line> of the refusal"}
+            "evidence": {"type": "string", "description": "required with mode unsupported: <path>:<line> of the refusal"},
+            "documents": {"enum": ["restored"], "description": "written by the setup skill only when seed_state puts a seeded handed-over document back where the live turn puts one (template content_part mode: ATTACHMENTS_FIELD from seeded_documents); never for a by_path or Claude Code CLI-session harness. Absent, a regression replay does not carry a handed-over document"}
           },
           "description": "whether seed_state replays a resume seed (dialog benches). A fresh init writes {mode: replay}, or the bridge map's {mode: unsupported} when its entry cannot seed; a refresh never adds it, so its absence marks a manifest that predates the field"
         },

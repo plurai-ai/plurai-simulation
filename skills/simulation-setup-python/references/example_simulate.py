@@ -742,7 +742,14 @@ def invoke_agent(payload, config=None):
 #         return None
 #     # LangGraph (reference step 3; declare seed_state `async def`):
 #     #   messages = convert_to_messages(resume_seed["messages"])
-#     #   await app.aupdate_state(config, {"<your_messages_channel>": messages, **restored}, as_node="<a node whose only edge is END>")
+#     #   values = {"<your_messages_channel>": messages, **restored}
+#     #   # HANDOVER = "content_part": a seeded document goes back into the upload channel the live turn fills
+#     #   # (`_as_attachments`); the messages stay as seeded. Declare it in bench_manifest.json as
+#     #   # "harness": {"resume": {"mode": "replay", "documents": "restored"}}; never for `by_path`.
+#     #   if HANDOVER == "content_part" and ATTACHMENTS_FIELD in app.channels:
+#     #       from _documents import seeded_documents
+#     #       values[ATTACHMENTS_FIELD] = seeded_documents(resume_seed["messages"])
+#     #   await app.aupdate_state(config, values, as_node="<a node whose only edge is END>")
 #     #   if (await app.aget_state(config)).next != (): raise plurai.HarnessFault("the seed left the graph mid-step")
 #     ...
 #     return {"resume_state_dropped": dropped} if dropped else None

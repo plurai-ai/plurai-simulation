@@ -612,6 +612,9 @@ iterate `receive_response()` — MUST be copied from the template verbatim:
 (its real surface is `connect`/`query`/`receive_response`). The
 `verify_client_api.py` gate below enforces this for every variant.
 
+Claude Code dates its own session from the host clock and no harness route reaches it, so every variant declares
+`harness: {clock: host}` in `plurai.config.yaml` and calls no clock function.
+
 #### Interception opacity (`code` / `cli_http` — the Bash-bearing channels)
 
 For a `tools` bench the nested agent cannot detect the harness (no `Bash`). For a `code` / `cli_http` bench it CAN run `Bash`, so opacity is filesystem- and content-shaped: both `code` templates run from an **isolated cwd** (`_isolated_agent_cwd()` — a copy of the `skills/` tree only, never `plurai_sim/`) and **relocate every injected env path** (`PLURAI_CODE_SURFACE` / `PYTHONPATH` / `NODE_OPTIONS=--import`) to a per-session shim dir so none resolves inside the customer harness. The full contract — the two controls, the served-response opacity requirement, and the explicit **RESIDUAL** leaks that are NOT closed (Option-D tier) — is in `references/code-channel-variants.md`. **Do NOT claim the leak is fully closed or that the agent cannot detect the simulation.**

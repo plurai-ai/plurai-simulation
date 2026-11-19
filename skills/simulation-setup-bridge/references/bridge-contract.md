@@ -121,7 +121,8 @@ Child → host:
      `BridgeHost.late_faults`, the log and stderr.
 6. **Trail tri-state.** `null` means "this child cannot observe the agent's tools"; `[]` means "observed none". A child never
    sends `[]` for "unknown". Entries are `{tool, args, call_id, result, status}`, with
-   `status ∈ ok | error | not_dispatchable | denied`. An entry made while another call ran (a sub-agent's call inside a
+   `status ∈ ok | error | not_dispatchable | denied`. Every call the model makes is an entry, a call its own guard refused
+   (`denied`) and a call to an in-process tool included. An entry made while another call ran (a sub-agent's call inside a
    delegation call) also carries `parent_call_id`: the `call_id` of the trail entry it ran inside. `simulate.py` returns `tool_trail` **only when the trail is a list**;
    the key is absent otherwise. A `turn_done` with `trail: []` in a turn whose ledger has `ext_calls > 0` contradicts
    itself (the child served mapped calls its trail did not see): the host reads that trail as `null`, with a log line.
@@ -164,7 +165,7 @@ bridge-directory file, no file, a thrown non-Error, a `Plurai*Error` the agent r
 | 1 | a faulting `event` (A.4.5), an `ext_result` of `kind: harness`, `entry_failed`, `seed_unsupported`, `protocol`, a `ready`/`pong` timeout, child exit mid-request, any request after a death, **any `error` during `seed`** | `plurai.HarnessFault(... + log tail)` | harness fault (`not_valid`) |
 | 2 | `error{kind: agent_raised, provider: {status: 401\|403\|404\|429\|5xx}}` | `BridgeProviderError(message)` with a typed int `status_code` | `provider_infra` |
 | 3 | `error{kind: agent_raised, provider: {network: true}}` | `BridgeProviderUnreachable(message)`, a `ConnectionError` | `provider_infra` |
-| 4 | `error{kind: agent_raised, owner: agent}` | `plurai.AgentFault(message + JS stack)` | `agent_raised` (a failed trial the agent owns) |
+| 4 | `error{kind: agent_raised, owner: agent}` | `plurai.AgentFault(message + JS stack)` | `agent_raised` (a failed trial the agent owns), except a message that embeds the provider's spend-cap error envelope verbatim (`{"type":"error","error":{"type":…,"message":<spend-cap sentence>},…}`, extra keys allowed) → `provider_infra` (SDK ≥ 1.0.4) |
 | 5 | `error{kind: agent_raised, owner: other}` | `BridgeAgentError(message + JS stack)`, a plain `Exception` | `other` (errored) |
 
 - The child sets `provider` when a request to a **provider host** (`constants.json` `provider_hosts`) inside the same
@@ -262,6 +263,8 @@ Coverage:
 - **Parallel children.** One child per scenario process, no fixed port, `mkdtemp` for scratch space. A port the agent
   itself listens on (its default too) is handed to each child its own through its config or env (port 0, or a free
   loopback port the child picks), and a store account the bridge seeds is keyed per conversation, never a constant.
+  A per-child value `simulate.py` picks (a state or config dir from `mkdtemp`, a free port) is set in `os.environ` before
+  the child spawns: the host builds the child's env from `os.environ` at spawn, and the bridge map's env is static.
   `entry.mjs` imports the agent's *construction* module, never its server or main module.
 
 ## A.9 Loader (Node child)

@@ -11,6 +11,9 @@ opener included), and never as an `agent_context` key or a `seed_state` value:
 * an `image_url` content part: `{'type': 'image_url', 'image_url': {'url': 'data:...'}}` (the bare string
   `'image_url': 'data:...'` is the same part)
 
+A resumed conversation's seed carries an earlier turn's document in the same shape, on its human message:
+`seeded_documents(resume_seed['messages'])` decodes it for `seed_state`.
+
 `document_bytes` also reads a `data:` string (an `invoke_pipeline` input) and a dict attachment
 (`{'content_type': ..., 'data_base64': ...}`) written by an older generated harness.
 
@@ -115,6 +118,20 @@ def turn_documents(content: object) -> list[Document]:
         filename = (part['file'].get('filename') or '') if part['type'] == 'file' else ''
         documents.append(Document(filename, data, media_type))
     return documents
+
+
+def seeded_documents(messages: object) -> list[Document]:
+    """The documents of the LAST human message in a resume seed's `messages` that carries any, decoded as `turn_documents`
+    decodes a live turn's. `seed_state` puts them where the live turn puts a handed-over document, and restores the messages
+    themselves unchanged. A seed message is a dict (`type`/`role`) or a message object (`.type`)."""
+    for message in reversed(messages if isinstance(messages, list) else []):
+        speaker = (message.get('type') or message.get('role')) if isinstance(message, Mapping) else getattr(message, 'type', None)
+        if speaker not in ('human', 'user'):
+            continue
+        content = message.get('content') if isinstance(message, Mapping) else getattr(message, 'content', None)
+        if documents := turn_documents(content):
+            return documents
+    return []
 
 
 def turn_text(content: object) -> str:

@@ -1,12 +1,12 @@
 {
-  "version": "0.56.10",
+  "version": "0.56.12",
   "plugin": "0.55",
   "sha256": {
-    "index.html": "6aefc964697642a1152647534539975a8eb520cc2ce4df17d8d95acb0b4cf648",
-    "fill_report.py": "3c7cd18ab5fbee3202478380f9cee080c30f5180957e38f37676981fab15d90f",
-    "schema.json": "7fcabcad0458ce3f5c64c4495030d6962ff6c309e96d555d559c962a58e50558"
+    "index.html": "e7a34d7ea0511259095bdf95f09a14dae49651fb2e8e31da1d490ae09853cc2b",
+    "fill_report.py": "5b2d7cc39727f675a7bdcdeec55a783ccd7b51c1cd4ea2bb1daeb7ee18ab52ad",
+    "schema.json": "e4f3460689aa632688219139dd48e6be4a558081a427bb1774953ba29310fabc"
   },
-  "schema_hash": "7fcabcad0458ce3f5c64c4495030d6962ff6c309e96d555d559c962a58e50558",
+  "schema_hash": "e4f3460689aa632688219139dd48e6be4a558081a427bb1774953ba29310fabc",
   "anchors": [
     "scan",
     "traces",

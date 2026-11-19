@@ -1561,10 +1561,21 @@ def _recorded_anchor(bases: list) -> tuple[str | None, str | None]:
             on_disk = sorted(p.name for p in (candidate / "artifacts").glob("coverage_audit_final*.json"))
             if on_disk != sorted(str(n) for n in recorded_names):
                 continue
-        line = payload.get("anchor")
+        line = _read_rung(payload.get("anchor"))
         if isinstance(line, str) and line.strip():
             return line.strip(), _bound_agent_head(payload, candidate)
     return None, None
+
+
+def _read_rung(value: object) -> object:
+    """A stored rung as this version reads it (`release_verdict.read_rung`: a stored `Suite: validated` is qualified);
+    the value as stored when that reader cannot be loaded."""
+    try:
+        _scripts_on_path()
+        from release_verdict import read_rung  # noqa: PLC0415 - plugin scripts/, a stdlib-only sibling tree
+    except Exception:  # noqa: BLE001 - fail open like the readers around it
+        return value
+    return read_rung(value)
 
 
 def _bound_agent_head(payload: dict, candidate: Path) -> str | None:

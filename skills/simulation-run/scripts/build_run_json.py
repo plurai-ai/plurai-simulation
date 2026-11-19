@@ -22,8 +22,8 @@ rather than defaulted, because both read as a number the report never earned.
 
 THE PRODUCER CONTRACT (`schema: plurai-run/1`). `stage` is the run's stage (`RUN_STAGES`), from `--stage`
 or kept from the previous run.json on a rebuild, never inferred from a folder name; `scripts/runs_index.py`
-indexes it and names the scored run. Every `evals[]` row carries `verdict_tier` / `tier_source` / `severity`
-(:func:`eval_tier_fields`) — typed `null` / `unknown` / `null` when the eval set was not read, never guessed.
+indexes it and names the scored run. Every `evals[]` row carries `verdict_tier` / `tier_source` / `severity` /
+`from_trace` (:func:`eval_tier_fields`) — typed `null` / `unknown` / `null` / `null` when the eval set was not read, never guessed.
 THE SCORES are the SDK's, never this file's: before anything is read, `plurai scores refresh` recomputes the run's
 scores block (`run_summary.json` → `scores`, `plurai.scoring`) and each row's `result`, `score` (0-100) and
 `fail_reasons` are its attempt's entry, copied; `totals` carries the block's `suite_score`, `agent_verdict` and
@@ -1677,7 +1677,8 @@ GOAL_SOURCE_NONE = 'none'
 #: The goal owners the backend declares today. NOT a gate: an unrecognized source still names an
 #: owner, so the scenario stays measurable and the name is REPORTED on the row rather than
 #: swallowed by a closed set that pretends nothing fell outside it.
-KNOWN_GOAL_SOURCES = frozenset({'deterministic', 'target_judge', GOAL_SOURCE_NONE, 'pipeline_error', 'pipeline_collapse', 'agent_closed'})
+KNOWN_GOAL_SOURCES = frozenset({'deterministic', 'target_judge', GOAL_SOURCE_NONE, 'pipeline_error', 'pipeline_collapse', 'agent_closed',
+                                'agent_fault_give_up'})
 
 #: OPTIONAL `scenario_verdict` key the backend sets when the situation a scenario's target is written against never
 #: arose, so neither axis decided the goal; absent on every other row. The reason such a row carries:
@@ -1801,17 +1802,18 @@ def eval_set_veto_capability(workdir: str | None) -> dict[str, bool | None] | No
 
 
 def eval_tier_fields(name: str, bodies: Mapping[str, object] | None) -> dict:
-    """``{verdict_tier, tier_source, severity}`` for one `evals[]` row — every key always present.
+    """``{verdict_tier, tier_source, severity, from_trace}`` for one `evals[]` row — every key always present.
 
     ``verdict_tier`` / ``tier_source`` are :func:`policy_effective_tier` over the policy's local body;
-    ``severity`` is its declared ``severity`` string, else ``None``. A policy the local eval set does not
-    hold (or an eval set that was not read: ``bodies`` is ``None``) is ``None`` / ``unknown`` / ``None`` —
-    never a guessed tier.
+    ``severity`` is its declared ``severity`` string, else ``None``; ``from_trace`` is :func:`_from_trace`
+    (born from a production-trace failure). A policy the local eval set does not hold (or an eval set that
+    was not read: ``bodies`` is ``None``) is ``None`` / ``unknown`` / ``None`` / ``None`` — never a guessed tier.
     """
     body = (bodies or {}).get(name)
     tier, source = policy_effective_tier(body) if body is not None else (None, 'unknown')
     severity = body.get('severity') if isinstance(body, dict) else None
-    return {'verdict_tier': tier, 'tier_source': source, 'severity': severity.strip().lower() if isinstance(severity, str) and severity.strip() else None}
+    return {'verdict_tier': tier, 'tier_source': source, 'severity': severity.strip().lower() if isinstance(severity, str) and severity.strip() else None,
+            'from_trace': _from_trace(body)}
 
 
 def eval_set_bodies(workdir: str | None) -> dict[str, object] | None:
@@ -3425,8 +3427,54 @@ def _run_reading(out: Path | None) -> object | None:
         return None
 
 
-def regression_rows(replays: dict, workdir: Path | None, out: Path | None = None) -> list[dict]:
-    """One row per replayed regression: `{folder, scenario, title, owner, owner_source, at_cut, anywhere, clear_axis, recorded, status, restore_reduced, replay_caveat, reading}`.
+#: A `provenance[].source` the eval gate verified against a production-trace obligation it handed out, matched
+#: case-insensitively. Keep in sync with the Plurai backend's `ProvenanceRef.TRACE_OBSERVED_PREFIX`, mirrored by value.
+TRACE_OBSERVED_PREFIX = 'trace unit'
+
+
+def _axis_counts(cell: object) -> tuple[int, int, int] | None:
+    """`(failed, measured, unmeasured)` of one axis cell; None when it is no cell or a count is not a number."""
+    if not isinstance(cell, dict):
+        return None
+    try:
+        return (int(cell.get('failed') or 0), measured_replays(cell),
+                sum(int(cell.get(k) or 0) for k in ('na', 'deferred', 'inconclusive', 'trigger_absent')))
+    except (TypeError, ValueError):
+        return None
+
+
+def _from_trace(body: object) -> bool | None:
+    """Whether an eval's `provenance` names a trace unit (:data:`TRACE_OBSERVED_PREFIX`); None when it is not a list of mappings."""
+    refs = (body.get('provenance') or []) if isinstance(body, dict) else None
+    if not isinstance(refs, list) or not all(isinstance(ref, dict) for ref in refs):
+        return None
+    return any(str(ref.get('source') or '').strip().lower().startswith(TRACE_OBSERVED_PREFIX) for ref in refs)
+
+
+def issue_turn_evals(entry: Mapping, owner: str | None, cleared_on: object, axis: str,
+                     recorded: Mapping[str, bool | None] | None, trace: Mapping[str, bool | None]) -> list[dict]:
+    """Every eval that failed the issue's turn when it was recorded, or failed on these replays, with its count on the row's
+    clear axis: `{policy, failed_when_recorded, failed, measured, unmeasured, from_trace}`. `recorded` is
+    `regressions.recorded_reds` (None: unknown on every entry); counts are each eval's `axis` cell, the owner's the row's
+    restated `cleared_on` (on an opener-rooted replay, the whole replay), None where the replays did not grade it; `trace`
+    is :func:`_from_trace` per eval of the set. Recorded reds first, then by name."""
+    on_axis = {p: c.get(axis) if isinstance(c, dict) else None for p, c in (entry.get('policies') or {}).items()}
+    if owner:
+        on_axis[owner] = cleared_on
+    counts = {p: _axis_counts(c) for p, c in on_axis.items()}
+    listed = {p for p, said in (recorded or {}).items() if said} | {p for p, n in counts.items() if n and n[0] > 0}
+    rows = []
+    for p in listed:
+        failed, measured, unmeasured = counts.get(p) or (None, None, None)
+        rows.append({'policy': p, 'failed_when_recorded': (recorded or {}).get(p), 'failed': failed, 'measured': measured,
+                     'unmeasured': unmeasured, 'from_trace': trace.get(p)})
+    return sorted(rows, key=lambda r: (r['failed_when_recorded'] is not True, r['policy']))
+
+
+def regression_rows(replays: dict, workdir: Path | None, out: Path | None = None, bodies: Mapping[str, object] | None = None) -> list[dict]:
+    """One row per replayed regression: `{folder, scenario, title, owner, owner_source, at_cut, anywhere, clear_axis, recorded, status, restore_reduced, replay_caveat, issue_turn_evals, reading}`.
+
+    `issue_turn_evals`: :func:`issue_turn_evals`; `bodies` is the eval set the caller read (:func:`eval_set_bodies`), read here when None.
 
     `reading` is THE replay reading (`regressions.replay_reading`): over this run's own audited replays when it carried the
     folder (`population: run`, its standing links read off `out`), else the regression-only step's. Its owner is the check
@@ -3445,6 +3493,9 @@ def regression_rows(replays: dict, workdir: Path | None, out: Path | None = None
     folders = {d.name: d for d in _regressions_on_disk(workdir)}
     owners, ledger_read = _regression_owners(workdir)
     probe_source = OWNER_PROBE_UNOWNED if ledger_read else OWNER_PROBE_NO_LEDGER
+    if bodies is None and workdir is not None:
+        bodies = eval_set_bodies(str(workdir))
+    trace = {p: _from_trace(body) for p, body in (bodies or {}).items()}
     run = _run_reading(out) if any(isinstance(e, dict) and e.get('population') == POPULATION_RUN
                                    for e in (replays.get('regressions') or {}).values()) else None
     rows = []
@@ -3492,6 +3543,8 @@ def regression_rows(replays: dict, workdir: Path | None, out: Path | None = None
             'tool_errors': entry.get('tool_errors'), 'tool_refusals': entry.get('tool_refusals'),
             # A job the pin started and never saw finish: the replay's mock does not have it (`regressions.JOB_OPEN_AT_CUT`).
             'replay_caveat': _regressions.pin_caveat(folders[name]) if _regressions is not None and name else None,
+            'issue_turn_evals': issue_turn_evals(entry, owner, cleared_on, axis, _regressions.recorded_reds(
+                workdir, name, skip_run=out.name if out is not None else None) if _regressions is not None and name and workdir is not None else None, trace),
             **({'reading': {**reading, 'population': entry.get('population'), 'axis': axis}} if reading is not None else {}),
         }
         # Hollow: its replays cannot measure its issue (`regressions.hollow_reason`). `status` is left as it is; `retire`
@@ -6027,7 +6080,7 @@ def _spec_of(out: Path, args: argparse.Namespace, scores_block: dict | None = No
         row.update(PLUGIN_CHECKS[row['id']][1] if row['id'] in PLUGIN_CHECKS else eval_tier_fields(row['id'], policy_bodies))
     if policy_bodies is None and evals:
         print(f'note: the eval set was not read ({"no --workdir" if not getattr(args, "workdir", None) else POLICIES_CONFIG_FILENAME + " unread"}), '
-              f'so every evals[] row carries verdict_tier null / tier_source unknown — no tier is guessed.', file=sys.stderr)
+              f'so every evals[] row carries verdict_tier null / tier_source unknown / from_trace null — no tier is guessed.', file=sys.stderr)
 
     spec: dict = {'schema': RUN_SCHEMA, 'run_name': args.run_name or out.name}
     # The run's STAGE, never inferred from a folder name: `--stage`, else the stage this run dir's previous
@@ -6095,7 +6148,7 @@ def _spec_of(out: Path, args: argparse.Namespace, scores_block: dict | None = No
     replays_dirs = [Path(d) for d in getattr(args, 'regression_replays', None) or []]
     if (replays := regression_replays_block(out, replays_dirs or None)) is not None:
         spec['regression_replays'] = replays
-        spec['regressions'] = regression_rows(replays, Path(args.workdir) if getattr(args, 'workdir', None) else None, out)
+        spec['regressions'] = regression_rows(replays, Path(args.workdir) if getattr(args, 'workdir', None) else None, out, policy_bodies)
     # USER-SIM FIDELITY — its own top-level block, never folded into `totals`. It is not a
     # count of anything the agent did: it says whether the transcripts faithfully enact the
     # scenarios, which is the precondition every other number in this file depends on. Omitted

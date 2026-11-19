@@ -360,8 +360,9 @@ A `?` line or `source not found` summary says the code was not read: correct `or
 Leave `args.<a>.description` and `returns.description` empty when you have nothing beyond the tool's declaration; derive_tool_facts
 fills them from it (`description_source: declared`). A placeholder is text, so it is never filled.
 `returns.fields` lists every field the documented response carries (ids and timestamps included), not only the ones the agent reads today.
-Where a declaration and the code differ, the code wins: an arg's accepted values, an entity's state list (`typical_states`) and `returns.fields`
-are read off the producing line, following a library call into its source on the agent's interpreter, where a default argument that narrows a read is behaviour.
+A declaration names a shape; the code that fills it says what is in it, so the code wins: an arg's accepted values, an entity's state list (`typical_states`) and `returns.fields`
+(their `item_fields` too, including the items of a string field that carries encoded JSON) are read off the producing line, the builder or serializer that makes the value
+on either side of the seam, and that line is cited in `evidence` beside the declaration's, following a library call into its source on the agent's interpreter, where a default argument that narrows a read is behaviour.
 A value the declaration accepts that no code path returns is a cited `tool_surface` `omits` fact (`references/agent_facts.md`), and the arg's description says so.
 A field the code or provider truncates carries `max_chars` on its `returns.fields` entry, citing the truncating line in `evidence`; the mock serves it cut to that length.
 
@@ -596,7 +597,12 @@ returns no `input_context`. **The current date is also PINNED, not only recorded
 makes outside a mock (its own code, or a `mode: real` tool's body) is rebound in `seed_state` to the scenario's
 `initial_agent_context['current_date']` at the module that does the read (the name it imported: `datetime`, `date`,
 `time`, or its own clock helper), never process-wide; a timestamped `current_date` keeps ticking from the scenario's
-time, while a bare date stays on its day; a read with no imported name to rebind (an inline `new Date()`) is recorded only (Python: §now of `${CLAUDE_PLUGIN_ROOT}/skills/simulation-setup/references/seed-state-contract.md`).
+time, while a bare date stays on its day; a read with no imported name to rebind (an inline `new Date()`) is recorded only (Python: `plurai.pin_now`, §now of `${CLAUDE_PLUGIN_ROOT}/skills/simulation-setup/references/seed-state-contract.md`).
+Declare the route in `plurai.config.yaml` as `harness: {clock: pinned|store|told|host}`: `pinned` is `plurai.pin_now`
+per reading module; `store`, the harness writes the date into the agent's own store and calls
+`plurai.clock_delivered('store')`; `told`, it puts the date into the agent's own input and calls
+`plurai.clock_delivered('told')`; `host`, the agent reads only its own or its framework's clock (a Claude Code agent:
+always `host`, never `told`), and nothing is called.
 
 #### Step 4b: Identify STARTUP PRECONDITIONS — state produced by a prior in-graph flow (CRITICAL)
 
@@ -886,7 +892,7 @@ seam whose store no tool reads is advisory (`writer_seam_store_unread`). It WARN
 mocked writer with no edge to a reader (`write_tool_reader_undeclared`:
 declare it in one step if the reader is obvious, else proceed); env-gen's read-your-writes tests run on these pairs.
 When a split puts a real reader on a store a mocked write lands in, fix it in this order:
-1. **Mock the store as a whole** (the default): every tool that reads it `mode: mock`, or real and named in the `serves:` of the seam mock for that store. **Mock lower** only for a confirmed store: declare it — `world_state.owner: agent`, the types it holds in `world_state.owned_types`, its `world_state.confirmation` entry, and a harness `reset()` that clears it before every conversation (the runner calls it, and holds an `agent` world without one) — set the writer `mode: real` with `write_strategy` unset (`read_strategy: real` where it also reads the store), name the entry's `target` in its `writes_to` / `reads_from`, type it `writes: world`, `effects: ["none"]` on the map, mock only its outside calls, and observe that store from `world_snapshot()` if scoring needs it (`scripts/writer_readers.py` `local_store_writers`). A write to the customer's own files in place or to any system the run does not reset stays a live write, mocked by default.
+1. **Mock the store as a whole** (the default): every tool that reads it `mode: mock`, or real and named in the `serves:` of the seam mock for that store. **Mock lower** only for a confirmed store: declare it — `world_state.owner: agent`, the types it holds in `world_state.owned_types`, its `world_state.confirmation` entry, and a harness `reset()` that clears it before every conversation (the runner calls it, and holds an `agent` world without one) — set the writer `mode: real` with `write_strategy` unset (`read_strategy: real` where it also reads the store), write the entry's `target` alone in each `;`-separated part of its `writes_to` / `reads_from` (its prefix allowed, no prose beside it; describe the store in `description`), type it `writes: world`, `effects: ["none"]` on the map, mock only its outside calls, and observe that store from `world_snapshot()` if scoring needs it (`scripts/writer_readers.py` `local_store_writers`). A write to the customer's own files in place or to any system the run does not reset stays a live write, mocked by default.
 2. **`read_through` resolves no split**: a reader that declares it still reads its real store. It serves only a reader of a confirmed store that must also see the mock world's rows: declare it on the reader and rebind each `via` accessor in the harness. Writers and world type come from the `tool_graph` edges into it; `read_strategy` stays `real`:
    ```yaml
    search_tickets:
@@ -1291,6 +1297,8 @@ ROOT key `agent.env:` as a list of names, never values: `agent.env: [AZURE_OPENA
 Read the names off the agent's code (`os.environ` / `getenv` reads, settings classes, the provider client's own
 variables). A declared name the launching shell does not set stays unset; the backend token is never declared (the
 SDK refuses it). A smoke that fails while such a variable is set in your shell names it on an `~ agent.env:` line.
+Write it at the root as `agent.env:`, beside `agent.io:`; Step 9e warns on `agent: {env: …}`
+(`agent_env_declared_not_at_root`).
 
 **Declare what the agent can be HANDED — `agent.io:`.** Optional for a text-only bench and REQUIRED
 for a bench that is handed documents (the paragraph after the subkeys). One ROOT key beside `shape:` /
@@ -1467,14 +1475,21 @@ when it prints findings, remove the declaration and say why in one line of the s
 fingerprint covers the declared file, so adding the key to an existing bench marks its earlier runs
 stale once. On a re-write, carry an existing declaration over.
 
-**Listen ports, accounts and `harness.single_instance`.** Read every port the agent or its runner listens on, the
-production default too (a framework component's default binds even when no config names a port), and every store
-account or key the harness would fix. Hand each child its own (PHASE 1c of the Python template): a port through the
-config key, env var or argument that sets it — when a runner you may not edit passes the config inline, wrap the call
-it makes — and a store account or namespace keyed by `plurai.active_session_id()`. Trials then stay parallel.
+**Listen ports, accounts, host state and `harness.single_instance`.** Read every port the agent or its runner listens on, the
+production default too (a framework component's default binds even when no config names a port), every store
+account or key the harness would fix, and everything else the agent starts or writes on the host: a child service it
+spawns (a model gateway, a policy server), a state or config dir it writes. Hand each child its own (PHASE 1c of the
+Python template): a port (port 0, or a free loopback port) through the config key, env var or argument that sets it —
+when a runner you may not edit passes the config inline, wrap the call it makes — a store account or namespace keyed by
+`plurai.active_session_id()`, and a state or config dir from `tempfile.mkdtemp()`. Set what travels by environment in
+`os.environ` in `simulate.py`, before the agent or its child starts. Start a service the harness owns inside the child's
+process group (never `start_new_session`/detached), so the child's close takes it down. Trials then stay parallel.
 `harness.single_instance` (`["<short cite>"]`) is only for what no config, env, argument or wrapped call can hand out
-per child — a device, a global lock; every conversation then waits for it. The Init smoke warns when siblings collide
-(`sibling_init_failed`, `sibling_cross_talk`) or a declared resource never did (`exclusive_unneeded`).
+per child — a device, a global lock; every conversation then waits for it. Its cite names the shared resource in the
+agent's code and says when it is taken (`["model gateway's fixed state dir, taken on the first turn"]`). The Init smoke
+warns when siblings collide (`sibling_init_failed`, `sibling_cross_talk`) or a declared resource never did
+(`exclusive_unneeded`, expected for a cite that says the resource is taken on a turn — keep it); the turn smoke warns
+when the agent answers alone but not beside copies run at once (`sibling_turn_failed`), and its line carries the repair.
 `verify_config.py` refuses a value that is not a list of non-blank strings (`harness_single_instance_invalid`).
 
 Do NOT write `workspace.run_driver` either, unless the user declared it (Step 7) or asked for

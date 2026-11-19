@@ -18,7 +18,10 @@ Verbs:
 Every folder that resumes from a pin — a resumed regression, and every trace scenario — is first
 Init'd by the harness with its own seed (``verify_smoke.py --seed-resume``, no model call). A folder
 whose seed the harness refuses is held back as ``harness_cannot_replay`` with the child's text; a
-check that reaches no verdict stops the stage. Four more hold-backs apply to trace scenarios only:
+check that reaches no verdict stops the stage. Two hold-backs apply to resumed regressions before that check: under
+``anonymize: true`` one whose pin carries a handed-over document (``anonymized_posture``: a ``data:`` URI in the pin is
+text to the scrubber), and one whose pick shows a document on or before its cut that its pin lacks (``history_document``:
+recorded before the pin carried documents). Four more hold-backs apply to trace scenarios only:
 
 * **The posture is anonymized.** A trace scenario's pin and world facts are a production
   conversation, verbatim, and the brief-driven mode writes them only under the raw posture. The
@@ -75,6 +78,12 @@ HELD_BACK_POSTURE = 'anonymized_posture'
 HELD_BACK_UNFINISHED = 'unfinished'
 HELD_BACK_HARNESS = 'harness_cannot_replay'
 HELD_BACK_CAP = 'over_cap'
+HELD_BACK_HISTORY_DOCUMENT = regressions.HOLLOW_HISTORY_DOCUMENT
+#: Why a regression whose pin carries a handed-over document is held back under ``anonymize: true``.
+REGRESSION_POSTURE_DETAIL = (
+    'plurai.config.yaml declares anonymize: true, and this regression\'s pin carries a document the user handed over, '
+    'which the upload would not scrub. Set the raw posture to ship it, or delete the folder.'
+)
 
 #: What an out-dir may already hold for staging to clear it: a previous stage's own output.
 _STAGED_OVERVIEW = regressions.OVERVIEW_FILENAME
@@ -248,6 +257,20 @@ def stage(
         )
 
     held_back: list[dict[str, str]] = []
+    anonymized = functools.cache(lambda: trace_scenarios.anonymized(workdir))
+    # A resumed regression that cannot hand its replay the documents its conversation held is held back before any spawn:
+    # under anonymize: true a pin carrying one would upload it unscrubbed, and a pin recorded before documents rode it holds
+    # `[file: name]` markers in their place.
+    for folder in resumed:
+        if regressions.pin_documents(folder) and anonymized():
+            held_back.append({'folder': folder.name, 'reason': HELD_BACK_POSTURE, 'detail': REGRESSION_POSTURE_DETAIL})
+        elif lacking := regressions.pin_lacks_documents(workdir, folder):
+            held_back.append({'folder': folder.name, 'reason': HELD_BACK_HISTORY_DOCUMENT, 'detail': (
+                f'its conversation handed over {", ".join(lacking)} on or before the issue\'s turn and its pin does not carry it, '
+                'so its replay would answer without it. Delete the folder and record the issue again.')})
+    withheld = {entry['folder'] for entry in held_back}
+    regression_folders = [folder for folder in regression_folders if folder.name not in withheld]
+    resumed = [folder for folder in resumed if folder.name not in withheld]
     kept: list[Path] = []
     for folder in trace_folders:
         try:
@@ -266,7 +289,7 @@ def stage(
             '(delete the folder), or ask the backend operator to raise the cap.'
         )
 
-    if kept and trace_scenarios.anonymized(workdir):
+    if kept and anonymized():
         detail = (
             'plurai.config.yaml declares anonymize: true, and a trace scenario carries a production conversation '
             'verbatim, so none is uploaded from this env. Set the raw posture to ship them, or retire them with '

@@ -142,6 +142,9 @@ MISSING=""
 NEW=""
 RESTAGED=""
 UNCHANGED=""
+# What the operator's `git add` names (NEW, then RESTAGED), one path per line, so a name with a space is one path.
+NEW_LINES=""
+RESTAGED_LINES=""
 
 # NEW      — not tracked at all yet (`git ls-files --error-unmatch` fails).
 # RESTAGED — tracked AND different from HEAD, or a tracked directory holding new files.
@@ -152,12 +155,18 @@ _classify() {
   # $1 = absolute path, $2 = the label to record
   if ! git -C "$REPO" ls-files --error-unmatch -- "$1" >/dev/null 2>&1; then
     NEW="$NEW $2"
+    NEW_LINES="$NEW_LINES$2
+"
   elif [ -n "$(git -C "$REPO" ls-files -o --exclude-standard -- "$1" 2>/dev/null)" ]; then
     RESTAGED="$RESTAGED $2"
+    RESTAGED_LINES="$RESTAGED_LINES$2
+"
   elif git -C "$REPO" diff --quiet HEAD -- "$1" 2>/dev/null; then
     UNCHANGED="$UNCHANGED $2"
   else
     RESTAGED="$RESTAGED $2"
+    RESTAGED_LINES="$RESTAGED_LINES$2
+"
   fi
 }
 
@@ -198,6 +207,11 @@ fi
 # paths.runtime_files), staged path by path and never as `bridge/`, so the installed
 # `bridge/runtime/node_modules/` and a host's `__pycache__` stay out whatever the customer's .gitignore
 # says. `bridge/replace/` is staged whole besides: a replacement may import a helper beside it.
+# Every OTHER file the fingerprint hashes under `bridge/` (`--bridge-extras`: an adapter, a script
+# simulate.py spawns) is staged as well, so the staged set is the hashed set and a clone runs and
+# fingerprints like the bench. An extra is never required: one the .gitignore excludes is skipped, and
+# one git cannot add (a path through a symlinked directory) is named in a note with git's reason, and
+# kept out of the operator's command on a read-only index; neither changes the exit.
 # The map is what makes a bench a bridge bench (`harness_fingerprint.detect_lang`'s rule).
 # A REQUIRED file that is absent, or that the customer's .gitignore excludes, is a bench a clone cannot
 # run: each is named, the rest is still staged, and the run exits 4. Default mode only.
@@ -206,9 +220,11 @@ BRIDGE_IGNORED=""
 BRIDGE_ERROR=""
 if [ "$EXPLICIT" = 0 ] && [ -f "$WORKDIR/bridge/bridge.map.json" ]; then
   BRIDGE_REQUIRED=""
+  BRIDGE_EXTRAS=""
   if ! command -v python3 >/dev/null 2>&1; then
     BRIDGE_ERROR="no python3 on PATH to read bridge/bridge.map.json, so the bridge files were not staged"
   else
+    BRIDGE_EXTRAS="$(python3 "$(dirname "${BASH_SOURCE[0]}")/harness_fingerprint.py" --workdir "$WORKDIR" --bridge-extras 2>/dev/null)" || BRIDGE_EXTRAS=""
     _err="$(mktemp "${TMPDIR:-/tmp}/stage-inputs.XXXXXX")"
     if ! BRIDGE_REQUIRED="$(python3 "$(dirname "${BASH_SOURCE[0]}")/harness_fingerprint.py" --workdir "$WORKDIR" --bridge-files 2>"$_err")"; then
       BRIDGE_ERROR="$(cat "$_err")"
@@ -230,6 +246,35 @@ if [ "$EXPLICIT" = 0 ] && [ -f "$WORKDIR/bridge/bridge.map.json" ]; then
     _add "$path" || exit 1
     STAGED="$STAGED $rel"
   done
+  # Line by line, so a name with a space is one path. A failed add takes its classification back with it.
+  _dry_index=""
+  if [ "$INDEX_READ_ONLY" = 1 ] && [ -n "$BRIDGE_EXTRAS" ]; then
+    _dry_index="$(mktemp "${TMPDIR:-/tmp}/stage-inputs-index.XXXXXX")"
+    _index="$(git -C "$REPO" rev-parse --git-path index 2>/dev/null)"
+    case "$_index" in /*) ;; *) _index="$REPO/$_index" ;; esac
+    cp "$_index" "$_dry_index" 2>/dev/null || rm -f "$_dry_index"  # no index yet: git starts an empty one there
+  fi
+  while IFS= read -r rel; do
+    [ -n "$rel" ] || continue
+    path="$WORKDIR/$rel"
+    git -C "$REPO" check-ignore -q -- "$path" 2>/dev/null && continue
+    _new="$NEW" _restaged="$RESTAGED" _unchanged="$UNCHANGED" _new_lines="$NEW_LINES" _restaged_lines="$RESTAGED_LINES"
+    _classify "$path" "$rel"
+    # A read-only index adds nothing, so a dry run against a scratch copy of the index (its lock is taken beside the
+    # copy, never in .git) asks git whether the operator's command could add it.
+    if [ "$INDEX_READ_ONLY" = 1 ]; then
+      _why="$(GIT_INDEX_FILE="$_dry_index" git -C "$REPO" add --dry-run -- "$path" 2>&1 >/dev/null)"
+    else
+      _why="$(git -C "$REPO" add -- "$path" 2>&1 >/dev/null)"
+    fi
+    if [ "$?" = 0 ]; then
+      STAGED="$STAGED $rel"
+    else
+      NEW="$_new" RESTAGED="$_restaged" UNCHANGED="$_unchanged" NEW_LINES="$_new_lines" RESTAGED_LINES="$_restaged_lines"
+      echo "stage-inputs: note — $rel could not be staged, so a clone will not have it; git says: $(printf '%s' "$_why" | tr '\n' ' ')" >&2
+    fi
+  done <<< "$BRIDGE_EXTRAS"
+  [ -n "$_dry_index" ] && rm -f "$_dry_index" "$_dry_index.lock"
   if [ -d "$WORKDIR/bridge/replace" ] && ! git -C "$REPO" check-ignore -q -- "$WORKDIR/bridge/replace"; then
     if [ -n "$(git -C "$REPO" ls-files -o --exclude-standard -m -- "$WORKDIR/bridge/replace" 2>/dev/null)" ]; then
       _classify "$WORKDIR/bridge/replace" "bridge/replace"
@@ -277,7 +322,9 @@ if [ "$INDEX_READ_ONLY" = 1 ] && { [ -n "$NEW" ] || [ -n "$RESTAGED" ]; }; then
   [ -n "$UNCHANGED" ] && echo "stage-inputs:   UNCHANGED (already committed, identical) —$UNCHANGED"
   # %q: a path with a space survives being pasted. Relative to $WORKDIR, which `git -C` names.
   printf 'stage-inputs: the operator stages them with:\n  git -C %q add --' "$WORKDIR"
-  for f in $NEW $RESTAGED; do printf ' %q' "$f"; done
+  while IFS= read -r f; do
+    [ -n "$f" ] && printf ' %q' "$f"
+  done <<< "$NEW_LINES$RESTAGED_LINES"
   printf '\nstage-inputs: do not ask for broader access to stage them; say in the summary that they are untracked and give this command.\n'
 else
   echo "stage-inputs: staged in $REPO —$STAGED"

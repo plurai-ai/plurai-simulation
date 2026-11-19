@@ -30,6 +30,7 @@ import enum
 import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -64,6 +65,8 @@ BRIDGE_COPIES: Dict[str, Path] = {
     **{f'{_PATHS["runtime_dir"]}/{name}': SKILL_DIR / 'references' / 'node' / 'runtime' / name for name in _PATHS['runtime_files']},
 }
 SESSION_ID = 'verify-bridge'
+#: The trail adapter B3 copies for an agent whose turn runs the Claude Code CLI (off ``runtime_files``: optional).
+CLI_ADAPTER = 'adapters/claude_cli.mjs'
 
 
 class Code(StrEnum):
@@ -76,6 +79,7 @@ class Code(StrEnum):
     BRIDGE_EGRESS_OPEN = 'bridge_egress_open'  # the child's egress guard let a probe fetch or socket out
     BRIDGE_RESUME_MISMATCH = 'bridge_resume_mismatch'  # `entry.resume` disagrees with the entry's `seed` export
     BRIDGE_MOCK_PARAM_REQUIRED = 'bridge_mock_param_required'  # warn: a dispatched mock has a parameter with no default
+    BRIDGE_CLI_DENIALS_UNREAD = 'bridge_cli_denials_unread'  # warn: the agent runs the `claude` CLI and the entry reads none of its permission denials
 
 
 @dataclass(frozen=True)
@@ -209,6 +213,90 @@ def required_mock_params(source: str) -> List[Finding]:
                 'bridge sends only the keys the call carried, so a call that leaves one out is a HarnessFault, not a tool '
                 'failure; give each a default (`=None`)'))
     return findings
+
+
+def _runs_claude_cli(workdir: Path) -> bool:
+    """``bench_manifest.json`` declares the ``claude`` executable among the harness's host requirements."""
+    try:
+        manifest = json.loads((workdir / 'bench_manifest.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return False
+    harness = manifest.get('harness') if isinstance(manifest, dict) else None
+    needs = harness.get('host_requirements') if isinstance(harness, dict) else None
+    return isinstance(needs, list) and any(
+        isinstance(n, dict) and n.get('kind') == 'executable' and n.get('name') == 'claude' for n in needs)
+
+
+def _js_code(source: str) -> Tuple[str, str]:
+    """``(code, bare)``: ``source`` with its ``//`` and ``/* */`` comments removed, and the same with every string and
+    template literal's contents blanked too. A small scanner, not a parser: a regex literal holding a quote can
+    mislead it, which only ever leaves the warning standing."""
+    code: List[str] = []
+    bare: List[str] = []
+    i, n = 0, len(source)
+    while i < n:
+        ch = source[i]
+        if source.startswith('//', i):
+            i = source.find('\n', i)
+            i = n if i == -1 else i
+        elif source.startswith('/*', i):
+            close = source.find('*/', i + 2)
+            i = n if close == -1 else close + 2
+            code.append(' ')
+            bare.append(' ')
+        elif ch in '\'"`':
+            j = i + 1
+            while j < n and source[j] != ch:
+                j += 2 if source[j] == '\\' else 1
+            literal = source[i:j + 1]
+            code.append(literal)
+            bare.append(ch + ' ' * max(len(literal) - 2, 0) + (ch if j < n else ''))
+            i = j + 1
+        else:
+            code.append(ch)
+            bare.append(ch)
+            i += 1
+    return ''.join(code), ''.join(bare)
+
+
+#: A named import of the adapter's marking function, a call of it, and a real read of the CLI's field (a property access,
+#: a subscript or a destructuring), each matched on code with comments removed, the read and the call outside strings.
+_ADAPTER_IMPORT = re.compile(r'import\s*\{[^}]*\b(withDenials|markDenials)\b[^}]*\}\s*from\s*([\'"])[^\'"]*' + re.escape(CLI_ADAPTER) + r'\2')
+_ADAPTER_CALL = r'\b{name}\s*\('
+_DENIALS_READ = re.compile(r'\.\s*permission_denials\b|\{[^{}]*\bpermission_denials\b[^{}]*\}\s*=')
+_DENIALS_SUBSCRIPT = re.compile(r'\[\s*([\'"])permission_denials\1\s*\]')
+
+
+def reads_cli_denials(source: str) -> bool:
+    """``source`` (an entry) imports the CLI adapter's ``withDenials`` / ``markDenials`` and calls it, or reads the CLI's
+    ``permission_denials`` itself. A comment, a bare string or an import of ``TRAIL_SOURCE`` alone is none of these."""
+    code, bare = _js_code(source)
+    imported = {m.group(1) for m in _ADAPTER_IMPORT.finditer(code)}
+    if any(re.search(_ADAPTER_CALL.format(name=name), bare) for name in imported):
+        return True
+    return bool(_DENIALS_READ.search(bare) or _DENIALS_SUBSCRIPT.search(code))
+
+
+def cli_denials_unread(workdir: Path, doc: Any) -> List[Finding]:
+    """``BRIDGE_CLI_DENIALS_UNREAD`` (warn) when the agent runs the ``claude`` CLI and the entry neither marks its trail
+    with the CLI adapter nor reads ``permission_denials`` (:func:`reads_cli_denials`): the CLI records a refused call as
+    an ``is_error`` result, so a trail built from ``is_error`` alone reports every permission denial as a tool failure."""
+    if not _runs_claude_cli(workdir):
+        return []
+    declared = doc['entry'].get('path') if isinstance(doc, dict) and isinstance(doc.get('entry'), dict) else None
+    entry = workdir / MAP_PATH.parent / declared if isinstance(declared, str) else workdir / _PATHS['entry']
+    try:
+        source = entry.read_text(encoding='utf-8')
+    except OSError:
+        return []
+    if reads_cli_denials(source):
+        return []
+    where = str(entry.relative_to(workdir)) if entry.is_relative_to(workdir) else str(entry)
+    return [Finding(
+        severity='warn', code=Code.BRIDGE_CLI_DENIALS_UNREAD, where=where,
+        message=f'the agent runs the `claude` CLI (bench_manifest.json host_requirements) and {where} reads none of its '
+        'permission denials, so a refused call is recorded as a tool error: when its turn reads the CLI\'s '
+        f'`--output-format stream-json` stream, return `withDenials(trail, stream)` from `runtime/{CLI_ADAPTER}` (B3)')]
 
 
 def absent_bridge_copies(workdir: Path) -> List[Finding]:
@@ -510,6 +598,7 @@ def run(simulate: Path, *, static_only: bool) -> int:
             found += static_findings(workdir, doc, config, names)
         found += stale_bridge_copies(workdir)
         found += required_mock_params(source)
+        found += cli_denials_unread(workdir, doc)
     except (NoVerdict, SyntaxError, OSError) as exc:
         print(f'verify_bridge: NO VERDICT — {exc}')
         print(_summary('no_verdict', 'no_verdict', 'skipped', [], str(exc)))

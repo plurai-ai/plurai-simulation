@@ -86,7 +86,11 @@ gate ledger (`scripts/gate_ledger.py`); it binds to the finding's text, so rewor
 9. **Seedability of state the simulation writes.** A `not_seedable` fact on a field of the config's
    `agent.state_class`: the harness writes that state in `seed_state`; or on a declared world type
    (`world_state.entity_types` / `owned_types`): the scenario seeds its rows — `check_state_seedability`.
-10. **The claim audit's refutations.** Whether a claim is TRUE is a reading, not a lint; the reading is done
+10. **A design line drawing on a file the generator never receives.** A `## Scenario design constraints` line that
+   names a file or directory of the agent's repo (resolved on disk; a `path:LINE` citation is provenance and is not
+   reported) steers the generator toward content it cannot read; the finding names the typed lanes that carry it —
+   `check_uncarried_files`.
+11. **The claim audit's refutations.** Whether a claim is TRUE is a reading, not a lint; the reading is done
    by the independent Step-9c auditor over every site `claim_sites.py` lists, and its REFUTED rows
    (`artifacts/prd_claim_audit.jsonl`) are open findings here — `check_claim_audit`. A missing audit is
    `claim audit: not run` in the status line.
@@ -251,6 +255,59 @@ def _design_span(text: str) -> str:
         if _is_design_heading(heading):
             return body
     return ''
+
+
+#: What the scenario generator receives from the bench by file (`hooks/_gen_inputs.py` `INPUT_DOC_SOURCES`): a design line
+#: naming one of these names a file the generator reads.
+GENERATOR_INPUT_FILES = frozenset({
+    'simulation_prd.md', 'plurai.config.yaml', 'scenario_variables.yaml', 'scenario_state_schema.yaml', 'inputs_schema.yaml',
+    'outputs_schema.yaml', 'data_profile.md',
+})
+#: A path a design line names: a backticked span, or a bare token with a `/` in it (`seed/files/`, `sites/shop.yaml`).
+_PATH_REF = re.compile(r'`(?P<tick>[^`\s]+)`|(?<![\w/.:-])(?P<bare>(?:[\w.-]+/)+[\w.-]*)(?![\w/-])')
+#: A `path:LINE` citation: provenance for the line, which `check_citations` resolves — not a file the line draws on.
+_LINE_SUFFIX = re.compile(r':\d+(?:-\d+)?$')
+UNCARRIED_FILE_FINDING = (
+    'design constraints: line {line} draws on `{path}`, which the scenario generator never receives — carry what the '
+    'line takes from it through a typed lane: a `checks` `in` set copied from it, `reference_rows:` for a type the agent '
+    'only reads, a cited `type: enum[...]`, or a scenario bundle (/upload-scenario-bundle).'
+)
+
+
+def check_uncarried_files(text: str, repo_root: Path, workdir: Path | None = None) -> list[str]:
+    """A `## Scenario design constraints` line that names a file or directory of the agent's repo, which the generator
+    never receives: the line steers it toward content it cannot read. A name must resolve on disk under ``repo_root``; a
+    `path:LINE` citation, a generator input (:data:`GENERATOR_INPUT_FILES`) and a path under a recorded reference store
+    (the knowledge lane carries those) are not reported. Warn-tier, once per path."""
+    lines = text.splitlines()
+    start = next((i for i, line in enumerate(lines) if re.match(r'^#{2,3} ', line) and _is_design_heading(line.strip())), None)
+    if start is None:
+        return []
+    root = repo_root.resolve()
+    stores = measured_candidates.reference_roots(root, workdir) or []
+    findings: list[str] = []
+    seen: set[Path] = set()
+    for number in range(start + 2, len(lines) + 1):
+        line = lines[number - 1]
+        if re.match(r'^#{1,3} ', line):
+            break
+        for match in _PATH_REF.finditer(line):
+            token = (match['tick'] or (match['bare'] or '').rstrip('.,;:')).strip().removeprefix('./')
+            if not token or _LINE_SUFFIX.search(token) or '://' in token:
+                continue
+            if '/' not in token and not Path(token).suffix:
+                continue  # a bare word (`config`, `src`) in backticks names no file
+            try:
+                path = (root / token).resolve()
+                if not path.exists() or path == root or not path.is_relative_to(root) or path in seen:
+                    continue
+            except (OSError, ValueError):  # a name too long for the filesystem, a NUL: no file
+                continue
+            if path.name in GENERATOR_INPUT_FILES or any(path == s or path.is_relative_to(s) for s in stores):
+                continue
+            seen.add(path)
+            findings.append(UNCARRIED_FILE_FINDING.format(line=number, path=token))
+    return findings
 
 
 def check_placement(text: str, entity_terms: set[str]) -> list[str]:
@@ -2611,6 +2668,7 @@ def main() -> int:
         *check_coarse_rules(text, repo_root),
         *check_harness_cited_as_source(text, config),
         *measured_findings,
+        *check_uncarried_files(text, repo_root, args.prd.resolve().parent),
     ]
     if fact_count is None and not errors:
         findings.append(ABSENT_FACTS_FINDING)

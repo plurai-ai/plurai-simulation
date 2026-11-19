@@ -85,6 +85,52 @@ def _read(root: Path, rel: str) -> str | None:
         return None
 
 
+def _csv_rows(text: str) -> list[dict]:
+    """A CSV's rows keyed by its header. A title line above the header (a spreadsheet export's caption: one non-empty
+    cell, with the rows below it carrying cells past its width) is not the header: the rows are then read from the first
+    line as wide as most rows are. A header whose rows only add empty trailing cells is kept. Raises ``csv.Error`` as
+    ``csv`` does."""
+    lines = text.splitlines()
+    reader = csv.reader(lines)
+    rows: list[tuple[int, list[str]]] = []
+    line = 0
+    for row in reader:
+        if row:
+            rows.append((line, row))
+        line = reader.line_num
+    if len(rows) > 2:
+        title = rows[0][1]
+        common = Counter(len(row) for _, row in rows[1:]).most_common(1)[0][0]
+        one_cell = sum(1 for cell in title if cell.strip()) <= 1
+        overflow = any(cell.strip() for _, row in rows[1:] for cell in row[len(title):])
+        if one_cell and overflow and len(title) < common:
+            lines = lines[next(start for start, row in rows if len(row) == common):]
+    return list(csv.DictReader(lines))
+
+
+def _entity_lists(data: object) -> dict[str, list[dict]]:
+    """``{entity type: rows}`` of a world_state file (``{entities: {<id>: {_entity_type, ...}}}``), the shape an agent's own
+    start worlds take; a row without an ``id`` carries its map key as one. ``{}`` for any other shape."""
+    entities = data.get('entities') if isinstance(data, dict) else None
+    if not isinstance(entities, dict) or not entities or not all(isinstance(r, dict) for r in entities.values()):
+        return {}
+    lists: dict[str, list[dict]] = {}
+    for key, row in entities.items():
+        kind = row.get('_entity_type')
+        if isinstance(kind, str) and kind:
+            lists.setdefault(kind, []).append(row if 'id' in row else {'id': str(key), **row})
+    return lists
+
+
+def _lists_of(data: dict, *, every_row_a_mapping: bool, entities_first: bool) -> list[tuple[str, list[dict]]]:
+    """``(name, mapping rows)`` for each top-level list holding mappings (every row one, or any) and each entity type of
+    the file's world_state map (:func:`_entity_lists`), the map's first or last (last overrides a same-named list)."""
+    holds = all if every_row_a_mapping else any
+    lists = [(str(k), [r for r in v if isinstance(r, dict)]) for k, v in data.items() if isinstance(v, list) and v and holds(isinstance(r, dict) for r in v)]
+    entities = list(_entity_lists(data).items())
+    return [*entities, *lists] if entities_first else [*lists, *entities]
+
+
 def _records(text: str, suffix: str) -> list[tuple[str, list[dict]]]:
     """``(list name, records)`` for every list of mappings in a structured file.
 
@@ -92,7 +138,7 @@ def _records(text: str, suffix: str) -> list[tuple[str, list[dict]]]:
     recursion allows, malformed text) holds no records: the sweep is a courtesy, never the reason a lint run fails."""
     if suffix == '.csv':
         try:
-            rows = list(csv.DictReader(text.splitlines()))
+            rows = _csv_rows(text)
         except csv.Error:
             return []
         return [('rows', rows)] if rows else []
@@ -105,7 +151,7 @@ def _records(text: str, suffix: str) -> list[tuple[str, list[dict]]]:
     if isinstance(data, list):
         return [('records', [r for r in data if isinstance(r, dict)])]
     if isinstance(data, dict):
-        return [(str(k), [r for r in v if isinstance(r, dict)]) for k, v in data.items() if isinstance(v, list) and any(isinstance(r, dict) for r in v)]
+        return _lists_of(data, every_row_a_mapping=False, entities_first=True)
     return []
 
 
@@ -126,7 +172,8 @@ def closed_url_sets(root: Path, paths: list[str]) -> list[Candidate]:
         if text is None:
             continue
         for name, records in _records(text, Path(rel).suffix.lower()):
-            fields = sorted({key for record in records for key in record})
+            # A CSV row longer than its header (a title line above it) carries its overflow under the key None.
+            fields = sorted({key for record in records for key in record if isinstance(key, str)})
             for key in fields:
                 values = [str(r[key]).strip() for r in records if r.get(key) not in (None, '')]
                 if not values or not all(re.fullmatch(_URL.pattern, v) for v in values):
@@ -330,7 +377,8 @@ class WorldCheck:
 
 @functools.lru_cache(maxsize=8)
 def data_lists(root: Path, rel: str) -> dict[str, list[dict]]:
-    """``{list name: rows}`` for every list of mappings a structured data file holds; ``''`` names a file that is one list.
+    """``{list name: rows}`` for every list of mappings a structured data file holds; ``''`` names a file that is one list,
+    and a world_state file's ``entities:`` map is one list per entity type (:func:`_entity_lists`).
 
     JSON, YAML, CSV, NDJSON/JSONL, each optionally gzipped. A file that is missing, outside ``root``, larger than
     MAX_DATA_BYTES decompressed, or unparseable holds no lists. Cached: read-only for its callers."""
@@ -349,7 +397,7 @@ def data_lists(root: Path, rel: str) -> dict[str, list[dict]]:
     text = raw.decode('utf-8', errors='replace')
     try:
         if inner.endswith('.csv'):
-            data: object = list(csv.DictReader(text.splitlines()))
+            data: object = _csv_rows(text)
         elif inner.endswith(('.ndjson', '.jsonl')):
             data = [json.loads(line) for line in text.splitlines() if line.strip()]
         elif inner.endswith('.json'):
@@ -362,7 +410,7 @@ def data_lists(root: Path, rel: str) -> dict[str, list[dict]]:
         rows = [r for r in data if isinstance(r, dict)]
         return {'': rows} if rows else {}
     if isinstance(data, dict):
-        return {str(k): [r for r in v if isinstance(r, dict)] for k, v in data.items() if isinstance(v, list) and v and all(isinstance(r, dict) for r in v)}
+        return dict(_lists_of(data, every_row_a_mapping=True, entities_first=False))
     return {}
 
 

@@ -32,16 +32,15 @@ must agree on whether the suite is qualified, so both read the verdict the backe
                  backend omits them); read by `bounded_repair.py`, not by the banner
 
     block                  -> `Suite: not yet qualified`; banner = the one remedy for `remedy`
-    pass + named risks     -> `Suite: qualified`; banner names them, a catastrophic one first
-    pass, nothing named    -> `Suite: validated`; no banner — or, when only `contested_violation`
-                              risks are named, the banner naming them (they never move the rung)
+    pass                   -> `Suite: qualified` (the ceiling); the banner names the risks, a catastrophic one first,
+                              and none when nothing is named
 
 The RUNNER names risks about the bench itself, which the gate cannot see, in the run dir's
 `run_summary.json` `named_risks` (:data:`RUN_RISK_KINDS`; read by :func:`run_risks`, carried on the gate
 under :data:`RUN_RISKS`): `shared_world` — the user opted into live writes on a world nothing resets per
-conversation — is said first (`SHARED_WORLD_TEXT`) and caps a clear gate at `Suite: qualified`, typed or not.
+conversation — is said first (`SHARED_WORLD_TEXT`).
 
-TWO SEPARATE LINES. The rung above rates the SUITE (`Suite: validated / qualified / not yet qualified`). The AGENT is
+TWO SEPARATE LINES. The rung above rates the SUITE (`Suite: qualified / not yet qualified`). The AGENT is
 rated apart, by the SDK: `Agent: Ship / Don't ship / No verdict` (:func:`agent_line`) is said off the run's scores block
 (`run_summary.json` → `scores` → `agent`, written by `plurai scores refresh`), COPIED with its reasons — every critical
 failure that blocks Ship named, every one a review set aside listed, every conversation the block states `agent_error`
@@ -56,8 +55,7 @@ yet qualified` with the rebuild banner, so the rung and the banner agree — and
 NOT typed rather than guessing named risks into it. A report with no `release_gate` key at all predates
 the release gate and is read off the ONE older gate it carries (:func:`report_gate`, the single reader
 both the rung and the banner use): a suite_diagnostics report's final coverage `ship_gate`. ANY final gate that blocks reads `Suite: not yet qualified`;
-a clear older gate licenses at most `Suite: qualified` — `validated` needs the release gate, which
-joins the coverage gate, the catastrophic rung and the run's losses — and a final block is the rebuild banner, anything else none.
+a clear one reads `Suite: qualified`, and a final block is the rebuild banner, anything else none.
 
     scripts/release_verdict.py render --report <saved suite_diagnostics envelope> [--out <run dir>]
 
@@ -104,16 +102,23 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable, NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from stop_message import CONTACT_TEXT  # noqa: E402 - sibling script: the contact hand-off has one home
 
 
-VALIDATED = 'Suite: validated'
 QUALIFIED = 'Suite: qualified'
 NOT_QUALIFIED = 'Suite: not yet qualified'
+#: A rung this version never licenses, still read: a stored `Suite: validated` anchor or verdict reads as `Suite: qualified` (:func:`read_rung`).
+LEGACY_VALIDATED = 'Suite: validated'
+
+
+def read_rung(value: object) -> object:
+    """A stored rung as this version reads it: a stored `Suite: validated` is `Suite: qualified`; anything else as is."""
+    return QUALIFIED if isinstance(value, str) and value.strip('* ') == LEGACY_VALIDATED else value
 
 #: The operator's ONE remedy per typed `remedy`. A block carrying no remedy (or one this
 #: version does not know) is a backend contract violation, so it takes the contact hand-off.
@@ -626,17 +631,19 @@ def parity_sentence(risk: dict) -> str:
     return PARITY_TEXT.format(exit_code=risk.get('exit_code'), errors='; '.join(errors) or 'no error line')
 
 
-#: A landing blocker on our own tooling (`--surface plugin|sdk`) whose named checks the final run re-checked clean
-#: (`blocking_split`'s :data:`HOLD_TOOLING_RISK`): `{kind, surface, checks, why}`, `checks` by display name.
+#: A landing blocker on our own tooling (`--surface plugin|sdk`) the scored final run released (`blocking_split`'s
+#: :data:`HOLD_TOOLING_RISK`, :func:`_tooling_recheck`): `{kind, surface, checks, why}`, `checks` by display name.
 #: Internal only: a fault that is ours, with nothing for the customer to act on, never reaches `customer_banner`.
 TOOLING_RISK_KIND = 'tooling_risk'
-TOOLING_RISK_TEXT = 'Blocking defect on our own tooling ({surface}), recorded at landing: {checks} re-checked on the final run.'
+TOOLING_RISK_TEXT = 'Blocking defect on our own tooling ({surface}), recorded at landing{on}: {why}.'
 
 
 def tooling_risk_sentence(risk: dict) -> str:
-    """A :data:`TOOLING_RISK_KIND` risk said with its surface and checks (internal banner only)."""
+    """A :data:`TOOLING_RISK_KIND` risk said with its surface, the checks it names (when it names any) and why (internal
+    banner only)."""
     checks = [str(c) for c in risk.get('checks') or []] if isinstance(risk.get('checks'), list) else []
-    return TOOLING_RISK_TEXT.format(surface=risk.get('surface') or 'unnamed', checks=', '.join(checks) or 'no check named')
+    return TOOLING_RISK_TEXT.format(surface=risk.get('surface') or 'unnamed', on=f' on {", ".join(checks)}' if checks else '',
+                                    why=str(risk.get('why') or 'no reason recorded').rstrip('.'))
 
 
 #: A FINAL run that played each conversation once (:func:`final_sampling`): its verdicts rest on one draw each. The
@@ -984,41 +991,31 @@ def typed(gate: dict) -> bool:
 
 
 def rung(gate: dict) -> str:
-    """The suite rung a FINAL-stage `release_gate` licenses.
-
-    ANY final gate that blocks is `not yet qualified`, typed, untyped or older alike, so the rung
-    agrees with the rebuild banner. A clear older gate (:func:`report_gate`) is `qualified`: it is
-    only half of what `validated` claims. So is a clear gate beside a runner risk (:data:`RUN_RISKS`), and one whose
-    backend names a hold (:data:`RUNG_HOLDS`)."""
-    if gate.get('blocking'):
-        return NOT_QUALIFIED
-    if gate.get(OLDER_GATE) or gate.get(RUN_RISKS) or gate.get(RUNG_HOLDS):
-        return QUALIFIED
-    if not typed(gate):
-        return VALIDATED
-    return QUALIFIED if [r for r in gate['named_risks'] if not _rung_neutral(r)] else VALIDATED
+    """The suite rung a FINAL-stage `release_gate` licenses: ANY final gate that blocks is `not yet qualified`, typed,
+    untyped or older alike, so the rung agrees with the rebuild banner; a clear one is `qualified`, the ceiling."""
+    return NOT_QUALIFIED if gate.get('blocking') else QUALIFIED
 
 
-#: What can keep a clear gate from licensing `validated`, read off the workdir rather than the backend's report, and
-#: the rung each caps at: a recorded blocking defect that still corrupts the final scores is the floor (the anchor's own
-#: rule); one the final run re-checked (:func:`blocking_split`) caps at `qualified` — the suite still ships with a known
-#: eval defect, or a named risk on a check only the backend judges; the rest cap at `qualified` — the gate judged the set,
-#: but not under a measurement, a judgement or a client that is known to have held.
-HOLD_BLOCKING, HOLD_MEASUREMENT, HOLD_CRITIC_STALE, HOLD_NO_CLIENT_PIN = 'blocking_unresolved', 'measurement_unclean', 'critic_stale', 'no_client_pin'
+#: What the workdir says about a clear gate, read off it rather than the backend's report, and the rung each caps at: a
+#: recorded blocking defect that still corrupts the final scores is the floor (the anchor's own rule); every other hold
+#: caps at `qualified`, the ceiling, so it is recorded on the anchor and moves nothing — the suite ships with a known eval
+#: defect the final run re-checked (:func:`blocking_split`), a named risk on a check only the backend judges, or a
+#: measurement or client that is not known to have held.
+HOLD_BLOCKING, HOLD_MEASUREMENT, HOLD_NO_CLIENT_PIN = 'blocking_unresolved', 'measurement_unclean', 'no_client_pin'
 HOLD_VERIFICATION_STALE = 'verification_stale'
 HOLD_BLOCKER_CHECKED = 'blocker_checked'
-#: A backend entry on a check only the backend judges, which the final run's audit proved wrong (:func:`_backend_recheck`):
-#: a named risk on the anchor, never the floor.
+#: A backend entry on a check only the backend judges, which the final run's audit proved wrong or the final run shows no
+#: failure of (:func:`_backend_recheck`): a named risk on the anchor, never the floor.
 HOLD_BACKEND_FALSE_RED = 'backend_false_red'
-#: A plugin / SDK entry whose named checks the final run re-checked clean (:func:`_tooling_recheck`): a named risk on our
-#: own tooling, internal only (the anchor's `named_risks`, the internal banner, stderr), never the floor.
+#: A plugin / SDK entry the scored final run released (:func:`_tooling_recheck`): its checks could not be re-checked or
+#: their false reds were corrected, under a readable audit with no world fault — a named risk on our own tooling, internal
+#: only (the anchor's `named_risks`, the internal banner, stderr), never the floor.
 HOLD_TOOLING_RISK = TOOLING_RISK_KIND
 #: A harness entry the scored final run re-ran clean (:func:`_harness_rerun_recheck`): the one repair plus one re-run the
-#: skill prescribes, done. It caps at `qualified`: the critic judged the harness before its repair.
+#: skill prescribes, done.
 HOLD_HARNESS_RERUN = 'harness_rerun'
-HOLD_CAPS = {HOLD_BLOCKING: NOT_QUALIFIED, HOLD_MEASUREMENT: QUALIFIED, HOLD_CRITIC_STALE: QUALIFIED, HOLD_NO_CLIENT_PIN: QUALIFIED,
-             HOLD_VERIFICATION_STALE: QUALIFIED, HOLD_BLOCKER_CHECKED: QUALIFIED, HOLD_BACKEND_FALSE_RED: QUALIFIED,
-             HOLD_TOOLING_RISK: QUALIFIED, HOLD_HARNESS_RERUN: QUALIFIED}
+#: The holds that lower a clear gate's `qualified` to the floor; every other hold is recorded and moves nothing.
+FLOOR_HOLDS = frozenset({HOLD_BLOCKING})
 #: The policy types whose judge runs server-side: the config names only a slice, so no client edit reaches the verdict.
 SERVER_JUDGED_TYPES = ('beat_resolution',)
 #: The one audit cause that is the check's own misjudgement (a right rule, misapplied). Every other cause is a surface the
@@ -1029,12 +1026,6 @@ WORLD_CAUSES = ('env',)
 #: The audit causes on a surface only a rebuild re-checks (the scenario, the harness, a scanned fact): a backend entry
 #: held by one asks for a rebuild, never an eval edit, since no client edit reaches a check only the backend judges.
 REBUILD_CAUSES = ('scenario', 'harness', 'scan_fact')
-#: The loop-log kinds that change what a critic judged: the harness, the simulated environment, the eval set, the
-#: scenario set. A critic pass stands only on the final artifacts: any of these after it voids it.
-EDIT_KINDS = ('harness-fix', 'env-fix', 'eval-round', 'regeneration')
-#: The workdir files a scenario set or an eval revision rewrites; one modified after the critic voids it like an edit.
-JUDGED_MARKERS = ('.scenario_set_id', 'policies_config.yaml')
-_RUNG_ORDER = (NOT_QUALIFIED, QUALIFIED, VALIDATED)
 
 
 def _stamp(raw: str) -> datetime | None:
@@ -1073,33 +1064,6 @@ def _run_measurement(run_dir: Path) -> str | None:
     return f'the scored run\'s measurement is not clean ({", ".join(named) or "no channel named"})'
 
 
-def _critic_staleness(workdir: Path, entries: list) -> str | None:
-    """Why the latest `critic` entry predates the last edit to what it judged — a typed :data:`EDIT_KINDS` entry, or a
-    harness file (the fingerprint's own manifest, the shared config aside) or a :data:`JUDGED_MARKERS` file modified
-    after it — else None."""
-    critics = [stamp for e in entries if e.kind == 'critic' and (stamp := _stamp(e.stamp)) is not None]
-    if not critics:
-        return None
-    judged = max(critics)
-    edits = [f'{e.kind} at {e.stamp}' for e in entries if e.kind in EDIT_KINDS and (s := _stamp(e.stamp)) is not None and s > judged]
-    try:
-        import harness_fingerprint  # noqa: PLC0415 - sibling script: the one list of harness files
-
-        names = [n for n in harness_fingerprint.harness_files(workdir, harness_fingerprint.detect_lang(workdir)) if n not in harness_fingerprint.SHARED]
-    except (ImportError, OSError):
-        names = []
-    for name in [*names, *JUDGED_MARKERS]:
-        try:
-            mtime = datetime.fromtimestamp((workdir / name).stat().st_mtime, tz=timezone.utc)
-        except OSError:
-            continue
-        if mtime >= judged + timedelta(minutes=1):  # the log stamps to the minute
-            edits.append(f'{name} modified {mtime:%Y-%m-%d %H:%M} UTC')
-    if not edits:
-        return None
-    return f'the last critic pass ({judged:%Y-%m-%d %H:%M} UTC) predates edits to what it judged: {"; ".join(edits)}'
-
-
 def _verification_staleness(workdir: Path) -> str | None:
     """Why the recorded harness checks (`bench_manifest.HARNESS_RECHECKS`) do not cover the harness on disk — one is
     recorded `stale`, or recorded passing on a signature the bench no longer has (an edit after the last verify) — else
@@ -1128,7 +1092,7 @@ def _results(n: int, noun: str) -> str:
 
 
 def _final_run_recheck(run_dir: Path | None) -> tuple[dict | None, str | None]:
-    """`(what the final run says, None)` — its run, audit rows, ruled units and uncorrected units — or `(None, why it
+    """`(what the final run says, None)` — its run, audit rows, ruled, unaudited and uncorrected units — or `(None, why it
     cannot re-check anything)`."""
     if run_dir is None:
         return None, 'there is no scored run to re-check it against'
@@ -1147,7 +1111,8 @@ def _final_run_recheck(run_dir: Path | None) -> tuple[dict | None, str | None]:
     except (red_cell_audit.AuditMissing, ValueError, OSError):
         return None, 'the final run has no readable red-cell audit, so nothing re-checked it'
     ruled, _ = red_cells.ruled_units(run, rows)
-    return {'run': run, 'run_dir': Path(run_dir), 'rows': rows, 'ruled': ruled, 'uncorrected': verdict_corrections.uncorrected(run, rows)}, None
+    return {'run': run, 'run_dir': Path(run_dir), 'rows': rows, 'ruled': ruled, 'unaudited': red_cells.unaudited_units(run, rows),
+            'uncorrected': verdict_corrections.uncorrected(run, rows)}, None
 
 
 def _policy_still_wrong(check: dict, policy: str) -> str | None:
@@ -1158,7 +1123,7 @@ def _policy_still_wrong(check: dict, policy: str) -> str | None:
     run = check['run']
     if not any(policy in run.cells(item)[0] for item in run.dirs):
         return f'`{policy}` has no result on the final run, so it could not be re-checked'
-    if unruled := [u for u in run.red_units() if u[1] == policy and u not in check['ruled']]:
+    if unruled := [u for u in check['unaudited'] if u[1] == policy]:
         return f'`{policy}` has {_results(len(unruled), "failure")} on this run that {"was" if len(unruled) == 1 else "were"} not checked'
     if wrong := [u for u in check['uncorrected'] if u.get('policy') == policy]:
         return f'`{policy}` still has {_results(len(wrong), "result")} our check found wrong and could not correct'
@@ -1185,9 +1150,10 @@ def _still_passes(run: object, policy: str, row: dict) -> bool:
 
 
 #: What a live entry still needs (:func:`blocking_split`'s third field), set where its reason is made, never read from
-#: prose: a REBUILD (a floor surface, or the simulated world answering wrong), an EVAL repair of the checks it names
-#: (`eval:<check>[,<check>]`: a verdict on them is still wrong or unchecked), or nothing the customer can do (OURS: our
-#: tooling or the backend, its checks clean or none named) — the hand-off's Next line reads it.
+#: prose: a REBUILD (a floor surface, or the simulated world answering wrong), an EVAL repair of the checks an eval entry
+#: names (`eval:<check>[,<check>]`: a verdict on them is still wrong or unchecked), or nothing the customer can do (OURS:
+#: the backend or our own tooling — a check still wrong, not proven, or no final run or audit to re-check it against) — the
+#: hand-off's Next line reads it. A backend or tooling entry is never an eval repair.
 REMEDY_REBUILD, REMEDY_EVAL, REMEDY_OURS = 'rebuild', 'eval', 'ours'
 
 
@@ -1208,7 +1174,12 @@ def _eval_recheck(entry: object, check: dict) -> tuple[str | None, str]:
     policies = entry.policies  # type: ignore[attr-defined]
     if wrong := [(policy, w) for policy in policies if (w := _policy_still_wrong(check, policy))]:
         return wrong[0][1], _eval_remedy([p for p, _ in wrong])
-    return None, f're-checked on the final run: {_ticked(policies)} no longer {"affects" if len(policies) == 1 else "affect"} the results'
+    return None, _rechecked_clean(policies)
+
+
+def _rechecked_clean(policies: tuple[str, ...]) -> str:
+    """The release reason of named checks the final run re-checked clean."""
+    return f're-checked on the final run: {_ticked(policies)} no longer {"affects" if len(policies) == 1 else "affect"} the results'
 
 
 #: The unit statuses a check can stand on: a verdict (`success`) or a judge that could not decide (`inconclusive`). Any
@@ -1216,6 +1187,8 @@ def _eval_recheck(entry: object, check: dict) -> tuple[str | None, str]:
 _REACHED_STATUSES = ('success', 'inconclusive')
 
 
+#: What an entry naming no check reads where it could not be re-checked.
+_NAMES_NO_CHECK = 'it names no check, so it cannot be re-checked against the final run'
 #: What a world fault reads where the entry is held by it.
 _WORLD_FAULT = 'the final run\'s audit found the simulated world answering wrong, which only a rebuild re-checks'
 
@@ -1224,8 +1197,9 @@ def _world_fault(check: dict, policies: object) -> bool:
     """Whether the final audit records a world fault on the entry's own checks `policies`: a FALSE RED of a
     :data:`WORLD_CAUSES` cause on one of them (or naming none), or an `ENV` row (`red_cell_audit.env_rows`) whose
     `rests_on` names one of them. `rests_on` lists the red cells whose cited turn uses that answer (a `{policy, turn}`
-    dict, or a string whose `@` / `|` tokens hold the policy); `[]` means no red cell does. A row with no list, or an
-    entry naming no check the run scored, counts against every check: unknown never releases. By that definition a
+    dict, or a string whose `@` / `|` tokens hold the policy); `[]` means no red cell does. A row with no list counts
+    against every check, and an entry naming no check the run scored is tested against every scored check: unknown
+    never releases. By that definition a
     wrong answer under a PASS is not seen here — a backend entry trusts no unsampled pass anyway, and a tooling release
     caps the rung at `qualified`."""
     import red_cell_audit  # noqa: PLC0415 - loaded by `_final_run_recheck`
@@ -1233,6 +1207,7 @@ def _world_fault(check: dict, policies: object) -> bool:
 
     own, run = {str(p) for p in policies} if isinstance(policies, (list, tuple)) else set(), check['run']  # type: ignore[union-attr]
     scored = {str(p) for item in run.dirs for p in run.cells(item)[0]}
+    own = (own & scored) or scored  # an entry naming nothing the run scored is tested against every scored check
 
     def named(entry: object) -> set[str]:
         tokens = [entry.get('policy')] if isinstance(entry, dict) else re.split(r'[@|]', entry) if isinstance(entry, str) else []
@@ -1248,26 +1223,92 @@ def _world_fault(check: dict, policies: object) -> bool:
     return any(rests_on_own(r) for r in red_cell_audit.env_rows(check['run_dir']))
 
 
-def _tooling_recheck(entry: object, check: dict) -> tuple[str | None, str]:
-    """`(why the plugin / SDK entry is still live, its remedy)` or `(None, why it is released)` — released only as a
-    :data:`HOLD_TOOLING_RISK`, on the same bar as an eval entry (:func:`_eval_recheck`) plus one: each named check reached
-    a verdict on the final run — at least one unit `success` and none of a status outside :data:`_REACHED_STATUSES` — and,
-    as on a backend entry, the final audit records no world fault on its checks (:func:`_world_fault`). In practice one
-    `error` unit keeps the check live, and `inconclusive` units do not once any unit is `success`."""
+def _no_verdict(check: dict, policy: str) -> tuple[int, int] | None:
+    """`(results that reached no verdict, results)` of `policy` on the final run — a status outside
+    :data:`_REACHED_STATUSES` reached none, and every result did when none is `success` — or None when no item of the run
+    holds the policy at all. A cell that is there but holds no readable result is `(1, 1)`: present, and no verdict."""
     import red_cells  # noqa: PLC0415 - loaded by `_final_run_recheck`
+    import verdicts_file  # noqa: PLC0415 - loaded by `_final_run_recheck`'s readers
 
-    why, said = _eval_recheck(entry, check)
-    if why:
-        return why, said
-    # A world that answered wrong voids what the checks measured (10-20: a broken mock still blocks), as on a backend entry.
+    run = check['run']
+    cells = [run.cells(item)[0] for item in sorted(run.dirs)]
+    # A cell there that is not a readable mapping is no verdict, never "no result": the eval entry is read for presence.
+    if not any(policy in c for c in cells) and not any(policy in verdicts_file.evals(verdicts_file.read(run.dirs[item])) for item in sorted(run.dirs)):
+        return None
+    statuses = [u.get('status') for c in cells for _, u in red_cells.units(c.get(policy))]
+    if not statuses:
+        return 1, 1
+    return len([s for s in statuses if s not in _REACHED_STATUSES] or ([] if 'success' in statuses else statuses)), len(statuses)
+
+
+#: The checks the plugin grades on each scenario's row, outside the eval set (`operator_identity.CHECK`, kept equal by
+#: test): the only ones a final run can lack a result of by design.
+ROW_GRADED_CHECKS = ('operator_identity_exposed',)
+
+
+def _all_reached(check: dict, policy: str) -> bool:
+    """Whether `policy` is on the final run and every one of its results reached a verdict (:func:`_no_verdict`)."""
+    return (_no_verdict(check, policy) or (1, 1))[0] == 0
+
+
+def _eval_bodies(check: dict) -> dict[str, object] | None:
+    """The eval set beside the final run (`build_run_json.eval_set_bodies`), read once per re-check and kept on `check`."""
+    if '_eval_bodies' not in check:
+        from build_run_json import eval_set_bodies  # noqa: PLC0415 - the one reader of policies_config.yaml
+
+        check['_eval_bodies'] = eval_set_bodies(str(Path(check['run_dir']).parents[2]))
+    return check['_eval_bodies']
+
+
+def grader(bodies: dict[str, object], policy: str) -> str:
+    """Who grades `policy`, read off the eval set's `bodies`: `backend` (only the backend judges it, :func:`_server_judged`),
+    `eval` (an ordinary judged eval: a body with its own `system_prompt` or `expression`), `row` (a check the plugin grades
+    on the row, :data:`ROW_GRADED_CHECKS`, which the eval set does not hold), else `unknown`."""
+    body = bodies.get(policy)
+    if _server_judged(body):
+        return 'backend'
+    if isinstance(body, dict) and (body.get('system_prompt') or body.get('expression')):
+        return 'eval'
+    return 'row' if policy not in bodies and policy in ROW_GRADED_CHECKS else 'unknown'
+
+
+def _row_graded(check: dict, policy: str) -> bool:
+    """Whether `policy` is a check the plugin grades on the row (:func:`grader`); an unreadable eval set says nothing, so it
+    is False."""
+    return policy in ROW_GRADED_CHECKS and (bodies := _eval_bodies(check)) is not None and grader(bodies, policy) == 'row'
+
+
+def _tooling_recheck(entry: object, check: dict) -> tuple[str | None, str]:
+    """`(why the plugin / SDK entry is still live, its remedy)` or `(None, why it is released)` as a
+    :data:`HOLD_TOOLING_RISK`. Our rule covers an audit-proven false red of our own tooling, never a check still wrong:
+    with a readable final audit (`blocking_split` keeps an entry live without one) and no world fault on its checks
+    (:func:`_world_fault`, else a rebuild), it is released when its checks cannot be re-checked — none named, or a check
+    graded on the row (:func:`_row_graded`) with no result on the final run — or when the final run carries no wrong or
+    unchecked verdict on them (:func:`_policy_still_wrong`: its false reds corrected), some results with no verdict said
+    in the reason. Anything else keeps it live, remedy :data:`REMEDY_OURS` — a check still wrong (an unchecked failure,
+    an uncorrected result, a FALSE PASS still reading pass), one that reached no verdict at all, or one with no result
+    that is not row-graded (an ordinary eval, a misspelled name, an unreadable eval set): unknown never releases."""
     if _world_fault(check, entry.policies):  # type: ignore[attr-defined]
         return _WORLD_FAULT, REMEDY_REBUILD
-    run = check['run']
+    if not entry.policies:  # type: ignore[attr-defined]
+        return None, _NAMES_NO_CHECK
+    reasons: list[str] = []
     for policy in entry.policies:  # type: ignore[attr-defined]
-        statuses = [u.get('status') for item in sorted(run.dirs) for _, u in red_cells.units(run.cells(item)[0].get(policy))]
-        if missing := [s for s in statuses if s not in _REACHED_STATUSES] or ([] if 'success' in statuses else statuses):
-            return f'`{policy}` reached no verdict on {_results(len(missing), "result")} of the final run', _eval_remedy([policy])
-    return None, said
+        reached = _no_verdict(check, policy)
+        if reached is None:
+            no_result = f'`{policy}` has no result on the final run, so it could not be re-checked'
+            if not _row_graded(check, policy):
+                return no_result, REMEDY_OURS
+            reasons.append(no_result)
+            continue
+        missing, total = reached
+        if missing == total:
+            return f'`{policy}` reached no verdict on any of its {_results(total, "result")} on the final run', REMEDY_OURS
+        if why := _policy_still_wrong(check, policy):
+            return why, REMEDY_OURS
+        if missing:
+            reasons.append(f'`{policy}` reached no verdict on {_results(missing, "result")} of the final run')
+    return None, '; '.join(reasons) or _rechecked_clean(entry.policies)  # type: ignore[attr-defined]
 
 
 #: The run's ended-early code for a scenario voided because its seed did not land (`sanity_signals.SEED_NOT_LANDED`,
@@ -1344,18 +1385,19 @@ def _cause(row: dict) -> str:
 
 
 def _backend_recheck(entry: object, check: dict) -> tuple[str | None, str]:
-    """`(why the backend entry is still live, its remedy)` or `(None, why it is released)` — released only as an audit-proven
-    false red of a check only the backend judges (:data:`HOLD_BACKEND_FALSE_RED`).
+    """`(why the backend entry is still live, its remedy)` or `(None, why it is released)` — released only as a check only
+    the backend judges whose failures no longer stand on the final run (:data:`HOLD_BACKEND_FALSE_RED`): proven false by
+    the audit, or none at all.
 
     All must hold, read off disk: the final run's audit is uploaded as it stands and records no world fault on the named
     checks (:func:`_world_fault`); every named check is server-judged (:func:`_server_judged`, off
     `policies_config.yaml`); no server-judged check of the set carries a wrong or unchecked verdict
     (:func:`_policy_still_wrong` — they share one resolver); and on each named check no row is UNDECIDABLE, every FALSE RED
-    is the judge's own (:data:`JUDGE_CAUSES`), at least one unit is ruled FALSE RED and nothing else (the proof), and every
-    pass is either such a corrected unit or ruled CONFIRMED PASS — a broken check's unsampled passes are not trusted."""
+    is the judge's own (:data:`JUDGE_CAUSES`), and either the check failed nothing on the final run, or at least one unit
+    is ruled FALSE RED and nothing else (the proof) and every pass is either such a corrected unit or ruled CONFIRMED PASS
+    — a broken check's unsampled passes are not trusted beside a red."""
     import red_cell_audit  # noqa: PLC0415 - loaded by `_final_run_recheck`
     import red_cells  # noqa: PLC0415
-    from build_run_json import eval_set_bodies  # noqa: PLC0415 - the one reader of policies_config.yaml
 
     policies, run, run_dir = entry.policies, check['run'], check['run_dir']  # type: ignore[attr-defined]
     if red_cell_audit.state(run_dir) != red_cell_audit.UPLOADED:
@@ -1363,7 +1405,7 @@ def _backend_recheck(entry: object, check: dict) -> tuple[str | None, str]:
     verdicts = [(red_cell_audit.verdict_of(dict(r)), r) for r in check['rows']]
     if _world_fault(check, policies):
         return _WORLD_FAULT, REMEDY_REBUILD
-    bodies = eval_set_bodies(str(run_dir.parents[2]))
+    bodies = _eval_bodies(check)
     if bodies is None:
         return 'the eval set could not be read, so who judges the named check cannot be established', REMEDY_OURS
     if foreign := [p for p in policies if not _server_judged(bodies.get(p))]:
@@ -1379,6 +1421,10 @@ def _backend_recheck(entry: object, check: dict) -> tuple[str | None, str]:
         if other := sorted({_cause(r) or 'none named' for v, r in mine if v == red_cells.FALSE_RED and _cause(r) not in JUDGE_CAUSES}):
             remedy = REMEDY_REBUILD if set(other) & set(REBUILD_CAUSES) else REMEDY_OURS
             return f'`{policy}` has failures our check found wrong for a reason outside the check itself ({", ".join(other)})', remedy
+        # It failed nothing on the final run — no red reads now, the audit ruled none, and every result reached a verdict.
+        if (not any(u[1] == policy for u in run.red_units()) and all(v in (red_cells.CONFIRMED_PASS, red_cells.FALSE_PASS) for v, _ in mine)
+                and _all_reached(check, policy)):
+            continue
         units = {u: {v for v, _ in ruled} for u, ruled in check['ruled'].items() if u[1] == policy}
         proof = {u for u, names in units.items() if names == {red_cells.FALSE_RED}}
         if not proof:
@@ -1388,29 +1434,50 @@ def _backend_recheck(entry: object, check: dict) -> tuple[str | None, str]:
         if unchecked:
             passes = '1 pass on this run that was' if len(unchecked) == 1 else f'{len(unchecked)} passes on this run that were'
             return f'`{policy}` has {passes} not checked', REMEDY_OURS
-    return None, f'proven wrong on the final run: {_ticked(policies)}, judged by the backend alone, failed replies our check found correct; those results are corrected'
+    unreached = [f'`{p}` reached no verdict on {_results(n[0], "result")}' for p in policies if (n := _no_verdict(check, p)) and n[0]]
+    said = (f'no failure stands on the final run: {_ticked(policies)}, judged by the backend alone, failed nothing there or failed '
+            'replies our check found correct, and those results are corrected')
+    return None, f'{said}; {"; ".join(unreached)}' if unreached else said
+
+
+class Recheck(NamedTuple):
+    """How a final run re-checks one surface's entries: the re-check, the hold a released entry caps the rung with,
+    whether an entry must name its check(s) to be re-checked at all, and `(why, remedy)` of an entry no final run
+    re-checked, given the reason none did."""
+
+    fn: Callable[[object, dict], tuple[str | None, str]]
+    hold: str
+    needs_policy: bool
+    unrun: Callable[[object, str], tuple[str, str]]
+
+
+def _unrun_ours(entry: object, why: str) -> tuple[str, str]:
+    return why, REMEDY_OURS
 
 
 #: The surfaces a final run can re-check, each with how and the hold its released entry caps the rung with. A harness
 #: entry is re-checked by the re-run itself, not by a named check. Every other surface (scenario, env, unnamed) changes
 #: behaviour, and only a rebuild re-checks it.
-RECHECKS = {'eval': (_eval_recheck, HOLD_BLOCKER_CHECKED), 'backend': (_backend_recheck, HOLD_BACKEND_FALSE_RED),
-            'plugin': (_tooling_recheck, HOLD_TOOLING_RISK), 'sdk': (_tooling_recheck, HOLD_TOOLING_RISK),
-            'harness': (_harness_rerun_recheck, HOLD_HARNESS_RERUN)}
-#: The surfaces whose re-check reads the run, not the checks an entry names: no `--policy` is needed to release one.
-RUN_RECHECKED_SURFACES = ('harness',)
+RECHECKS = {
+    # An eval entry says its eval is wrong, whether or not the final run could re-check it.
+    'eval': Recheck(_eval_recheck, HOLD_BLOCKER_CHECKED, True, lambda entry, why: (why, _eval_remedy(entry.policies))),  # type: ignore[attr-defined]
+    'backend': Recheck(_backend_recheck, HOLD_BACKEND_FALSE_RED, True, _unrun_ours),
+    'plugin': Recheck(_tooling_recheck, HOLD_TOOLING_RISK, False, _unrun_ours),
+    'sdk': Recheck(_tooling_recheck, HOLD_TOOLING_RISK, False, _unrun_ours),
+    # Re-checked by the re-run, not by a named check; nothing re-ran it says what it always said: only a rebuild does.
+    'harness': Recheck(_harness_rerun_recheck, HOLD_HARNESS_RERUN, False, lambda entry, why: (_HARNESS_LIVE, REMEDY_REBUILD)),
+}
 #: The surfaces that are our own tooling: a released entry on one is a :data:`HOLD_TOOLING_RISK`.
-TOOLING_SURFACES = ('plugin', 'sdk')
+TOOLING_SURFACES = tuple(surface for surface, row in RECHECKS.items() if row.hold == HOLD_TOOLING_RISK)
 #: How a floor surface (no :data:`RECHECKS` row) is said in its live reason; another is said by its own name.
 SURFACE_WORDS = {'scenario': 'scenarios', 'harness': 'harness', 'env': 'simulated world'}
 #: How each release hold is said: `{n}` released entries, `{why}` their reasons.
 RELEASED_TEXT = {
     HOLD_BLOCKER_CHECKED: '{n} blocking defect(s) recorded at landing, {why} — the suite still ships with a known eval defect',
-    HOLD_BACKEND_FALSE_RED: ('{n} blocking defect(s) recorded at landing sit on a built-in check that failed replies our review found '
-                             'correct; those results are corrected, and the fix to that check is ours'),
+    HOLD_BACKEND_FALSE_RED: ('{n} blocking defect(s) recorded at landing sit on a built-in check whose failures no longer stand on '
+                             'the final run (any our review found correct are corrected), and the fix to that check is ours'),
     # Internal: the hold text reaches the anchor's `why` and stderr, never the customer's banner.
-    HOLD_TOOLING_RISK: ('{n} blocking defect(s) recorded at landing sit on our own tooling; their checks were re-checked on the '
-                        'final run'),
+    HOLD_TOOLING_RISK: '{n} blocking defect(s) recorded at landing sit on our own tooling, released: {why}',
     HOLD_HARNESS_RERUN: '{n} harness defect(s) recorded at landing were repaired: {why}',
 }
 
@@ -1420,11 +1487,12 @@ def blocking_split(entries: list, run_dir: Path | None) -> tuple[list[tuple[obje
     landing-time blocker still caps the rung.
 
     `entries` is the whole loop log (a harness re-check reads its `harness-fix` entries). An entry is RELEASED only when
-    its surface has a :data:`RECHECKS` row, it names its check(s) (`--policy`; a :data:`RUN_RECHECKED_SURFACES` entry
-    needs none), `run_dir` is the scored FINAL run with a readable audit, and that row's re-check clears it. Anything else is LIVE, with the first
-    reason it could not be released: unknown never releases. A live entry also carries its remedy (:data:`REMEDY_REBUILD`
-    / :data:`REMEDY_EVAL` / :data:`REMEDY_OURS`), set where its reason is made: a floor surface is a rebuild; an eval entry
-    is always an eval repair; a backend / tooling entry naming no check, or one the final run could not re-check, is ours."""
+    its surface has a :data:`RECHECKS` row, it names its check(s) when the row says it must (`--policy`), `run_dir` is
+    the scored FINAL run with a readable audit, and that row's
+    re-check clears it. Anything else is LIVE, with the first reason it could not be released: unknown never releases. A
+    live entry also carries its remedy (:data:`REMEDY_REBUILD` / :data:`REMEDY_EVAL` / :data:`REMEDY_OURS`), set where its
+    reason is made: a floor surface or a world fault is a rebuild; an eval entry is always an eval repair; a backend or
+    tooling entry the final run could not re-check, or whose check is still wrong, is ours."""
     blocks = [e for e in entries if getattr(e, 'kind', None) == 'blocking-unresolved']
     live: list[tuple[object, str, str]] = []
     released: list[tuple[object, str]] = []
@@ -1432,16 +1500,13 @@ def blocking_split(entries: list, run_dir: Path | None) -> tuple[list[tuple[obje
     final_why: str | None = None
     checked = False
     for entry in blocks:
-        recheck = RECHECKS.get(entry.surface)
-        if recheck is None:
+        row = RECHECKS.get(entry.surface)
+        if row is None:
             words = SURFACE_WORDS.get(entry.surface, f'{entry.surface or "unnamed"} surface')
             live.append((entry, f'it is a problem in the {words}, which only a rebuild re-checks', REMEDY_REBUILD))
             continue
-        # An eval entry says its eval is wrong, whether or not the final run could re-check it.
-        unchecked = _eval_remedy(entry.policies) if entry.surface == 'eval' else REMEDY_OURS
-        by_run = entry.surface in RUN_RECHECKED_SURFACES
-        if not entry.policies and not by_run:
-            live.append((entry, 'it names no check, so it cannot be re-checked against the final run', unchecked))
+        if row.needs_policy and not entry.policies:
+            live.append((entry, *row.unrun(entry, _NAMES_NO_CHECK)))
             continue
         if not checked:
             check, final_why = _final_run_recheck(run_dir)
@@ -1449,10 +1514,9 @@ def blocking_split(entries: list, run_dir: Path | None) -> tuple[list[tuple[obje
             check = {**check, 'entries': entries} if check is not None else None
             checked = True
         if check is None:
-            # A harness entry nothing re-ran says what it always said: only a rebuild re-checks it.
-            live.append((entry, _HARNESS_LIVE, REMEDY_REBUILD) if by_run else (entry, str(final_why), unchecked))
+            live.append((entry, *row.unrun(entry, str(final_why))))
             continue
-        why, said = recheck[0](entry, check)
+        why, said = row.fn(entry, check)
         if why:
             live.append((entry, why, said))
         else:
@@ -1473,7 +1537,7 @@ def remedies(live: list[tuple[object, str, str]]) -> str:
 
 def released_hold(entry: object) -> str:
     """The hold a released entry caps the rung with (:data:`RECHECKS`)."""
-    return RECHECKS[entry.surface][1]  # type: ignore[attr-defined]
+    return RECHECKS[entry.surface].hold  # type: ignore[attr-defined]
 
 
 def _display(policy: str, names: dict[str, str]) -> str:
@@ -1483,8 +1547,8 @@ def _display(policy: str, names: dict[str, str]) -> str:
 
 
 def named_risks(released: list[tuple[object, str]], names: dict[str, str] | None = None) -> list[dict]:
-    """The anchor's named risks among released entries: `[{kind, checks, why}]` for each audit-proven false red of a check
-    only the backend judges, and `[{kind, surface, checks, why}]` for each tooling entry its checks cleared
+    """The anchor's named risks among released entries: `[{kind, checks, why}]` for each check only the backend judges
+    whose failures no longer stand, and `[{kind, surface, checks, why}]` for each released tooling entry
     (:data:`HOLD_TOOLING_RISK`, internal only), its `checks` by display name (`names`: :func:`policy_display_names`)."""
     out: list[dict] = []
     for e, why in released:
@@ -1499,15 +1563,15 @@ def named_risks(released: list[tuple[object, str]], names: dict[str, str] | None
 
 def tooling_risks(out: Path) -> list[dict]:
     """The :data:`HOLD_TOOLING_RISK` risks of the run dir `out` — its loop log's plugin / SDK entries that `out` (the
-    scored final run) re-checked clean — for the internal banner (:data:`INTERNAL_RUN_RISKS`). `[]` when there are none:
-    the final run is read only when such an entry names a check."""
+    scored final run) released (:func:`_tooling_recheck`) — for the internal banner (:data:`INTERNAL_RUN_RISKS`). `[]`
+    when there are none: the final run is read only when such an entry exists."""
     here = Path(__file__).resolve().parent
     if str(here) not in sys.path:
         sys.path.insert(0, str(here))
     import append_loop_log  # noqa: PLC0415 - the ONE loop-log parser
 
     entries = [e for e in append_loop_log.parse_entries(Path(out).parent.parent / 'loop_log.md')
-               if e.kind == 'blocking-unresolved' and e.surface in TOOLING_SURFACES and e.policies]
+               if e.kind == 'blocking-unresolved' and e.surface in TOOLING_SURFACES]
     if not entries:
         return []
     _, released = blocking_split(entries, Path(out))
@@ -1515,12 +1579,11 @@ def tooling_risks(out: Path) -> list[dict]:
 
 
 def validation_holds(workdir: Path | None, run_dir: Path | None, *, client_pin_required: bool) -> list[tuple[str, str]]:
-    """`[(hold, why)]` — each workdir fact that keeps `validated` from standing (:data:`HOLD_CAPS`).
+    """`[(hold, why)]` — each workdir fact the anchor records beside a clear gate (:data:`FLOOR_HOLDS` lower it).
 
     Read off disk: the loop log's typed `blocking-unresolved` entries, split by :func:`blocking_split` against the scored
-    run (the live ones are the count `lane_pin.py anchor` caps on; the released ones cap at `qualified`), the scored
-    run's `measurement_clean`, the latest `critic` entry against the last harness/environment edit, the recorded harness
-    checks against the harness on disk, and — where a loop
+    run (the live ones are the count `lane_pin.py anchor` caps on; the released ones are recorded), the scored
+    run's `measurement_clean`, the recorded harness checks against the harness on disk, and — where a loop
     arms one (`client_pin_required`) — whether a client pin governed it (`client_pin.in_force` at the run's time)."""
     holds: list[tuple[str, str]] = []
     here = Path(__file__).resolve().parent
@@ -1538,8 +1601,6 @@ def validation_holds(workdir: Path | None, run_dir: Path | None, *, client_pin_r
         for hold in dict.fromkeys(released_hold(e) for e, _ in released):
             mine = [why for e, why in released if released_hold(e) == hold]
             holds.append((hold, RELEASED_TEXT[hold].format(n=len(mine), why='; '.join(mine))))
-        if stale := _critic_staleness(workdir, entries):
-            holds.append((HOLD_CRITIC_STALE, stale))
         if moved := _verification_staleness(workdir):
             holds.append((HOLD_VERIFICATION_STALE, moved))
     if run_dir is not None and (unclean := _run_measurement(run_dir)):
@@ -1560,14 +1621,8 @@ def validation_holds(workdir: Path | None, run_dir: Path | None, *, client_pin_r
 
 def capped_rung(anchor: str, holds: list[tuple[str, str]]) -> tuple[str, list[str]]:
     """`(the rung once each hold caps it, the holds that moved it)` — a hold never raises a rung."""
-    capped, moved = anchor, []
-    for hold, why in holds:
-        cap = HOLD_CAPS[hold]
-        if anchor in _RUNG_ORDER and _RUNG_ORDER.index(cap) < _RUNG_ORDER.index(capped):
-            capped = cap
-        if anchor in _RUNG_ORDER and _RUNG_ORDER.index(cap) < _RUNG_ORDER.index(anchor):
-            moved.append(why)
-    return capped, moved
+    moved = [why for hold, why in holds if hold in FLOOR_HOLDS] if anchor == QUALIFIED else []
+    return (NOT_QUALIFIED if moved else anchor), moved
 
 
 def _rung_neutral(risk: object) -> bool:
@@ -2312,20 +2367,24 @@ def cmd_render(args: argparse.Namespace) -> int:
         said = audit_said(out, verdict['audit']) if out is not None else verdict['audit']
         print(f'release verdict: PROVISIONAL — this final run\'s red-cell audit: {said}; the verdict lands once the audit '
               'is saved and uploaded (/simulation-run Step 4d), then render again', file=sys.stderr)
-    if (gated := verdict['rung']) in (QUALIFIED, VALIDATED) and out is not None:
+    if (gated := verdict['rung']) == QUALIFIED and out is not None:
         # The gate licenses the rung; the workdir can still lower it (`validation_holds`), as on the anchor, so the run and
         # the hand-off say one rung. The suite's own pin rule is the anchor's: an official run arms no client pin.
         if out.parent.name == 'runs' and out.parent.parent.name == 'artifacts':
-            verdict['rung'], moved = capped_rung(gated, validation_holds(out.parents[2], out, client_pin_required=False))
+            holds = validation_holds(out.parents[2], out, client_pin_required=False)
+            verdict['rung'], moved = capped_rung(gated, holds)
             for why in moved:
                 print(f'release verdict: {verdict["rung"]}, not {gated.removeprefix("Suite: ")} — {why}', file=sys.stderr)
+            for hold, why in holds:  # a hold that moves nothing is still the internal reading's to say
+                if why not in moved:
+                    print(f'release verdict: a recorded hold ({hold}) — {why}', file=sys.stderr)
         else:
             print(f'release verdict: {out} is not under <workdir>/artifacts/runs, so what could hold `{gated.removeprefix("Suite: ")}` was not read',
                   file=sys.stderr)
     if verdict['rung'] == QUALIFIED and isinstance(gate, dict):
         for hold in gate.get(RUNG_HOLDS) or []:
             if isinstance(hold, dict):
-                print(f'release verdict: qualified, not validated — the backend holds it ({hold.get("cause")}: {_one_line(hold.get("detail") or "")})',
+                print(f'release verdict: qualified — the backend names a hold ({hold.get("cause")}: {_one_line(hold.get("detail") or "")})',
                       file=sys.stderr)
     line = verdict['customer_banner']
     if out is not None:

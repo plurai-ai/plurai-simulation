@@ -316,6 +316,11 @@ framework example: `${CLAUDE_PLUGIN_ROOT}/skills/simulation-setup-bridge/referen
 - **`trail` is tri-state.** A list from the framework's own record of the turn's tool dispatches (an
   adapter under `bridge/runtime/adapters/`), or `null` when the entry cannot observe them. Never `[]`
   for "unknown".
+- **An agent whose turn runs the Claude Code CLI with `--output-format stream-json`** returns
+  `withDenials(trail, stream)` from `runtime/adapters/claude_cli.mjs` with `trail_source: TRAIL_SOURCE`, taking the raw
+  stream through the agent's own runner seam: a permission denial is `denied` from the CLI's `permission_denials`,
+  never from a result's wording. Keep the CLI's `tool_use_id` as each entry's `call_id`. Copy the adapter unchanged:
+  `mkdir -p "$WORKDIR/bridge/runtime/adapters" && cp "${CLAUDE_PLUGIN_ROOT}/skills/simulation-setup-bridge/references/node/runtime/adapters/claude_cli.mjs" "$WORKDIR/bridge/runtime/adapters/"`
 - **History the entry keeps** (when production's route keeps it, not the agent's memory) is stored in the
   shape production stores, for example its UI messages. An entry whose stored shape is model messages appends
   every step's messages of the turn (`turnMessages` in `runtime/adapters/ai_sdk.mjs`), never the final step's
@@ -368,6 +373,7 @@ Write `$WORKDIR/simulate.py` from
   `@plurai.mock` bodies over the world, rich descriptors in the config): one per tool the map routes
   to, named exactly as the config tool, every one listed in `_MOCKS`. See "Using the Python lane" below.
 - **`_REQUEST_KEYS`** are the `agent_context` fields the config declares `inject: request`.
+- **The clock** (`harness.clock`): the template's clock line in `seed_state`.
 - **`MODEL_ENV`** / **`MODEL_DEFAULT`** name where the agent resolves its model (before asking for its key, `bench_manifest.py env-check <NAMES> --providers`; a provider it reports found is used, the agent's own first); **`AGENT_ENV_FILE`** is
   the env file production's start command loads, or `None`; a declared `harness.env_file` (a file the user
   named) replaces it, written as an absolute path.

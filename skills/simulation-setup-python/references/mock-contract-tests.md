@@ -20,10 +20,10 @@ They define the CONTRACT the mock environment must satisfy.
 > behaviour (a diagnostic text, which rows a filter or select returns, a value's format, a computed
 > value, a state transition) ends its docstring with `(source: <path>:<LINE>[-<END>])` naming that
 > line. Follow the call to where the value is made; when that is a library call, read the library
-> source on the agent's interpreter, where a default argument is behaviour. A docstring or argument
-> description is a declaration, and the code wins where they differ. When an external service with
-> no source on disk makes the value, this rule adds nothing. Values the test sent or seeded, echoed
-> back, need no line.
+> source on the agent's interpreter, where a default argument is behaviour. A docstring, argument
+> description or type is a declaration; the code that fills the value wins, read even where they
+> agree. When an external service with no source on disk makes the value, this rule adds nothing.
+> Values the test sent or seeded, echoed back, need no line.
 
 > **Retrieval / LLM-backed tools — assert determinism AND no hallucination (mandatory).** For any
 > tool that RETRIEVES by meaning (semantic/vector search, RAG, NL retrieval, ranking) — the category

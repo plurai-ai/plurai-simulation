@@ -20,6 +20,7 @@ what a folder is:
 ``pick``               choose the scenario and the cut for one issue, out of a finished run.
 ``write``              create the folder, its ``ROLES.md`` and ``issue_turn.json``, plus ``first_talk.txt``
                        on the opener shapes.
+``verify-carry``       check a converted resumed folder's pin carries every document handed over through its cut.
 ``carry-world-facts``  append a trace scenario's world facts to the ``ROLES.md`` of the regression
                        recorded from its run.
 ``overview``           rewrite the directory's ``BUNDLE.md`` so it describes what is actually on disk.
@@ -61,7 +62,7 @@ the refusal lands here rather than after an upload.
 
 Exit codes: 0 success, 1 the directory and the set disagree — ``list`` found a folder no set
 carries — 2 a refusal, including, from ``list`` and ``overview``, a folder that carries neither
-its pin nor its opener.
+its pin nor its opener, and from ``verify-carry`` a pin that lacks a document it should carry.
 The backend does not refuse such a folder: it authors a scenario for it
 cold from ``ROLES.md``, under the folder's name, so the set carries a scenario by the regression's
 name that reproduces nothing. The two verbs that read the directory are the only place that folder
@@ -71,12 +72,14 @@ can stop a build, so both stop on it.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Callable, Collection, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -88,6 +91,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import prune_agent_findings as findings_file  # noqa: E402
 from host_effects import FILE_WRITE_TOOLS  # noqa: E402 - the plugin's one host-effects table
 import verdicts_file  # noqa: E402 - the one reader of a conversation's verdicts
+import writer_readers  # noqa: E402 - the typed reading of which tools write the per-conversation store
 from _stdio import utf8_child_text  # noqa: E402 - sibling script: UTF-8 children on Windows
 
 SUMMARY = 'The regressions directory: choose what to record, write the folder, list what is on disk.'
@@ -172,10 +176,16 @@ SHAPE_OPENER_ONLY = 'opener-only'
 #: recorded opener, no pin, and ``issue_turn.json`` of the later turn. Its replay plays the whole conversation live.
 SHAPE_OPENER_ROOTED = 'opener-rooted'
 #: The typed reason a later cut takes the opener-rooted shape on a harness that CAN resume: a turn before the cut
-#: changed the world, and the run's scenario seeded no row of the types it captured, so those rows are the
-#: harness's own, rebuilt unchanged for every scenario. A pin restores the words of that history and not what it
-#: changed, so the replay's agent would answer against the world as it stood before the conversation.
+#: changed the world. A pin restores the words of that history and not what it changed — a harness-owned world is
+#: rebuilt unchanged, and a seeded one is authored with no guarantee it holds every change the history made — so the
+#: replay's agent would answer against a world the recording never had at the cut. A scenario that was itself resumed
+#: has no opener to replay: over a seeded world it keeps the resumed shape, with this reason and the turns as its
+#: ``replay_caveat``; over a harness-owned world it is refused. When the run recorded no per-turn world, the turns are
+#: those whose trail shows a call that ran of a tool writing the per-conversation store (:func:`world_writers`).
 WORLD_WRITTEN_BEFORE_CUT = 'world_written_before_cut'
+#: The typed note :func:`world_writers` prints when it cannot read the bench's ``plurai.config.yaml``: the trail's
+#: writes before a cut are then not read, so a later cut is ruled on the recorded per-turn world alone.
+WORLD_WRITERS_UNREAD = 'world_writers_unread'
 #: The paragraph line an opener-rooted folder states its trigger on: the user move that exposed the issue,
 #: which the scenario built from the folder has to make for the replay to reach it.
 TRIGGER_LINE = '**Trigger.** {trigger}'
@@ -609,18 +619,48 @@ class OpenerDocument(Refused):
     """Every conversation left for the issue would replay from an opener that came with a document (:data:`OPENER_DOCUMENT`)."""
 
 
-#: Why a resumed cut is not recorded when a turn before it handed the agent a document (:func:`handed_documents_before`):
-#: the pin keeps a ``[file: name]`` placeholder, never the file, and the replay's fresh workspace does not hold it.
-HISTORY_DOCUMENT = "its conversation handed over a document before the issue's turn, which a replay cannot carry yet"
+#: Why a resumed cut is not recorded when a turn through it handed the agent a document the pin cannot carry
+#: (:func:`documents_to_carry`); :func:`history_document` adds the reason sentence.
+HISTORY_DOCUMENT = 'its conversation handed over a document a replay cannot carry'
+
+#: Why one document handed over on or before the cut cannot ride the pin (:func:`documents_to_carry`), in the order they are
+#: checked. A refused document keeps the interim refusal (no folder); every other document rides the pin's messages.
+UNCARRIED_POSTURE = 'anonymized_posture'
+UNCARRIED_CLI_SESSION = 'cli_session'
+UNCARRIED_HARNESS = 'harness_does_not_restore'
+UNCARRIED_BY_REFERENCE = 'by_reference'
+UNCARRIED_PART = 'unsupported_part'
+UNCARRIED_NO_TEXT = 'attachment_only_turn'
+UNCARRIED_SENTENCES = {
+    UNCARRIED_POSTURE: 'the config declares anonymize: true, and a document inside the pin would be uploaded unscrubbed',
+    UNCARRIED_CLI_SESSION: 'a Claude Code CLI harness resumes its own recorded session, which does not bring the file into the new run',
+    UNCARRIED_HARNESS: ('the bench manifest does not declare that seed_state restores handed-over documents '
+                        '(harness.resume.documents: restored); regenerate the harness with /simulation-scan-agent'),
+    UNCARRIED_BY_REFERENCE: 'the document was served by reference rather than inline, so the run holds no bytes to carry',
+    UNCARRIED_PART: 'it is an image part or a file part with no name, which names no document field to carry it as',
+    UNCARRIED_NO_TEXT: "the issue's turn handed over the document with no words, and a replay cannot open on an attachment alone",
+}
+#: ``bench_manifest.json`` ``harness.resume.documents``: the harness's ``seed_state`` restores the documents a seed carries.
+RESUME_DOCUMENTS_RESTORED = 'restored'
+
+
+def history_document(refused: Collection[tuple[str, str]]) -> str:
+    """:data:`HISTORY_DOCUMENT` with the sentence of each distinct reason ``refused`` (:class:`Carry`) names, in order."""
+    reasons = list(dict.fromkeys(reason for _, reason in refused))
+    return f'{HISTORY_DOCUMENT}: {"; ".join(UNCARRIED_SENTENCES.get(r, r) for r in reasons)}' if reasons else HISTORY_DOCUMENT
 
 
 class HistoryDocument(Refused):
-    """Every conversation left for the issue would resume after a turn that handed over a document (:data:`HISTORY_DOCUMENT`)."""
+    """Every conversation left for the issue would resume on or after a turn that handed over a document no replay can
+    carry (:data:`HISTORY_DOCUMENT`)."""
 
 
-def _replays_whole(cut: int, transcript: dict[str, Any], seed: dict[str, Any] | None, resume_gap: str | None) -> bool:
-    """Whether the folder cut here replays from its opener (opener-only, or opener-rooted), never resumed at the cut."""
-    return not _carries_history(cut, seed) or resume_gap is not None or bool(world_written_before_cut(transcript, cut))
+def _replays_whole(cut: int, transcript: dict[str, Any], seed: dict[str, Any] | None, resume_gap: str | None, *,
+                   writers: Collection[str]) -> bool:
+    """Whether the folder cut here replays from its opener (opener-only, or opener-rooted), never resumed at the cut. A
+    scenario that was itself resumed has no opener to replay, so a world change before its cut never makes it whole."""
+    return (not _carries_history(cut, seed) or resume_gap is not None
+            or world_cut(transcript, seed, cut, writers=writers)[0] == WORLD_ROOTED)
 
 
 def choose(
@@ -704,7 +744,8 @@ def choose(
     ``workdir`` (required: the bench, ``regressions_dir``'s parent) holds the typed document fields: a candidate whose cut
     replays from its opener (:func:`_replays_whole`) while that opener came with a document (:func:`document_inputs`) is
     refused with :data:`OPENER_DOCUMENT` — the write step's own rule, so the plan, the pick and the write agree —
-    and :class:`OpenerDocument` is raised when no other candidate is left.
+    and :class:`OpenerDocument` is raised when no other candidate is left. Its ``plurai.config.yaml`` names the tools that
+    write the per-conversation store (:func:`world_writers`), read for a run that recorded no per-turn world.
     """
     if not run_dir.is_dir():
         raise Refused(f'{run_dir} is not a directory — name the run output directory.')
@@ -769,6 +810,7 @@ def choose(
                 'Check the policy name against the run report, or name the scenario with --scenario.'
             )
 
+    writers = world_writers(workdir)
     # The default cut is what the candidates are ranked on, so it is derived for every one of them
     # even when an explicit cut is going to replace it on the winner.
     with_default: list[tuple[int | None, str, Path, dict[str, Any], dict[str, Any] | None]] = []
@@ -793,25 +835,26 @@ def choose(
                 refused[name] = str(exc).removeprefix(f'{name}: ').rstrip()
                 continue
         default_cut = own_cuts[name] if name in own_cuts else judge_turn(transcript, policy) if policy else None
-        if name in quoted and default_cut is not None and not _replays_whole(default_cut, transcript, seed, resume_gap):
+        whole = default_cut is not None and _replays_whole(default_cut, transcript, seed, resume_gap, writers=writers)
+        if name in quoted and default_cut is not None and not whole:
             refused[name] = CANNOT_MEASURE_AT_CUT
             cannot_measure += 1
             continue
         # The cut this candidate records: its own, or the opener when the harness cannot resume and the judge names none.
         opener_whole = default_cut is None and resume_gap is not None and not _seed_messages(seed)
-        if (opener_whole or (default_cut is not None and _replays_whole(default_cut, transcript, seed, resume_gap))) \
-                and document_inputs(transcript, workdir):
+        if (opener_whole or whole) and document_inputs(transcript, workdir):
             refused[name] = OPENER_DOCUMENT
             documented += 1
             continue
-        # A resumed cut replays the pinned history in a fresh workspace: a document handed over, or a file the agent
-        # wrote, before the cut is not there (the write step's own rules, so the plan, the pick and the write agree).
-        if default_cut is not None and not _replays_whole(default_cut, transcript, seed, resume_gap):
-            if handed_documents_before(transcript, default_cut):
-                refused[name] = HISTORY_DOCUMENT
+        # A resumed cut replays the pinned history in a fresh workspace: a document handed over through the cut that the pin
+        # cannot carry, or a file the agent wrote before it, is not there (the write step's own rules, so the plan, the pick
+        # and the write agree).
+        if default_cut is not None and not whole:
+            if uncarried := documents_to_carry(transcript, default_cut, workdir=workdir).refused:
+                refused[name] = f'{history_document(uncarried)} ({", ".join(n for n, _ in uncarried)})'
                 history_documented += 1
                 continue
-            if writes := workspace_writes_before(transcript, default_cut):
+            if writes := workspace_writes_before(transcript, default_cut, writers=writers):
                 refused[name] = f'{REFUSED_WORKSPACE_WRITTEN}: the conversation wrote files before the issue\'s turn ({"; ".join(writes[:3])})'
                 continue
         with_default.append((default_cut, name, directory, transcript, seed))
@@ -822,7 +865,8 @@ def choose(
         if documented and documented == len(refused) - bench_refused:
             raise OpenerDocument(OPENER_DOCUMENT)
         if history_documented and history_documented + documented == len(refused) - bench_refused:
-            raise HistoryDocument(HISTORY_DOCUMENT)
+            said = [why for why in refused.values() if why.startswith(HISTORY_DOCUMENT)]
+            raise HistoryDocument('; '.join(dict.fromkeys(said)) or HISTORY_DOCUMENT)
         if refused:
             # Every scenario the policy failed in is on this list, so `--scenario` leads nowhere:
             # what is left is the cause each reason names.
@@ -858,7 +902,7 @@ def choose(
         # refused below, which names why.
         ranked = [entry for entry in ranked if not _unrecordable_at(entry[0], entry[4])] or ranked
         # A pin that replays its history faithfully wins over one whose world change it would lose.
-        ranked = [entry for entry in ranked if not world_written_before_cut(entry[3], entry[0])] or ranked
+        ranked = [entry for entry in ranked if not world_written_before_cut(entry[3], entry[0], writers=writers)] or ranked
         seeded = [entry for entry in ranked if _carries_history(entry[0], entry[4])]
         default_cut, name, directory, transcript, seed = min(seeded or ranked, key=lambda entry: (seed_turns(entry[0], entry[4]), item_order(entry[1])))
 
@@ -889,21 +933,26 @@ def choose(
             'harness reaches the turn the issue is on. Record the issue from a scenario the run started at its '
             'opening message (name it with --scenario).'
         )
-    if cut_turn is not None and _replays_whole(cut, transcript, seed, resume_gap) and document_inputs(transcript, workdir):
+    cut_whole = cut_turn is not None and _replays_whole(cut, transcript, seed, resume_gap, writers=writers)
+    if cut_whole and document_inputs(transcript, workdir):
         raise OpenerDocument(f'{name}: {OPENER_DOCUMENT}. Name a scenario whose opener carries no document, or record nothing.')
-    if cut_turn is not None and not _replays_whole(cut, transcript, seed, resume_gap):
-        if documents := handed_documents_before(transcript, cut):
-            raise HistoryDocument(f'{name}: {HISTORY_DOCUMENT} ({", ".join(documents)}). Cut at or before that turn, or record from another scenario.')
-        if writes := workspace_writes_before(transcript, cut):
+    if cut_turn is not None and not cut_whole:
+        if uncarried := documents_to_carry(transcript, cut, workdir=workdir).refused:
+            raise HistoryDocument(f'{name}: {history_document(uncarried)} ({", ".join(n for n, _ in uncarried)}). '
+                                  'Cut before that turn, or record from another scenario.')
+        if writes := workspace_writes_before(transcript, cut, writers=writers):
             raise Refused(f'{REFUSED_WORKSPACE_WRITTEN}: {name} wrote the workspace before turn {cut} ({"; ".join(writes[:3])}). '
                           'Cut at a turn before the first write, or record from another scenario.')
-    world_gap = world_written_before_cut(transcript, cut)
-    if world_gap and _seed_messages(seed):
+    world, world_gap = world_cut(transcript, seed, cut, writers=writers)
+    if world == WORLD_REFUSED:
         raise Refused(
-            f'{name}: {WORLD_WRITTEN_BEFORE_CUT} (turns {", ".join(map(str, world_gap))}): the history before the cut '
+            f'{name}: {_world_gap_said(world_gap)}: the history before the cut '
             'changed a world no replay restores, and the scenario was itself resumed, so its opener does not replay that '
             'history either. Record the issue from a scenario the run started at its opening message (name it with --scenario).'
         )
+    # A resumed scenario over a seeded world keeps its shape: the replay may answer over a world that lacks some of the
+    # history's changes, so the pick says so, by turn.
+    world_caveat = {'reason': WORLD_WRITTEN_BEFORE_CUT, 'turns': world_gap} if world == WORLD_CAVEAT else None
     if _unrecordable_at(cut, seed):
         remedy = 'Name a different scenario with --scenario, or cut at a later turn.'
         if refused:
@@ -911,13 +960,13 @@ def choose(
         raise _state_only_refusal(name, remedy)
     seed_messages = len(_seed_messages(seed))
     # Under either gap a later cut is replayed from the opener, live: nothing is seeded and no pinned history rides along.
-    rooted = (resume_gap is not None or bool(world_gap)) and _carries_history(cut, seed)
+    rooted = (resume_gap is not None or world == WORLD_ROOTED) and _carries_history(cut, seed)
     # The node the harness entered when this scenario resumed. A cut at the seed replays that very
     # moment, so the pin names the node again; a later cut starts the leg somewhere that node is not.
     resume_point = seed.get('resume_point') if seed else None
     start_node = resume_point.get('node') if isinstance(resume_point, dict) else None
     # Kept, never re-cut: a job the pinned history left open is a fact about the replay, not a reason to drop the pin.
-    caveat = None if rooted else cut_caveat(transcript, cut)
+    caveat = merge_caveats(world_caveat, None if rooted else cut_caveat(transcript, cut))
     return {
         'scenario': name,
         'item': name,
@@ -932,6 +981,8 @@ def choose(
         **({'start_node': start_node} if cut == 0 and isinstance(start_node, str) and start_node.strip() else {}),
         **({WORLD_WRITTEN_BEFORE_CUT: world_gap} if rooted and world_gap else {}),
         **({'cut_basis': 'opener'} if opener_cut else {}),
+        # Whether the trail's writes before the cut were read against a store writer: a later reader cannot tell otherwise.
+        **({'world_check': world_check(workdir)} if _trail_read(transcript, cut) else {}),
         'considered': [name for name, _ in candidates],
         'refused': refused,
         **({'replay_caveat': caveat} if caveat else {}),
@@ -1004,33 +1055,156 @@ def _is_cli_run(states: list[dict[str, Any]]) -> bool:
     return any(isinstance(state.get('host_effects'), dict) or 'cli_session' in state for state in states)
 
 
-def workspace_writes_before(transcript: dict[str, Any], cut: int) -> list[str]:
-    """The file writes a CLI harness's trail shows before ``cut`` (``turn N: <tool> <path>``); none on any other harness.
+#: The trail statuses of a call that did not run: it failed, or was denied, refused or not dispatchable. SDK-owned
+#: (``plurai._protocol.TRAIL_STATUS_DENIED`` and ``TRAIL_NOT_DISPATCHABLE_STATUSES``); mirrored by value.
+TRAIL_NOT_RUN_STATUSES = frozenset({'error', 'denied', 'refused', 'not_dispatchable'})
+#: The key a trail entry carries the refusal it records under (SDK ``TRAIL_REFUSAL_KEY``); mirrored by value.
+TRAIL_REFUSAL_KEY = 'refusal'
 
-    The replay of a resumed CLI session starts in a fresh scenario folder, so such a file is not there."""
+
+def _call_ran(entry: dict[str, Any]) -> bool:
+    """Whether one recorded call ran: no not-run status (:data:`TRAIL_NOT_RUN_STATUSES`), no ``_denied`` flag and no refusal."""
+    return entry.get('status') not in TRAIL_NOT_RUN_STATUSES and not entry.get('_denied') and TRAIL_REFUSAL_KEY not in entry
+
+
+def workspace_writes_before(transcript: dict[str, Any], cut: int, *, writers: Collection[str]) -> list[str]:
+    """The writes a CLI harness's trail shows before ``cut`` (``turn N: <tool> <path>``); none on any other harness: each
+    call that ran of a file-write tool (:data:`FILE_WRITE_TOOLS`) or of a tool the config names as a per-conversation store
+    writer (``writers``, :func:`world_writers`; a shell, say).
+
+    The replay of a resumed CLI session starts in a fresh scenario folder, so such a write is not there."""
     states = _turn_states(transcript)
     if not _is_cli_run(states):
         return []
+    tools = {*FILE_WRITE_TOOLS, *writers}
     return [
         f'turn {index}: {entry.get("tool")} {(entry.get("args") or {}).get("file_path") or (entry.get("args") or {}).get("notebook_path") or ""}'.rstrip()
         for index, state in enumerate(states[:cut])
         for entry in state.get('tool_trail') or []
-        if isinstance(entry, dict) and entry.get('tool') in FILE_WRITE_TOOLS and entry.get('status') not in ('error', 'denied') and not entry.get('_denied')
+        if isinstance(entry, dict) and entry.get('tool') in tools and _call_ran(entry)
     ]
 
 
-def handed_documents_before(transcript: dict[str, Any], cut: int) -> list[str]:
-    """The filename of every document a user turn before ``cut`` handed the agent (a ``file`` part carrying ``file_data``).
+def _is_file_part(part: Any) -> bool:
+    """A ``file`` content part carrying ``file_data``: a document the user handed over."""
+    return isinstance(part, dict) and part.get('type') == 'file' and isinstance(part.get('file'), dict) and bool(part['file'].get('file_data'))
 
-    Every file part counts, not only a typed document field: the pin flattens each one to ``[file: name]``."""
-    names: list[str] = []
-    for row in transcript.get('turns') or []:
-        if not isinstance(row, dict) or not _is_int(row.get('turn_idx')) or row['turn_idx'] >= cut:
-            continue
-        parts = row.get('user_messages')
-        names += [str(part['file'].get('filename') or 'unnamed') for part in (parts if isinstance(parts, list) else [])
-                  if isinstance(part, dict) and part.get('type') == 'file' and isinstance(part.get('file'), dict) and part['file'].get('file_data')]
-    return names
+
+def _image_url(part: Any) -> Any:
+    """An ``image_url`` part's url (``image_url.url``, or the bare string spelling); None for any other part."""
+    if not isinstance(part, dict) or part.get('type') != 'image_url':
+        return None
+    spec = part.get('image_url')
+    return spec.get('url') if isinstance(spec, dict) else spec
+
+
+def _document_parts(parts: Any) -> list[dict[str, Any]]:
+    """The document parts of one recorded turn's ``user_messages``: each ``file`` part carrying ``file_data`` and each
+    ``image_url`` part carrying a url, in order. Empty for a string turn."""
+    return [part for part in (parts if isinstance(parts, list) else []) if _is_file_part(part) or _image_url(part)]
+
+
+def _part_name(part: dict[str, Any]) -> str:
+    return str(part['file'].get('filename') or 'unnamed') if part.get('type') == 'file' else 'image'
+
+
+def _rows_through(transcript: dict[str, Any], cut: int) -> list[dict[str, Any]]:
+    """The recorded turns a pin cut at ``cut`` holds: every turn before it, and the cut turn, whose user message it ends on."""
+    return [row for row in transcript.get('turns') or [] if isinstance(row, dict) and _is_int(row.get('turn_idx')) and row['turn_idx'] <= cut]
+
+
+def handed_documents_before(transcript: dict[str, Any], cut: int) -> list[str]:
+    """The filename of every document a user turn through ``cut`` handed the agent (a ``file`` part carrying ``file_data``).
+
+    Names only: whether the pin can carry each one is :func:`documents_to_carry`'s question. The cut turn counts: the pin
+    ends on its user message, lifted as the replay's opener."""
+    return [_part_name(part) for row in _rows_through(transcript, cut) for part in _document_parts(row.get('user_messages')) if _is_file_part(part)]
+
+
+class Carry(NamedTuple):
+    """:func:`documents_to_carry`: the names the pin carries, and ``(name, reason)`` for each one it cannot (``UNCARRIED_*``)."""
+
+    carried: list[str]
+    refused: list[tuple[str, str]]
+
+
+def documents_restored(workdir: Path) -> bool:
+    """Whether ``workdir/bench_manifest.json`` declares ``harness.resume.documents: restored``: the harness's ``seed_state``
+    puts a seeded document back where its live turn puts one. An absent or unreadable manifest is False."""
+    try:
+        doc = json.loads((workdir / 'bench_manifest.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return False
+    resume = ((doc.get('harness') or {}) if isinstance(doc, dict) else {}).get('resume')
+    return isinstance(resume, dict) and resume.get('documents') == RESUME_DOCUMENTS_RESTORED
+
+
+def _anonymized(workdir: Path) -> bool:
+    import trace_scenarios  # noqa: PLC0415 - imports this module; THE posture reader
+
+    return trace_scenarios.anonymized(workdir)
+
+
+def _said(row: dict[str, Any]) -> bool:
+    """Whether the user said anything on this turn beside its attachments: a non-blank ``text`` part."""
+    parts = row.get('user_messages')
+    return any(isinstance(p, dict) and p.get('type') == 'text' and str(p.get('text') or '').strip() for p in (parts if isinstance(parts, list) else []))
+
+
+def documents_to_carry(transcript: dict[str, Any], cut: int, *, workdir: Path) -> Carry:
+    """Which documents the user handed over on or before ``cut`` a resumed pin carries, and why each other one cannot.
+
+    The SDK converter pins a document turn's recorded parts, so an inline (``data:``) file part rides the pin byte for byte:
+    a history turn's in the seeded messages, the cut turn's on the lifted opener. Each part is refused by the first reason
+    that applies, in this order: :data:`UNCARRIED_POSTURE` (``anonymize: true``), :data:`UNCARRIED_CLI_SESSION` (a Claude
+    Code CLI harness), :data:`UNCARRIED_HARNESS` (no ``harness.resume.documents: restored``, :func:`documents_restored`),
+    :data:`UNCARRIED_BY_REFERENCE` (not a ``data:`` value), :data:`UNCARRIED_PART` (an image part, or a file part with no
+    filename), :data:`UNCARRIED_NO_TEXT` (a cut-turn part on a turn whose text is blank). A transcript that handed over
+    no document carries and refuses nothing, and reads nothing from ``workdir``."""
+    found = [(row, part) for row in _rows_through(transcript, cut) for part in _document_parts(row.get('user_messages'))]
+    if not found:
+        return Carry([], [])
+    bench_wide = (UNCARRIED_POSTURE if _anonymized(workdir) else UNCARRIED_CLI_SESSION if _is_cli_run(_turn_states(transcript))
+                  else None if documents_restored(workdir) else UNCARRIED_HARNESS)
+    carried: list[str] = []
+    refused: list[tuple[str, str]] = []
+    for row, part in found:
+        value = part['file'].get('file_data') if part.get('type') == 'file' else _image_url(part)
+        reason = bench_wide or (
+            UNCARRIED_BY_REFERENCE if not (isinstance(value, str) and value[:5].casefold() == 'data:')
+            else UNCARRIED_PART if part.get('type') != 'file' or not str(part['file'].get('filename') or '').strip()
+            else UNCARRIED_NO_TEXT if row['turn_idx'] == cut and not _said(row)
+            else None
+        )
+        if reason is None:
+            carried.append(_part_name(part))
+        else:
+            refused.append((_part_name(part), reason))
+    return Carry(carried, refused)
+
+
+def pin_documents(folder: Path) -> list[str]:
+    """The filename of every ``file`` part with a ``data:`` value on the human messages of ``folder``'s ``resume_pin.json``:
+    the documents the pin carries. Empty when it has no readable pin, or its human messages are strings."""
+    try:
+        pin = json.loads((folder / PIN_FILENAME).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    messages = pin.get('messages') if isinstance(pin, dict) else None
+    return [
+        str(part['file'].get('filename') or 'unnamed')
+        for message in (messages if isinstance(messages, list) else [])
+        if isinstance(message, dict) and message.get('type') == 'human'
+        for part in _document_parts(message.get('content'))
+        if _is_file_part(part) and str(part['file']['file_data'])[:5].casefold() == 'data:'
+    ]
+
+
+def documents_missing_from_pin(transcript: dict[str, Any], cut: int, folder: Path) -> list[str]:
+    """The documents the user handed over on or before ``cut`` that ``folder``'s pin does not carry, counted per name: a
+    folder recorded before the pin carried documents holds ``[file: name]`` strings in their place."""
+    missing = Counter(handed_documents_before(transcript, cut)) - Counter(pin_documents(folder))
+    return sorted(missing.elements())
 
 
 def cli_session_to_carry(transcript: dict[str, Any], cut: int, *, workdir: Path, where: str) -> Path | None:
@@ -1045,7 +1219,7 @@ def cli_session_to_carry(transcript: dict[str, Any], cut: int, *, workdir: Path,
     states = _turn_states(transcript)
     if not _is_cli_run(states):
         return None
-    writes = workspace_writes_before(transcript, cut)
+    writes = workspace_writes_before(transcript, cut, writers=world_writers(workdir))
     if writes:
         raise Refused(
             f'{REFUSED_WORKSPACE_WRITTEN}: {where} wrote the workspace before turn {cut} ({"; ".join(writes[:3])}'
@@ -1109,19 +1283,162 @@ def recorded_world(transcript: dict[str, Any], cut: int) -> dict[str, Any] | Non
     return {'types': types, 'initial': initial, 'turn_worlds': turn_worlds}
 
 
-def world_written_before_cut(transcript: dict[str, Any], cut: int) -> list[int]:
-    """The turns before ``cut`` whose world change a pin cut there cannot restore (:data:`WORLD_WRITTEN_BEFORE_CUT`).
+#: What a world change before the cut does to a cut (:func:`world_cut`).
+WORLD_ROOTED, WORLD_CAVEAT, WORLD_REFUSED = 'rooted', 'caveat', 'refused'
 
-    Empty when the run captured no world, when its scenario seeded rows of the captured types (the build authors
-    that world afresh, consistent with the pinned history), or when no turn before the cut changed it.
-    """
+
+#: :func:`world_check` when the trail's writes before the cut were read against the config's store writers.
+WORLD_CHECK_APPLIED = 'applied'
+#: Why they were not (``not_applied:<why>``): the bench has no config, the config could not be read, or it names no tool
+#: that writes the per-conversation store (``writer_readers.local_store_writers`` is empty).
+WORLD_NOT_APPLIED = ('no_config', 'config_unread', 'no_store_writers')
+
+
+@functools.lru_cache(maxsize=None)
+def _world_writers_read(workdir: Path) -> tuple[frozenset[str], str | None]:
+    """``(the store writers, None)``, or ``(frozenset(), why not)`` (one of :data:`WORLD_NOT_APPLIED`), read once per bench.
+    A config that cannot be read prints one :data:`WORLD_WRITERS_UNREAD` note; a defect in the reader itself raises."""
+    path = workdir / 'plurai.config.yaml'
+    if not path.is_file():
+        return frozenset(), 'no_config'
+
+    def unread(why: str) -> tuple[frozenset[str], str]:
+        print(f'NOTE: {WORLD_WRITERS_UNREAD}: {path} could not be read ({why}), so the per-conversation store writes a trail '
+              'shows before a cut were not read: a later cut is ruled on the recorded per-turn world alone. Run under '
+              '"$PLURAI_PY" (scripts/resolve-python.sh), or repair the config.', file=sys.stderr)
+        return frozenset(), 'config_unread'
+
+    try:
+        import yaml  # noqa: PLC0415 - only this reader needs it
+    except ImportError as exc:
+        return unread(f'{type(exc).__name__}: {exc}')
+    try:
+        config = yaml.safe_load(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        return unread(f'{type(exc).__name__}: {exc}')
+    if not isinstance(config, dict):
+        return unread(f'it is a {type(config).__name__}, not a mapping')
+    writers = frozenset(writer_readers.local_store_writers(config))
+    return writers, None if writers else 'no_store_writers'
+
+
+def world_writers(workdir: Path) -> frozenset[str]:
+    """The tools whose every write lands in the bench's per-conversation store (``writer_readers.local_store_writers`` of
+    ``workdir/plurai.config.yaml``): a write the replay's fresh store does not hold. Empty when the bench has no config.
+
+    An unreadable config (no PyYAML, a read or YAML error, not a mapping) is empty too, with one
+    :data:`WORLD_WRITERS_UNREAD` note on stderr per bench; :func:`world_check` says why for the pick's record."""
+    return _world_writers_read(workdir)[0]
+
+
+def world_check(workdir: Path) -> str:
+    """:data:`WORLD_CHECK_APPLIED`, or ``not_applied:<why>`` (:data:`WORLD_NOT_APPLIED`): whether a trail's writes before
+    a cut are read against a store writer on this bench."""
+    why = _world_writers_read(workdir)[1]
+    return WORLD_CHECK_APPLIED if why is None else f'not_applied:{why}'
+
+
+def _trail_written_turns(transcript: dict[str, Any], cut: int, writers: Collection[str]) -> list[int]:
+    """The turns before ``cut`` that ran a call of a tool in ``writers``, read off the trail: each turn's
+    ``agent_state.tool_trail`` entry, and each ``turn_messages`` AI tool call a ``tool`` message answered. A call that did
+    not run (:func:`_call_ran`, or a ``tool`` message with ``status: error``) does not count, and a call id an earlier turn
+    already reported counts on that turn only (a graph-state trail re-reports earlier calls). Empty on a Claude Code CLI
+    run, whose writes before the cut :func:`workspace_writes_before` rules on."""
+    if not writers or _is_cli_run(_turn_states(transcript)):
+        return []
+    rows = sorted((r for r in transcript.get('turns') or () if isinstance(r, dict) and _is_int(r.get('turn_idx')) and r['turn_idx'] < cut),
+                  key=lambda r: r['turn_idx'])
+    seen: set[str] = set()
+    written: set[int] = set()
+    for row in rows:
+        state = row.get('agent_state') if isinstance(row.get('agent_state'), dict) else {}
+        trail = state.get(TOOL_TRAIL_KEY)
+        calls = [(e.get('tool'), e.get('call_id'), _call_ran(e)) for e in (trail if isinstance(trail, list) else []) if isinstance(e, dict)]
+        chain = [m for m in (row.get('turn_messages') if isinstance(row.get('turn_messages'), list) else []) if isinstance(m, dict)]
+        answers = {str(m.get('tool_call_id')): m for m in chain if m.get('type') == 'tool' and m.get('tool_call_id')}
+        calls += [
+            (call.get('name'), call.get('id'), _call_ran(answers[str(call.get('id'))]))
+            for message in chain for call in message.get('tool_calls') or []
+            if isinstance(call, dict) and str(call.get('id')) in answers
+        ]
+        for tool, call_id, ran in calls:
+            if isinstance(call_id, str) and call_id:
+                if call_id in seen:
+                    continue
+                seen.add(call_id)
+            if ran and tool in writers:
+                written.add(row['turn_idx'])
+    return sorted(written)
+
+
+def _blind_turns(world: dict[str, Any] | None, cut: int) -> list[int] | None:
+    """The turns before ``cut`` the run's per-turn world did not observe (``status`` other than ``observed``: the SDK's
+    ``unobservable`` on a read failure or an overflow carries no delta); None when it recorded no per-turn world at all."""
+    if world is None:
+        return None
+    return [turn for turn, turn_world in enumerate(world['turn_worlds'][:cut]) if turn_world.get('status') != 'observed']
+
+
+def _written_turns(transcript: dict[str, Any], world: dict[str, Any] | None, cut: int, writers: Collection[str]) -> list[int]:
+    """The turns before ``cut`` that changed the world: an observed turn by its delta, and a turn the world did not observe
+    (:func:`_blind_turns`; every turn when none was recorded) by its trail (:func:`_trail_written_turns`)."""
+    blind = _blind_turns(world, cut)
+    if blind is None:
+        return _trail_written_turns(transcript, cut, writers)
+    trail = set(_trail_written_turns(transcript, cut, writers)) if blind else set()
+    return sorted(set(_changed_turns(world, cut)) | (trail & set(blind)))
+
+
+def _trail_read(transcript: dict[str, Any], cut: int) -> bool:
+    """Whether a cut here is ruled on the trail's writes at all: a later cut of a run whose per-turn world is missing or
+    blind on a turn before it (:func:`_written_turns`), or of a Claude Code CLI run (:func:`workspace_writes_before`)."""
+    if cut <= 0:
+        return False
+    blind = _blind_turns(recorded_world(transcript, cut), cut)
+    return blind is None or bool(blind) or _is_cli_run(_turn_states(transcript))
+
+
+def world_cut(transcript: dict[str, Any], seed: dict[str, Any] | None, cut: int, *,
+              writers: Collection[str]) -> tuple[str | None, list[int]]:
+    """`(what a world change before the cut does to this cut, the turns that changed it)` off one :func:`recorded_world`
+    read: None when no turn before the cut changed it; a scenario the run started at its opener replays whole
+    (:data:`WORLD_ROOTED`); one that was itself resumed keeps its resumed shape with a caveat over a seeded world
+    (:data:`WORLD_CAVEAT`) and is refused over a harness-owned one (:data:`WORLD_REFUSED`). On a turn the run's per-turn
+    world did not observe (or on every turn, when it recorded none), the turns are those whose trail ran a call of a tool
+    in ``writers`` (:func:`world_writers`): the per-conversation store, which no seed rebuilds, so on a resumed scenario
+    over a harness-owned world that is a refusal."""
     world = recorded_world(transcript, cut)
-    if world is None or world['initial']:
+    turns = _written_turns(transcript, world, cut, writers)
+    if not turns:
+        return None, turns
+    if not _seed_messages(seed):
+        return WORLD_ROOTED, turns
+    return (WORLD_CAVEAT if world and world['initial'] else WORLD_REFUSED), turns
+
+
+def _world_gap_said(turns: list[int]) -> str:
+    return f'{WORLD_WRITTEN_BEFORE_CUT} (turns {", ".join(map(str, turns))})'
+
+
+def _changed_turns(world: dict[str, Any] | None, cut: int) -> list[int]:
+    if world is None:
         return []
     return [
         turn for turn, turn_world in enumerate(world['turn_worlds'][:cut])
         if any((turn_world.get('delta') or {}).get(key) for key in ('upserted', 'removed'))
     ]
+
+
+def world_written_before_cut(transcript: dict[str, Any], cut: int, *, writers: Collection[str]) -> list[int]:
+    """The turns before ``cut`` whose world change a pin cut there cannot restore (:data:`WORLD_WRITTEN_BEFORE_CUT`).
+
+    Empty when no turn before the cut changed it. A scenario that seeded rows of the captured types is no exemption:
+    the build authors that world afresh with no check that it holds what the pinned history changed, so only a whole
+    replay keeps the world and the history consistent. On a turn the run's per-turn world did not observe (every turn,
+    when it recorded none), the turn counts when its trail ran a call of a tool that writes the per-conversation store
+    (``writers``, :func:`world_writers`).
+    """
+    return _written_turns(transcript, recorded_world(transcript, cut), cut, writers)
 
 
 def issue_turn(transcript: dict[str, Any], cut: int, *, where: str) -> dict[str, Any]:
@@ -1259,15 +1576,62 @@ def cut_caveat(transcript: dict[str, Any], cut: int) -> dict[str, Any] | None:
     return replay_caveat(messages)
 
 
+def merge_caveats(*caveats: dict[str, Any] | None) -> dict[str, Any] | None:
+    """One replay caveat carrying every reason given (``reasons``, in order; ``reason`` is the first, for older readers),
+    each one's own fields kept beside them (``jobs``, ``turns``); None when none is given."""
+    given = [c for c in caveats if isinstance(c, dict) and c.get('reason')]
+    if not given:
+        return None
+    merged: dict[str, Any] = {}
+    for caveat in given:
+        merged.update({k: v for k, v in caveat.items() if k not in ('reason', 'reasons')})
+    reasons = list(dict.fromkeys(str(r) for c in given for r in (c.get('reasons') or [c['reason']])))
+    return {'reason': reasons[0], 'reasons': reasons, **merged}
+
+
+#: The local record of the caveats a folder was written with that its pin cannot show (`{folder name: caveat}`), kept in
+#: the workdir's artifacts beside the regressions dir: it never rides the bundle upload, and the run report reads it.
+CAVEATS_FILENAME = 'regression_caveats.json'
+
+
+def _caveats_path(folder: Path) -> Path:
+    return folder.parent.parent / 'artifacts' / CAVEATS_FILENAME
+
+
+def _recorded_caveats(folder: Path) -> dict[str, Any]:
+    """:data:`CAVEATS_FILENAME` as a mapping; ``{}`` when it is absent or unreadable."""
+    try:
+        recorded = json.loads(_caveats_path(folder).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+    return recorded if isinstance(recorded, dict) else {}
+
+
+def record_caveat(folder: Path, caveat: dict[str, Any] | None) -> None:
+    """Record ``caveat`` for ``folder`` (:data:`CAVEATS_FILENAME`), or clear an earlier one when ``caveat`` is None."""
+    path = _caveats_path(folder)
+    current = _recorded_caveats(folder)
+    if caveat is None and folder.name not in current:
+        return
+    if caveat is None:
+        current.pop(folder.name, None)
+    else:
+        current[folder.name] = caveat
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(current, ensure_ascii=False, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+
+
 def pin_caveat(folder: Path) -> dict[str, Any] | None:
-    """:func:`replay_caveat` over a folder's ``resume_pin.json`` — its chain and the ``agent_state.tool_trail`` it carries,
-    which is the last pinned turn's only; None when it has no readable pin."""
+    """The folder's replay caveat: :func:`replay_caveat` over its ``resume_pin.json`` — its chain and the
+    ``agent_state.tool_trail`` it carries, which is the last pinned turn's only — merged with the caveat it was recorded
+    with (:data:`CAVEATS_FILENAME`, e.g. :data:`WORLD_WRITTEN_BEFORE_CUT` and its turns); None when neither says one."""
     try:
         pin = json.loads((folder / PIN_FILENAME).read_text(encoding='utf-8'))
     except (OSError, ValueError):
-        return None
+        pin = None
     messages = pin.get('messages') if isinstance(pin, dict) else None
-    return replay_caveat(_with_trail(messages, pin.get('agent_state'), set())) if isinstance(messages, list) else None
+    job = replay_caveat(_with_trail(messages, pin.get('agent_state'), set())) if isinstance(messages, list) else None  # type: ignore[union-attr]
+    return merge_caveats(_recorded_caveats(folder).get(folder.name), job)
 
 
 #: The paragraph's **Probe** line (``**Probe.**``, ``**Probe:**`` or a ``- probe:`` bullet).
@@ -1467,14 +1831,28 @@ def write_folder(
         if _TRIGGER_RE.search(roles_text):
             raise Refused('the paragraph already states its trigger on a **Trigger.** line; pass --trigger or write the line, not both.')
         roles_text = roles_text.rstrip('\n') + '\n\n' + TRIGGER_LINE.format(trigger=' '.join(trigger.split())) + '\n'
+    world_caveat: dict[str, Any] | None = None
     rooted = first_talk_from is not None and cut_turn is not None and cut_turn != 0
-    if rooted and resume_unsupported(regressions_dir.parent) is None and not world_written_before_cut(_read_json(first_talk_from), cut_turn):
+    if rooted and resume_unsupported(regressions_dir.parent) is None \
+            and not world_written_before_cut(_read_json(first_talk_from), cut_turn, writers=world_writers(regressions_dir.parent)):
         raise Refused(f'the opener-only shape is an issue on turn 0, and --cut-turn is {cut_turn}. Record it as the resumed shape instead.')
-    if first_talk_from is None and issue_from is not None and cut_turn is not None and (lost := world_written_before_cut(_read_json(issue_from), cut_turn)):
+    if first_talk_from is None and issue_from is not None and cut_turn is not None:
+        source_world = _read_json(issue_from)
+        resumed_from_seed = source_world.get('resume_seed') if isinstance(source_world.get('resume_seed'), dict) else None
+        world, lost = world_cut(source_world, resumed_from_seed, cut_turn, writers=world_writers(regressions_dir.parent))
+    else:
+        world, lost = None, []
+    if world == WORLD_CAVEAT:
+        # Itself resumed, over a seeded world: no opener to replay, so the resumed shape is kept and said.
+        print(f'NOTE: {issue_from}: {_world_gap_said(lost)}: the history before turn {cut_turn} changed the seeded world, '
+              'and the replay may answer over a world that lacks those changes. Recorded as the resumed shape; the run report '
+              'marks the regression.', file=sys.stderr)
+        world_caveat = {'reason': WORLD_WRITTEN_BEFORE_CUT, 'turns': lost}
+    elif world is not None:
         raise Refused(
-            f'{issue_from}: {WORLD_WRITTEN_BEFORE_CUT} (turns {", ".join(map(str, lost))}): the history before turn {cut_turn} changed '
-            'a world its pin cannot restore, so a resumed replay answers against the world before that history. Record the '
-            'opener-rooted shape: pass the same transcript as --first-talk-from, with --trigger.'
+            f'{issue_from}: {_world_gap_said(lost)}: the history before turn {cut_turn} changed '
+            'a world its pin cannot restore, so a resumed replay answers against a world that does not hold that history. '
+            'Record the opener-rooted shape: pass the same transcript as --first-talk-from, with --trigger.'
         )
     if rooted and not _TRIGGER_RE.search(roles_text):
         raise Refused(
@@ -1498,10 +1876,10 @@ def write_folder(
     session = None
     if issue_from is not None and first_talk_from is None and cut_turn is not None:
         resumed_from = _read_json(issue_from)
-        if documents := handed_documents_before(resumed_from, cut_turn):
+        if uncarried := documents_to_carry(resumed_from, cut_turn, workdir=regressions_dir.parent).refused:
             raise Refused(
-                f'{issue_from}: {HISTORY_DOCUMENT} ({", ".join(documents)}, before turn {cut_turn}). The pin keeps the file\'s name, '
-                'never the file, so the replay would answer without it. Record the issue at or before that turn, or from another conversation.'
+                f'{issue_from}: {history_document(uncarried)} ({", ".join(n for n, _ in uncarried)}, through turn {cut_turn}). The replay '
+                'would answer without it. Record the issue before that turn, or from another conversation.'
             )
         session = cli_session_to_carry(resumed_from, cut_turn, workdir=regressions_dir.parent, where=str(issue_from))
 
@@ -1544,6 +1922,7 @@ def write_folder(
         # Copied as the harness recorded it: scrubbed by the SDK's credential redaction when it left the CLI.
         (folder / CLI_SESSION_DIRNAME).mkdir()
         shutil.copyfile(session, folder / CLI_SESSION_DIRNAME / session.name)
+    record_caveat(folder, world_caveat)
     return folder
 
 
@@ -2229,7 +2608,8 @@ def hollow_reason(workdir: Path, folder: str, row: Mapping[str, Any]) -> str | N
     2. ``restore_reduced``: every valid replay resumed with less state than the recording;
     3. only when its reading caught nothing on BOTH axes: ``off_evidence`` — its pick's cut is none of its finding's own
        turns in that run and item (:func:`own_turns`, the write guard's same reading: it was cut on another finding's
-       red); or ``history_document`` — its pick resumed after a turn that handed over a document the replay could not carry.
+       red); or ``history_document`` — its pick resumed on or after a turn that handed over a document the replay could not
+       carry (:func:`documents_to_carry` refuses it), or one the folder's pin does not hold (:func:`documents_missing_from_pin`).
 
     A folder that caught its issue is never hollow, wherever it was cut; a missing pick or store gives signal 3 nothing.
     A pick with no ``run`` (recorded before picks named it) reads its run off its transcript's path (:func:`run_of`)."""
@@ -2264,9 +2644,54 @@ def hollow_reason(workdir: Path, folder: str, row: Mapping[str, Any]) -> str | N
             source = json.loads(transcript.read_text(encoding='utf-8'))
         except (OSError, ValueError):
             source = None
-        if isinstance(source, dict) and handed_documents_before(source, cut):
+        if isinstance(source, dict) and (documents_to_carry(source, cut, workdir=workdir).refused
+                                         or documents_missing_from_pin(source, cut, workdir / REGRESSIONS_DIRNAME / folder)):
             return HOLLOW_HISTORY_DOCUMENT
     return None
+
+
+def recorded_reds(workdir: Path, folder: str, *, skip_run: str | None) -> dict[str, bool | None] | None:
+    """``{policy: red on the cut turn}`` off the source conversation's CURRENT (audit-corrected) verdicts, by the folder's
+    pick: True when its verdict names the cut violated (:func:`violated_turns`), None when it is red naming no turn, False
+    otherwise. None when the pick, its cut or its verdicts cannot be read, or its run is ``skip_run`` (re-recorded from that
+    very run). ``artifacts/`` is gitignored and the pick's transcript path absolute: another machine, or a deleted run, reads None."""
+    try:
+        pick = json.loads((workdir / 'artifacts' / PICKS_DIRNAME / f'{folder}.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(pick, dict) or not pick.get('transcript') or not _is_int(cut := pick.get('cut_turn')):
+        return None
+    path = Path(str(pick['transcript']))
+    path = path if path.is_absolute() else workdir / path
+    if skip_run is not None and (pick.get('run') or run_of(path)[0].name) == skip_run:
+        return None
+    try:
+        source = {VERDICT_CELLS: verdicts_file.cells(verdicts_file.read(path.parent))}
+        out: dict[str, bool | None] = {}
+        for policy in source[VERDICT_CELLS]:
+            turns = violated_turns(source, policy)
+            out[policy] = True if cut in turns else None if violates(source, policy) and not turns else False
+    except (verdicts_file.VerdictsError, TypeError):
+        return None
+    return out
+
+
+def pin_lacks_documents(workdir: Path, folder: Path) -> list[str]:
+    """The documents ``folder``'s pick (``$ART/regression_picks/<folder>.json``) shows handed over on or before its cut that
+    the folder's pin does not carry (:func:`documents_missing_from_pin`): a folder recorded before the pin carried
+    documents. Empty when its pick, its cut or its transcript cannot be read — nothing then says a document is missing."""
+    try:
+        pick = json.loads((workdir / 'artifacts' / PICKS_DIRNAME / f'{folder.name}.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(pick, dict) or not _is_int(pick.get('cut_turn')) or not pick.get('transcript'):
+        return []
+    transcript = Path(str(pick['transcript']))
+    try:
+        source = json.loads((transcript if transcript.is_absolute() else workdir / transcript).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return []
+    return documents_missing_from_pin(source, pick['cut_turn'], folder) if isinstance(source, dict) else []
 
 
 def hollow_folders(workdir: Path) -> set[str]:
@@ -2440,7 +2865,8 @@ SKIP_UNMEASURED = 'unmeasured'
 #: Every conversation it could be recorded from opened with a handed-over document, and its replay would start from that
 #: opener (:class:`OpenerDocument`): the write step would refuse it, so the plan never promises it.
 SKIP_OPENER_DOCUMENT = 'opener_document'
-#: Every conversation it could be recorded from resumes after a turn that handed over a document (:class:`HistoryDocument`).
+#: Every conversation it could be recorded from resumes on or after a turn that handed over a document no replay can carry
+#: (:class:`HistoryDocument`).
 SKIP_HISTORY_DOCUMENT = 'history_document'
 #: ``scored_findings.finding_outcome`` (``READ_ONLY`` / ``REACHED_HANDLED`` / ``NOT_TESTED`` / ``NOT_SET_UP``) → the skip
 #: kind of a finding no check of the run can be cut for: what turns "not reproduced" into what the run actually showed (its
@@ -4354,6 +4780,34 @@ def cmd_write(args: argparse.Namespace) -> int:
     return 0
 
 
+def verify_carry(folder: Path, transcript: dict[str, Any], cut: int) -> tuple[list[str], list[str]]:
+    """``(carried, missing)``: the documents the record step carries through ``cut`` (:func:`documents_to_carry`, read
+    against the folder's workdir, ``regressions/``'s parent), and those of them ``folder``'s pin does not hold
+    (:func:`pin_documents`) — the mark of a converter that pinned the ``[file: name]`` marker instead. A document the pin
+    cannot carry is refused (:data:`HISTORY_DOCUMENT`): ``write`` refuses that cut, so such a folder is not this record's."""
+    carry = documents_to_carry(transcript, cut, workdir=folder.resolve().parent.parent)
+    if carry.refused:
+        raise Refused(f'{folder.name}: {history_document(carry.refused)} ({", ".join(n for n, _ in carry.refused)}, through turn {cut}).')
+    return carry.carried, sorted((Counter(carry.carried) - Counter(pin_documents(folder))).elements())
+
+
+def cmd_verify_carry(args: argparse.Namespace) -> int:
+    transcript = _read_json(args.transcript)
+    if not isinstance(transcript, dict):
+        raise Refused(f'{args.transcript} is not a run transcript.')
+    carried, missing = verify_carry(args.folder, transcript, args.cut_turn)
+    if missing:
+        print(
+            f'NOT CARRIED: {args.folder.name}: its pin does not carry {", ".join(missing)}, handed over on or before turn '
+            f'{args.cut_turn}, so its replay would answer without it. The installed SDK pinned the file\'s name instead of the '
+            'file: upgrade the SDK in the client\'s venv, delete the folder, and record again.',
+            file=sys.stderr,
+        )
+        return 2
+    print(json.dumps({'folder': args.folder.name, 'carried': carried}))
+    return 0
+
+
 def cmd_carry_world_facts(args: argparse.Namespace) -> int:
     status, message = carry_world_facts(args.source, args.into)
     if status == NOT_CARRIED:
@@ -4971,6 +5425,17 @@ def build_parser() -> argparse.ArgumentParser:
         'and the paragraph gains the finding id line',
     )
     write.set_defaults(func=cmd_write)
+
+    verify = sub.add_parser(
+        'verify-carry',
+        help='check a converted resumed folder\'s pin carries every document handed over on or before its cut',
+        description='Run after the conversion. Exit 0 prints {folder, carried}. Exit 2 names each carried document the pin '
+        'lacks, or a document no replay can carry: delete the folder this record wrote.',
+    )
+    verify.add_argument('--folder', required=True, type=Path, help='the regression folder the record step wrote and converted')
+    verify.add_argument('--transcript', required=True, type=Path, help='the run transcript the folder was converted from')
+    verify.add_argument('--cut-turn', required=True, type=int, help='the cut the folder was converted at')
+    verify.set_defaults(func=cmd_verify_carry)
 
     one = sub.add_parser(
         'finding', help='read one confirmed finding out of agent_findings.md, with the slug its id derives',

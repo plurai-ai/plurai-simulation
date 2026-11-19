@@ -54,13 +54,11 @@ Three rules the parser ENFORCES and this block used to state nowhere the caller 
 * `--surface` belongs to `--kind blocking-unresolved` and is REQUIRED there:
   `eval` | `scenario` | `harness` | `env` | `backend` | `plugin` | `sdk` (`env`: the mock or the world it serves).
 * `--policy <check>` (repeatable, once per check) belongs to `--surface eval`, `backend`, `plugin` and `sdk`:
-  the check(s) the block sits on. REQUIRED on eval and on backend (or `--affects-no-check` there). An eval
-  entry caps the rung only while the final run still carries a wrong or unchecked verdict on that eval
-  (`lane_pin.py anchor` re-checks it), and an entry that names no eval cannot be re-checked. A backend
-  entry on a check only the backend judges, which the final run's audit proves wrong, caps the rung at
-  `qualified` as a named risk (`release_verdict.blocking_split`); any other stays the floor. A plugin /
-  SDK entry whose named checks the final run re-checked clean caps it at `qualified` as an internal
-  named risk; one that names no check stays the floor, so the writer warns.
+  the check(s) the block sits on. REQUIRED on eval and on backend (or `--affects-no-check` there). Whether
+  the final run releases an entry is `release_verdict.blocking_split`'s rule (the suite recipe's landing
+  bullets state it). A plugin / SDK entry that names no check cannot be re-checked, so the writer warns;
+  a plugin / SDK `--policy` that `policies_config.yaml` types as an ordinary judged eval is REFUSED (file
+  it `--surface eval`).
   A backend `--policy` that `policies_config.yaml` does not type as judged by the backend alone is
   REFUSED (`release_verdict._server_judged`); an unreadable eval set writes it with a warning.
 * `--affects-no-check` belongs to `--surface backend` alone, in place of `--policy`: a crashed job that
@@ -713,24 +711,40 @@ def _print_adoption_verdict(path: Path, donor_set_id: str) -> int:
     return ADOPTION_FORFEITED if forfeited else 0
 
 
-def _client_judged(workdir: Path, policies: list[str]) -> list[str] | None:
-    """`["`P` (<type>)", …]` for each named check NOT judged by the backend alone, by the read side's own predicate
-    (`release_verdict._server_judged`) over the eval set beside the artifacts; None when that could not be decided."""
+def _eval_bodies(workdir: Path):  # noqa: ANN202 - `(release_verdict, bodies)`
+    """`(release_verdict, the eval set beside the artifacts)` read by the read side's one reader (`eval_set_bodies`;
+    bodies None when unreadable). Raises ImportError when the read side is not here."""
     here = Path(__file__).resolve().parent
     sys.path[:0] = [p for p in (str(here), str(here.parent / 'skills' / 'simulation-run' / 'scripts')) if p not in sys.path]
-    try:
-        import release_verdict  # noqa: PLC0415 - the ONE owner of who judges a check
-        from build_run_json import eval_set_bodies  # noqa: PLC0415 - the one reader of policies_config.yaml
+    import release_verdict  # noqa: PLC0415 - the ONE owner of who grades a check
+    from build_run_json import eval_set_bodies  # noqa: PLC0415 - the one reader of policies_config.yaml
 
-        bodies = eval_set_bodies(str(workdir))
+    return release_verdict, eval_set_bodies(str(workdir))
+
+
+def _client_judged(workdir: Path, policies: list[str]) -> list[str] | None:
+    """`["`P` (<type>)", …]` for each named check NOT judged by the backend alone (`release_verdict.grader`) over the eval
+    set beside the artifacts; None when that could not be decided."""
+    try:
+        release_verdict, bodies = _eval_bodies(workdir)
         if bodies is None:
             return None
         def said(p: str) -> str:
             return 'not in the eval set' if p not in bodies else f'type {bodies[p].get("type")}' if isinstance(bodies[p], dict) else 'no body'
 
-        return [f'`{p}` ({said(p)})' for p in policies if not release_verdict._server_judged(bodies.get(p))]
+        return [f'`{p}` ({said(p)})' for p in policies if release_verdict.grader(bodies, p) != 'backend']
     except Exception:  # never lose the entry over the check: the read side still keeps an unreadable set live
         return None
+
+
+def _ordinary_evals(workdir: Path, policies: list[str]) -> list[str] | None:
+    """`["`P`", …]` for each named check `policies_config.yaml` types as an ordinary judged eval (`release_verdict.grader`);
+    a check graded on the row (not in the eval set) is none. None when the eval set could not be read."""
+    try:
+        release_verdict, bodies = _eval_bodies(workdir)
+    except ImportError:  # the reader is not here: never lose the entry over the check, and say so (the caller warns)
+        return None
+    return None if bodies is None else [f'`{p}`' for p in policies if release_verdict.grader(bodies, p) == 'eval']
 
 
 def main() -> int:
@@ -812,9 +826,20 @@ def main() -> int:
     _validate(args, parser)
 
     art = _artifacts_dir(args.artifacts_dir)
-    if args.surface in ('plugin', 'sdk') and not args.policy:
-        print(f'append_loop_log: warning: this `--surface {args.surface}` entry names no check, so it caps the suite at not '
-              'yet qualified until it names the checks it affects (`--policy <check>`, once per check).', file=sys.stderr)
+    if args.surface in ('plugin', 'sdk'):
+        if not args.policy:
+            print(f'append_loop_log: warning: this `--surface {args.surface}` entry names no check, so the final run cannot re-check it '
+                  'and, once a final run with a readable audit records no world fault, it holds the suite at qualified as a tooling '
+                  'risk; name the checks it affects (`--policy <check>`, once per check).', file=sys.stderr)
+        elif (judged := _ordinary_evals(art.parent, args.policy)) is None:
+            print(f'append_loop_log: warning: the eval set beside {art} could not be read, so whether {", ".join(args.policy)} is an '
+                  'ordinary judged eval (filed `--surface eval`) was not checked — written as given.', file=sys.stderr)
+        elif judged:
+            parser.error(
+                f'{", ".join(judged)}: an ordinary judged eval in policies_config.yaml, so a defect in its verdicts is filed '
+                f'`--surface eval --policy <it>` (the final run\'s audit re-checks it). `--surface {args.surface}` is for a check our '
+                'own tooling grades on the row, outside the eval set.'
+            )
     if args.surface == 'backend' and args.policy:
         foreign = _client_judged(art.parent, args.policy)
         if foreign is None:

@@ -130,8 +130,7 @@ scan wrote one; the backend materializes it as this job's `inputs/scan_contract.
   The absence-probe scenarios then do not exist in this set — they are not silently covered.
 - `CONTRACT_PROCEED=false` — the checker found one of the scan's conclusions FALSE against the
   corpus, and the suite's Step-0 gate was overridden to build anyway. **Still pass the id** (the
-  allowlist and the surviving facts are real). It demotes the suite's provenance line;
-  `/simulation-generate-suite` Step 6 reads the same file.
+  allowlist and the surviving facts are real).
 - `CONTRACT_PROCEED=unreadable` — the file exists and its verdict cannot be parsed. Treat it as
   ABSENT: an unparseable verdict is not a passed one.
 - **`CONTRACT_PROVISIONAL` / `CONTRACT_BLOCKED` — a `true` is not automatically a verified

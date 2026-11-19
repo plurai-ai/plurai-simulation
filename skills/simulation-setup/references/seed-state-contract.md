@@ -384,84 +384,36 @@ not even visible. Same rule as `_storage.py`'s fail-closed helpers.
 Every scenario declares its "now" in `initial_agent_context['current_date']` (an ISO 8601 instant, or a date
 alone), and the mock answers every time-relative question against it. A read of "now" the agent makes OUTSIDE the
 mock (its own prompt builder's `date.today()`, a `mode: real` tool's `datetime.now()`) reads the host's clock
-instead, so the agent is told one day and graded on another. `seed_state` pins each such read where it happens: it
-rebinds the clock name THAT module imported (`datetime`, `date`, `time`, the `datetime` module under any alias),
-never the process's clock, which the SDK, the agent's provider auth (request signing, token expiry) and its traces
-all read. The pinned clock keeps ticking from the scenario's time, so durations the agent measures stay real. It
-reads `current_date` the way the mock's clock does: a date alone is that day's last second (and stays there, as
-the mock's clock does, so it never reads the next day), and a time with no offset is UTC. A naive read (`datetime.now()`, `date.today()`) answers in the declared instant's own offset; an
-aware one (`datetime.now(tz)`) converts.
+instead, so the agent is told one day and graded on another. `seed_state` pins each such read where it happens with
+`plurai.pin_now(module, initial_agent_context)`: it rebinds the clock names THAT module imported (`datetime`, `date`,
+`time`, the `datetime` module under any alias), never the process's clock, which the SDK, the agent's provider auth
+(request signing, token expiry) and its traces all read. The pinned clock keeps ticking from the scenario's time, so
+durations the agent measures stay real; a date alone starts at that day's noon UTC and ticks on, staying on its day;
+a time with no offset is UTC. A naive read (`datetime.now()`, `date.today()`) answers in the declared instant's
+own offset; an aware one (`datetime.now(tz)`) converts. The call records the `pinned` delivery the judges read.
 
 ```python
-import datetime as _dt
-import email.utils
-import re
-import time as _time
-import types
+import importlib
+
+import plurai
 
 
-def _scenario_instant(value) -> _dt.datetime:
-    """`current_date` read as the backend's run clock reads it: a date ALONE is that day's last second; a time with no
-    offset, or a trailing UTC / GMT / Z, is UTC."""
-    text = re.sub(r'\s*(?:UTC|GMT|Z)$', '', str(value).strip(), flags=re.IGNORECASE)
-    try:
-        stamp = _dt.datetime.combine(_dt.date.fromisoformat(text), _dt.time(23, 59, 59))
-    except ValueError:
-        try:
-            stamp = _dt.datetime.fromisoformat(text)
-        except ValueError:
-            stamp = email.utils.parsedate_to_datetime(text)  # an RFC 2822 date; an unreadable clock raises: the seed fails
-    return stamp if stamp.tzinfo else stamp.replace(tzinfo=_dt.UTC)
-
-
-class _Real(type):  # a real datetime / date still passes isinstance() against the pinned name
-    def __instancecheck__(cls, obj):
-        return isinstance(obj, cls.__mro__[1])
-
-
-def pin_now(module: types.ModuleType, agent_context: dict) -> type[_dt.datetime]:
-    """Rebind the clock names `module` imported to the scenario's clock, ticking on from it (a date alone stays put). Never process-wide.
-    Returns the pinned `datetime` class."""
-    declared = next((agent_context[k] for k in ('current_date', 'today') if agent_context.get(k) is not None), None)
-    if declared is None:
-        raise ValueError('the scenario declares no current_date to pin "now" to')
-    anchor, t0 = _scenario_instant(declared), _time.monotonic()
-    try:  # a date ALONE stays at its last second, as the backend's run clock does; ticking would read the next day
-        _dt.date.fromisoformat(re.sub(r'\s*(?:UTC|GMT|Z)$', '', str(declared).strip(), flags=re.IGNORECASE))
-        ticks = False
-    except ValueError:
-        ticks = True
-
-    class PinnedDatetime(_dt.datetime, metaclass=_Real):
-        @classmethod
-        def now(cls, tz=None):
-            moment = anchor + _dt.timedelta(seconds=_time.monotonic() - t0 if ticks else 0)
-            return moment.astimezone(tz) if tz else moment.replace(tzinfo=None)  # naive: the scenario's own wall clock
-
-        today = classmethod(lambda cls: cls.now())
-        utcnow = classmethod(lambda cls: cls.now(_dt.UTC).replace(tzinfo=None))
-
-    class PinnedDate(_dt.date, metaclass=_Real):
-        today = classmethod(lambda cls: PinnedDatetime.now().date())
-
-    shims = {
-        id(_dt.datetime): PinnedDatetime,
-        id(_dt.date): PinnedDate,
-        id(_dt): types.SimpleNamespace(**{**vars(_dt), 'datetime': PinnedDatetime, 'date': PinnedDate}),
-        id(_time): types.SimpleNamespace(**{**vars(_time), 'time': lambda: PinnedDatetime.now(_dt.UTC).timestamp()}),
-    }
-    for name, value in list(vars(module).items()):
-        if id(value) in shims:
-            setattr(module, name, shims[id(value)])
-    return PinnedDatetime
+def seed_state(initial_agent_context, initial_world_state, resume_seed=None):
+    plurai.pin_now(importlib.import_module('<agent>.prompts'), initial_agent_context)  # once per module that reads the clock
+    ...
 ```
 
-Call it once per module that reads the clock, from `seed_state` (import the module first if the agent imports it
-lazily): `pin_now(importlib.import_module('<agent>.prompts'), initial_agent_context)`. A clock helper of the agent's
-own is pinned the same way, in the module that calls it: rebind the helper's name there to a shim over the class
-`pin_now` returns, e.g. `mod.time_utils = types.SimpleNamespace(**{**vars(time_utils), 'now': lambda tz=None:
-clock.now(tz or <the helper's default zone>)})` with `clock = pin_now(mod, initial_agent_context)`. The
-`input_context` record of the date the agent was given then carries the pinned value with no extra step.
+Import the module first if the agent imports it lazily. A clock helper of the agent's own is pinned in the module that
+calls it: rebind the helper's name there to a shim over the class `pin_now` returns, then record the delivery yourself,
+since `pin_now` rebound nothing there: `clock = plurai.pin_now(mod, initial_agent_context)`, `mod.time_utils =
+types.SimpleNamespace(**{**vars(time_utils), 'now': lambda tz=None: clock.now(tz or <the helper's default zone>)})`,
+`plurai.clock_delivered('pinned')`. The `input_context` record of the date the agent was given then carries the pinned
+value with no extra step.
+
+The other routes record where they hand the date over: a harness that writes `current_date` into the agent's own store
+(the clock field the agent reads there) calls `plurai.clock_delivered('store')`, and one that puts it into the agent's
+own input calls `plurai.clock_delivered('told')`. `plurai.config.yaml` declares the route as `harness: {clock: pinned |
+store | told | host}`; `host` is an agent that reads only its own or its framework's clock, and nothing is called.
 
 ## Worked example — a stateful record-managing agent (illustrative only)
 

@@ -1759,7 +1759,8 @@ zero; the run report says it was removed, never a result for it. A run stopped e
 **When Step 3b ran, add `--regression-replays "$ART/regression_replays/<run-name>"`** to that call (top-level
 `run.json` only, never a trial dir): `run.json` then carries `regressions` — each carried folder's owner and
 its caught counts at the cut. The checks behind them and their rates go to `$OUT/regressions_detail.json`,
-a local file nothing indexes or uploads; `run.json` never carries them.
+a local file nothing indexes or uploads; `run.json` never carries those rates. What a row does carry, in `issue_turn_evals`,
+is every eval that failed the issue's turn when it was recorded, or failed on these replays, with their counts on the row's clear axis.
 
 **`operator_identity_exposed` is the plugin's own check, graded by this build** (`scripts/operator_identity.py`; the
 markers `run_stage.sh` captured into `$OUT/.operator_identity.json`): an agent failure, never an eval to edit. Its
