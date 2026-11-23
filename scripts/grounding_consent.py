@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The one consent screen for a delivery that carries every source the scan found.
 
-Delivery is per skill: the scan delivers the agent descriptions, `/analyze-traces` the trace part and
+Delivery is per skill: the scan delivers the agent descriptions, `/analyze-traces` the trace parts and
 `/build-rag-corpus` the corpus part. When the scan already holds all three sources, this script delivers
 them as one: it plans every part with the SDK (`--plan-only`: the real archive, its real size, posture and
 content address, and not a byte sent), renders ONE screen from the planned entries, waits for the user's
@@ -58,7 +58,9 @@ import simulate_plan  # noqa: E402 - the recorded trace connection
 from _stdio import utf8_child_text  # noqa: E402 - sibling script: UTF-8 children on Windows
 import trace_delivery  # noqa: E402 - the names the traces keep through an anonymized scrub
 
-CAPABILITY = 'plan-only-parts'
+#: What the SDK must list in `plurai capabilities`: a plan of every part, and an export over one archive's size limit
+#: delivered as several archives.
+CAPABILITIES = ('plan-only-parts', 'multi-part-traces')
 SOURCES_FILE = 'consent_sources.json'
 PLAN_FILE = 'consent_plan.json'
 SCREEN_FILE = 'consent_screen.txt'
@@ -208,9 +210,10 @@ def _require_capability(plurai: str) -> None:
         features = json.loads(proc.stdout).get('features') if proc.returncode == 0 else None
     except (OSError, subprocess.TimeoutExpired, ValueError, AttributeError):
         features = None
-    if not isinstance(features, list) or CAPABILITY not in features:
+    missing = [name for name in CAPABILITIES if not isinstance(features, list) or name not in features]
+    if missing:
         raise Refusal(
-            f'this plurai cannot plan a delivery (`plurai capabilities` lacks {CAPABILITY}), so the one-screen delivery is refused and nothing was sent. '
+            f'this plurai cannot plan a delivery (`plurai capabilities` lacks {", ".join(missing)}), so the one-screen delivery is refused and nothing was sent. '
             f'Upgrade the SDK in the client\'s venv: `{resolve_plurai.INSTALL_LINE}`.',
             code=4,
         )
@@ -251,7 +254,7 @@ def _argv(workdir: Path, name: str, sources: dict, *, config: Optional[Path], na
             argv += ['--scan-contract', str(contract)]
     elif name == TRACES:
         argv = ['ingest-traces', '--workspace-root', root, '--source-kind', sources[TRACES]['source_kind'], '--source-config', str(config)]
-        argv += ['--declared-names', str(names), '--out-dir', str(workdir / 'traces')]
+        argv += ['--declared-names', str(names), '--out-dir', str(workdir / 'traces'), '--multi-part']
     else:
         source = sources[CORPUS]
         argv = ['ingest-corpus', '--workspace-root', root, '--source-kind', source['source_kind']]
@@ -289,6 +292,8 @@ def _run_ingest(plurai: str, argv: list, *, planning: bool, env: Any) -> tuple:
 def _expectations(name: str, entries: list) -> list:
     if name == DESCRIPTIONS:
         return [arg for entry in entries for arg in ('--expect-sha256', f'{entry["name"]}={entry["sha256"]}')]
+    if name == TRACES:
+        return [arg for entry in entries for arg in ('--expect-sha256', entry['sha256'])]
     return ['--expect-sha256', entries[0]['sha256']]
 
 
@@ -296,9 +301,12 @@ def _check_entries(name: str, entries: list, workdir: Path) -> Optional[str]:
     """The cause the entries one ingest printed are not deliverable, or None."""
     if name == DESCRIPTIONS:
         return grounding_delivery.checked_descriptions(workdir, entries)[1]
+    if name == TRACES:
+        problem = trace_delivery.entries_problem(entries)
+        return f'printed entries where the part {problem}' if problem else None
     if len(entries) != 1:
         return f'printed {len(entries)} part entries, not one'
-    problem = grounding_files.check_part_entry(entries[0], 'trace_archive') if name == TRACES else grounding_corpus.check_entry(entries[0])
+    problem = grounding_corpus.check_entry(entries[0])
     return f'printed an entry that {problem}' if problem else None
 
 
@@ -332,9 +340,11 @@ def _posture(entry: dict) -> str:
     return 'anonymized before it leaves' if entry.get('posture') == 'anonymized' else 'raw, not anonymized'
 
 
-def _title(source: str, entry: dict, sources: dict) -> str:
+def _title(source: str, entry: dict, sources: dict, index: int = 1, count: int = 1) -> str:
+    """The screen's name for a part; the archives of one trace export over the size limit read `part i of N`."""
     if source == TRACES:
-        return entry.get('name') or f'traces ({sources[TRACES]["source_kind"]} project {sources[TRACES]["project"]})'
+        title = entry.get('name') or f'traces ({sources[TRACES]["source_kind"]} project {sources[TRACES]["project"]})'
+        return f'{title}, part {index} of {count}' if count > 1 else title
     return entry.get('name') or entry.get('label') or source
 
 
@@ -388,7 +398,7 @@ def build_plan(workdir: Path, plurai: str, backend: Optional[str], env: Any) -> 
             problem = _check_entries(name, entries, workdir)
             if problem:
                 raise Refusal(f'the {name} plan {problem}; nothing was sent.')
-            parts += [{'source': name, 'title': _title(name, entry, sources), 'entry': entry} for entry in entries]
+            parts += [{'source': name, 'title': _title(name, entry, sources, index, len(entries)), 'entry': entry} for index, entry in enumerate(entries, 1)]
     finally:
         try:
             os.unlink(staged)

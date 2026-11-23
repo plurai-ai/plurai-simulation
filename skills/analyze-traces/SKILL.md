@@ -31,8 +31,8 @@ The split that matters (identical posture to `/build-rag-corpus`):
 │  3. Shell: plurai ingest-traces --source-kind langsmith …           │
 │       --declared-names <names the agent descriptions declare>       │
 │       export → ANONYMIZE (posture: anonymized; fail-closed) → upload│
-│       → prints ONE part entry to stdout                             │
-│       { kind: trace_archive, sha256, bytes, posture, … }            │
+│       → prints the part entries (a JSON list) to stdout             │
+│       [{ kind: trace_archive, sha256, bytes, posture, … }, …]       │
 │  4. MCP: ground_workspace_start(workspace_id, previous, added=[…])  │
 │       → { job_id, package_version, … } — the grounding job          │
 │  5. Shell: poll_job.sh <job_id>, FOREGROUND, until done/failed;     │
@@ -40,9 +40,9 @@ The split that matters (identical posture to `/build-rag-corpus`):
 │       pull the mirror, confirm the brief, then apply it.            │
 └─────────────────────────────────────────────────────────────────────┘
 ┌── Plurai backend (holds LLM creds) ────────────────────────────────┐
-│  The grounding job runs trace analysis on the part (it extracts from│
-│  100% of the traces and renders the brief), places what the traces  │
-│  show on the ledger's keys, and publishes the brief for people.     │
+│  The grounding job analyzes up to 100 conversations (units, when a  │
+│  conversation is split; a random sample past that), places what     │
+│  they show on the ledger's keys and publishes the brief for people. │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -53,11 +53,10 @@ The split that matters (identical posture to `/build-rag-corpus`):
    the names the scrub keeps come from them.
 2. **The `plurai` SDK + the sink client are installed locally** — e.g.
    `pip install langsmith` for a LangSmith export. `plurai ingest-traces` (Step 4)
-   runs the export via `plurai.trace_extract`, which raises
-   `TraceExtractionDependencyError` with the exact install hint if the client is absent.
+   prints the exact install hint if the client is absent.
 3. **Backend reachable** — the user is logged in (the saved Plurai login),
-   and the Plurai backend has trace storage configured. If it does not, the grounding
-   job fails the trace part before any work and says so in its `failed_parts`.
+   and the Plurai backend has trace storage configured. If not, the grounding
+   job fails the trace part and says so in its `failed_parts`.
 4. **The customer has production traces** in an observability sink and can supply
    its api_key + project.
 **Anonymization posture — ask ONCE, here, if `plurai.config.yaml` has no `anonymize:` key.**
@@ -84,13 +83,9 @@ an env that has already uploaded artifacts is refused fail-closed (mixed-posture
    (Step 4) under that posture and is fail-closed, refusing to run without them:
    install the SDK with its `[anonymize]` extra (the line `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_plurai.py" --install-line --extra anonymize` prints), then `python -m spacy download en_core_web_lg`
    (any of `en_core_web_{lg,md,sm}` works). Under anonymized posture, without them
-   the CLI exits non-zero having uploaded NOTHING. Under the raw (default) posture
-   this precondition doesn't apply — no anonymizer required.
-6. **No separate storage credential** — `plurai ingest-traces` uploads the ingested
-   trace objects (anonymized or raw, per the env's posture) to the backend's
-   object-storage service over the same diagnostic connection as the MCP tools
-   (the saved login, Precondition 3); the
-   endpoint is derived, not passed in. Zero new credential plumbing.
+   the CLI exits non-zero having uploaded NOTHING.
+6. **No separate storage credential** — `plurai ingest-traces` uploads over the same
+   connection as the MCP tools (the saved login, Precondition 3).
 
 ## The flow
 
@@ -169,9 +164,10 @@ exported, still whole. This is part of the one `sink-project` ask, never a secon
 nobody says, export without a narrowing. Headless (`workspace.run_driver: headless`): no narrowing.
 
 **The export supports `source_kind` `langsmith` and `langfuse`, documented below.** The narrowing
-above is LangSmith's (`filter`, `thread_ids`); a Langfuse export takes the most recent traces. If the
-customer names another platform (Arize, Braintrust, …), say plainly that the SDK cannot export from it
-yet and stop this command — never assume the LangSmith shape transfers to a sink nobody verified.
+above is LangSmith's (`filter`, `thread_ids`). Either sink exports the most recent conversations, each
+whole; `--limit` counts conversations. If the customer names another platform (Arize, Braintrust, …),
+say plainly that the SDK cannot export from it yet and stop this command —
+never assume the LangSmith shape transfers to a sink nobody verified.
 
 ### Step 2: Gather the sink connection config (creds stay LOCAL)
 Credentials come from the environment when set — LangSmith `LANGSMITH_API_KEY`; Langfuse
@@ -185,8 +181,7 @@ needed to instantiate the client:
 | `langfuse` | `public_key`, `secret_key` (the key pair selects the project), optional `host` (self-hosted; else the SDK reads `LANGFUSE_HOST`) |
 
 LangSmith also takes the Step 1 narrowing when there is one: `"filter": "<LangSmith run
-filter>"` and/or `"thread_ids": ["<id>", …]`. With `thread_ids`, `--limit` counts conversations,
-not runs. **Credentials are used to read the sink and are NEVER
+filter>"` and/or `"thread_ids": ["<id>", …]`. **Credentials are used to read the sink and are NEVER
 written to disk** — only the resulting trace files + a credential-free manifest
 are (the manifest records the narrowing under `selection`).
 
@@ -216,7 +211,7 @@ printf %s '{"api_key": "<key>", "project": "<project>"}' > "$CFG"   # LangSmith 
 ```
 
 **With a Step 1 narrowing, first check that the installed SDK honours it.** An SDK that does not
-know `filter` / `thread_ids` ignores them and exports the most recent traces instead — the wrong
+know `filter` / `thread_ids` ignores them and exports the wrong
 conversations, with no error. `plurai capabilities` lists the keys this build honours:
 
 ```bash
@@ -286,9 +281,9 @@ locally, then resolves this env's anonymization posture from `plurai.config.yaml
 (the `anonymize:` key, default raw): under **anonymized** posture it
 **anonymizes every trace (fail-closed)**, keeping the declared names as field names; under the **raw**
 (default) posture it exports the traces as-is and prints a loud
-`RAW (anonymization off)` banner. Either way it bundles the result into a single
-compressed archive, uploads that ONE archive to the backend's storage over the same
-diagnostic connection as the MCP tools, and prints ONE **part entry** to stdout:
+`RAW (anonymization off)` banner. Either way it bundles the result into compressed
+archives, uploads them to the backend's storage over the same diagnostic connection as the
+MCP tools, and prints their **part entries** to stdout. Call it with a Bash `timeout` of `600000`:
 
 ```bash
 # Resolve WHICH plurai runs: the Bash tool does not activate the client's venv, so a bare
@@ -305,14 +300,14 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/sdk_call.py" --refusal-stderr "$PLURAI_BI
     --workspace-root "$PLURAI_DIR" \
     --source-kind "<langsmith|langfuse>" \
     --source-config "$CFG" \
-    --declared-names "$ART/declared_names.json" \
+    --declared-names "$ART/declared_names.json" --multi-part \
     --out-dir "$PLURAI_DIR/traces" > "$ART/trace_part_entry.json" || { rc=$?; rm -f "$ART/trace_part_entry.json"; [ "$rc" -eq 7 ] && exit 7; echo "TRACE_INGEST=FAILED"; exit 1; }   # 7 = a version refusal: its text is on stderr, the file is gone
 # --workspace-root is REQUIRED on every ingest call: omitted, it silently unarms the
 # ingest target pin and pins a phantom plurai_sim/ under whatever directory the shell is in.
 # Both paths go through $PLURAI_DIR for the same reason — a relative literal resolves against
 # the session cwd, and under a named env $PLURAI_DIR is plurai_sim/envs/<name>.
 #   add --limit <int> to cap the export while iterating
-#   stdout → the part entry JSON, saved to $ART/trace_part_entry.json
+#   stdout → the part entries (a JSON list), saved to $ART/trace_part_entry.json
 #   stderr → first the resolved TARGET line (`plurai ingest-traces: uploading to <backend> (target
 #            from the configured backend; <pin verdict>)`),
 #            then a human-readable disclosure preview (trace count, bytes, scrub summary)
@@ -331,13 +326,12 @@ On exit 0, record the connection (provider and project only, never a credential)
 offers Yes/No instead of Connect:
 `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/simulate_plan.py" traces "$WORKDIR" --connect <langsmith|langfuse> --project "<project>"`.
 
-- **The part entry is one JSON object**, `{kind: "trace_archive", sha256, bytes, posture,
-  anon_key_fingerprint}` (the fingerprint only under anonymized posture). The SDK streams every
-  trace (scrubbed under anonymized posture, as-is under raw) into ONE deterministic `.tar.gz` and
-  uploads it as ONE storage object; `sha256` and `bytes` describe that archive, so the same traces
-  export to the same entry. Under anonymized posture the archive carries a scrub map the backend
-  reads. The SDK writes the disclosure preview (to stderr) + `.plurai/uploads/audit.log` itself;
-  relay the preview counts, never trace bodies.
+- **The part entries are a JSON list** of `{kind: "trace_archive", sha256, bytes, posture,
+  anon_key_fingerprint}` (the fingerprint only under anonymized posture), one per archive: one
+  entry unless the export is over one archive's size limit, and then several archives, each
+  holding whole conversations, delivered together. The same traces export to the same entries.
+  The SDK writes the disclosure preview (to stderr) + `.plurai/uploads/audit.log` itself; relay
+  the preview counts, never trace bodies.
 - **Fail-closed — a non-zero exit is a HARD STOP.** Under **anonymized** posture
   this can mean anonymization could not run (Presidio / spaCy missing); under
   **either** posture it can also mean the sink client is absent, the export
@@ -379,8 +373,8 @@ unchanged export keeps one version. Treat that result like any other.
 
 **A finished analysis is final.** A later scan, rescan or input edit that renames or adds tools, arguments or fields
 never analyzes delivered traces again, and a name the analysis never saw has no trace evidence. Re-analyze only when
-the user asks for it: call `ground_workspace_start` with `previous` and `removed=["<the sha256 in
-$ART/trace_part_entry.json>"]` and no `added`, remember and wait for that job (item 5, Step 5), then run items 3 and
+the user asks for it: call `ground_workspace_start` with `previous` and `removed=` the array of every `sha256`
+in `$ART/trace_part_entry.json` and no `added`, remember and wait for that job (item 5, Step 5), then run items 3 and
 4 over to upload and deliver the export again. A part whose analysis failed needs none of this: delivering it again
 retries it.
 
@@ -429,15 +423,13 @@ chokepoint (normal Bash approval, naming the exact command), and the CLI writes 
 `.plurai/uploads/audit.log` (the previewed bytes are already pseudonymized). `ground_workspace_start`
 carries no trace bytes: only the part's hash and size, and the workspace.
 
-**Size note:** the analysis covers the whole corpus and takes minutes. There
-is no cheap mode to ask for, so size the corpus you ingest rather than expecting a
-switch here. Questions about usage, credits or spend go to the Plurai web dashboard;
-this skill shows no figure.
+**Size note:** the analysis reads at most 100 conversations (units, when a conversation is split; a
+random sample past that) and takes minutes; there is no cheaper mode. Questions about usage, credits or spend
+go to the Plurai web dashboard; this skill shows no figure.
 
 ### Step 5: Wait for the grounding job — in the foreground, until it is terminal
 The grounding job analyzes the part itself, and the suite's Step 0b waits for the same job, so a
-job that is already done returns at once. Wait with ONE blocking call. The sleep lives inside the
-script, so the wait cannot overlap the read:
+job that is already done returns at once. Wait with ONE blocking call:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/poll_job.sh" <job_id>
@@ -467,22 +459,25 @@ job_status(id=job_id)
      detail: { settled, waiting_on, held_by, failed_parts, processing_jobs, ledger_version, queued_behind }
 ```
 
-The part's id is the `sha256` in the `ADDED=` array. Read the envelope in this order:
+A part's id is any `sha256` in the `ADDED=` array (all share one analysis). Read the envelope in this order:
 
 | The envelope says | Do |
 |---|---|
-| `failed_parts` names the part | The analysis failed and the version carries the gap; read its cause yourself and never relay it. A cause saying no agent description declares a key means the setup was never recorded: say in product terms that `/simulation-scan-agent` records it and this command runs again after. Any other cause is fixed per this table where it names a repair, and otherwise, or when the re-run after the fix fails again, run the contact hand-off (`stop_message.py contact --done`). Skip Step 6 and Step 7 and render the failure hand-off. |
+| any `failed_parts` entry has a non-null `credit` | A credit refusal, ahead of any other failed part: ONE credit stop for the delivery, by the error posture's Credit refusal rule, with `--refusal` the first such block's JSON and `--continue` the user's command. Skip Step 6 and Step 7. |
+| `failed_parts` names a part, no `credit` | The analysis failed and the version carries the gap; read its cause yourself and never relay it. A cause saying no agent description declares a key means the setup was never recorded: say in product terms that `/simulation-scan-agent` records it and this command runs again after. Any other cause is fixed per this table where it names a repair, and otherwise, or when the re-run after the fix fails again, run the contact hand-off (`stop_message.py contact --done`). Skip Step 6 and Step 7 and render the failure hand-off. |
 | `status: failed` | Read `error` yourself. A description cause (Step 4b's table in `/simulation-scan-agent`) is said in those product terms; anything else is run the contact hand-off (`stop_message.py contact --done`). A failed job is final: never deliver again to retry it. |
-| `waiting_on` still names the part | The backend did not process it: nothing here fixes it, so run the contact hand-off (`stop_message.py contact --done`). |
+| `waiting_on` still names a part | The backend did not process it: nothing here fixes it, so run the contact hand-off (`stop_message.py contact --done`). |
 | `held_by` is not empty | A finding holds the version unsettled. The brief and the trace failures do not depend on it, and no suite pins an unsettled version. Step 6c reads the findings and handles them after the pull: a trace corpus held for its environment is attested or exported again there. Log the counts, `append_loop_log.py --kind note --finding "grounding not settled: held_by=<n> waiting_on=<n>"`, no ids, and carry on. Never ask the user and never put it in the hand-off. |
-| `processing_jobs[<the part's sha256>]` | The id of the trace-analysis job, `<analysis job id>` below. Missing: skip the brief confirmation in Step 6. |
+| `processing_jobs[<a part's sha256>]` | The id of the trace-analysis job, `<analysis job id>` below. Missing: skip the brief confirmation in Step 6. |
 
 ### Step 6: Finish + confirm the brief
 Call `job_status(id=<analysis job id>)` ONCE. On `status='done'` that envelope
 carries `detail.published`, `detail.n_corpus_units`, `detail.brief_files`, and the
 run's coverage: `detail.units_failed` / `detail.units_oversize`, with
 `detail.meta.blind_topics` naming any brief section that came back empty. Report a
-non-zero one to the user — a published brief is not the same as a complete one.
+non-zero one to the user — a published brief is not the same as a complete one. When
+`detail.units_total` exceeds `n_corpus_units`, say the brief read "<n_corpus_units> of <units_total>
+conversations" ("units" unless `detail.conversation_grain.status` is `whole`).
 Confirm `detail.published` is true, then call:
 ```
 get_trace_brief_meta(workspace_id=<bench workspace id>)  →  { present: true, source: 'trace-analysis job <id> ...', files: {...} }
@@ -1083,7 +1078,7 @@ Write the message to these rules the first time:
   holds files the SDK did not write, and every file there would be uploaded. Nothing was deleted
   or uploaded. Tell the user which directory it is and ask them to move those files aside; never
   delete them yourself.
-- `failed_parts` names the part with a cause that says trace analysis is not configured on this
+- `failed_parts` names a part with a cause that says trace analysis is not configured on this
   server → backend-side, no repair step here — run the contact hand-off (`stop_message.py contact --done`).
 - `ground_workspace_start` refused with `mixed_posture` or `fingerprint_mismatch` → a posture
   mismatch; Step 4 says what to tell the user. Nothing was delivered.

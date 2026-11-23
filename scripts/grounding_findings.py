@@ -8,16 +8,18 @@ reading half of that handler. It takes the job envelope `job_status` returned, s
 
     grounding_findings.py show      --status F|-  [--json]    # every finding, holding first, with its handling
     grounding_findings.py overrule  --status F|- --gate-id G --fingerprint FP --reason R   # the held trace corpus only
-    grounding_findings.py remove    --status F|- --part SHA   # the `removed` argument for a failed part
+    grounding_findings.py remove    --status F|- --part SHA   # the `removed` argument for a failed part or a held trace corpus
     grounding_findings.py log       --status F|- --art DIR    # the local log entries and candidates a finding owes
     grounding_findings.py integrity --status F|-              # the run-integrity line a failed trace part owes the report, or nothing
+    grounding_findings.py credit    --status F|-              # `CREDIT=<block>` for the first failed part refused for credit, or nothing
 
 A value conflict never holds, so no value conflict is the agent's to edit, deliver again or overrule: the backend keeps the
 winning value, the losing description keeps its own, and the losing value becomes a candidate scenario. A finding holds
 only on an evidence fault in a corpus part. Trace analysis is opportunistic: a failed trace part is accepted, and a trace
 corpus skipped for its environment never holds the version. The one overrule the agent may send attests such a corpus, so the
-next delivery analyzes it. Nothing here talks to the backend: the agent calls
-`ground_workspace_start` itself with what these commands print.
+next delivery analyzes it. A part the backend refused for credit (a non-null `credit` on its `failed_parts` entry) is the
+credit stop instead: `credit` prints its block, read from that typed field only. Nothing here talks to the backend: the
+agent calls `ground_workspace_start` itself with what these commands print.
 Exit codes: 0 done; 2 usage; 3 a check refused the request (one line on stderr, nothing printed); 4 the status is
 not a job envelope. Stdlib only, on the Python 3.9 floor.
 """
@@ -255,11 +257,35 @@ def _cmd_overrule(args: argparse.Namespace) -> int:
     return 0
 
 
+SHA_PREFIX = 'sha256:'
+
+
+def _bare(sha: Any) -> Any:
+    return sha[len(SHA_PREFIX) :] if isinstance(sha, str) and sha.startswith(SHA_PREFIX) else sha
+
+
 def _names_part(item: dict, part: str) -> bool:
-    """Whether a finding calls for removing `part`: a part whose processing failed, or a trace part held for its environment."""
+    """Whether a finding calls for removing `part`: a part whose processing failed, or a trace part held for its environment.
+
+    A held trace finding's `archive_sha256` is bare hex, so it is matched with or without the `sha256:` prefix."""
     if item['kind'] == 'evidence_missing' and item['key'] == part:
         return True
-    return item['handle'] == 'attest_or_reexport' and item['holds'] and (item.get('trace_environment') or {}).get('archive_sha256') == part
+    return item['handle'] == 'attest_or_reexport' and item['holds'] and _bare((item.get('trace_environment') or {}).get('archive_sha256')) == _bare(part)
+
+
+def _removed_of(finding: dict, part: str) -> list:
+    """The `removed` entries for a finding that names `part`, in the `sha256:<hex>` form the backend accepts.
+
+    A held trace corpus is removed by the parts the backend lists on `observed.parts`, all of them: its `archive_sha256`
+    is the group digest of a corpus staged from several archives, which no delivery holds. A finding without that list
+    (an older backend) names one archive by its bare hex, so the prefix is added. A failed part is removed by its key as given.
+    """
+    if view(finding)['handle'] != 'attest_or_reexport':
+        return [part]
+    parts = _object(finding, 'observed').get('parts')
+    if isinstance(parts, list) and parts and all(isinstance(sha, str) for sha in parts):
+        return list(parts)
+    return [SHA_PREFIX + _bare(part)]
 
 
 def _cmd_remove(args: argparse.Namespace) -> int:
@@ -269,7 +295,7 @@ def _cmd_remove(args: argparse.Namespace) -> int:
     named = [f for f in findings_of(envelope) if _names_part(view(f), args.part)]
     if not named:
         return _fail('no failed-part finding and no held trace part names that part: only a part whose processing failed, or a trace part held for its environment, is removed.')
-    print(json.dumps([args.part]))
+    print(json.dumps(list(dict.fromkeys(sha for f in named for sha in _removed_of(f, args.part)))))
     return 0
 
 
@@ -396,6 +422,27 @@ def _cmd_integrity(args: argparse.Namespace) -> int:
     return 0
 
 
+def credit_of(envelope: dict) -> Optional[dict]:
+    """The `credit` block of the first failed part the backend refused for credit, or None.
+
+    Typed field only: a part with no `credit`, or a null one (an older backend, or any other cause), is never a credit stop,
+    and the cause text is never read.
+    """
+    failed = envelope['detail'].get('failed_parts')
+    for part in failed if isinstance(failed, list) else ():
+        if isinstance(part, dict) and isinstance(part.get('credit'), dict):
+            return part['credit']
+    return None
+
+
+def _cmd_credit(args: argparse.Namespace) -> int:
+    """Print `CREDIT=<the block's JSON>` when a failed part was refused for credit: the stop wins over every other failed part."""
+    block = credit_of(load_status(args.status))
+    if block is not None:
+        print('CREDIT=' + json.dumps(block, ensure_ascii=False, separators=(',', ':')))
+    return 0
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(description='The grounding findings handler.')
     sub = parser.add_subparsers(dest='command', required=True)
@@ -411,7 +458,7 @@ def main(argv: Optional[list] = None) -> int:
     send.set_defaults(func=_cmd_overrule)
     remove = sub.add_parser('remove', help='check and print the `removed` argument for a failed part')
     remove.add_argument('--status', required=True)
-    remove.add_argument('--part', required=True, help='the sha256 the failed-part finding names as its key')
+    remove.add_argument('--part', required=True, help="the failed-part finding's key, or a held trace finding's archive_sha256")
     remove.set_defaults(func=_cmd_remove)
     log = sub.add_parser('log', help="write the notes the findings owe the plugin's local log")
     log.add_argument('--status', required=True)
@@ -420,6 +467,9 @@ def main(argv: Optional[list] = None) -> int:
     integrity = sub.add_parser('integrity', help='print the run-integrity line a failed trace part owes the report, or nothing')
     integrity.add_argument('--status', required=True)
     integrity.set_defaults(func=_cmd_integrity)
+    credit = sub.add_parser('credit', help='print the credit block of the first failed part refused for credit, or nothing')
+    credit.add_argument('--status', required=True)
+    credit.set_defaults(func=_cmd_credit)
     args = parser.parse_args(argv)
     try:
         return args.func(args)

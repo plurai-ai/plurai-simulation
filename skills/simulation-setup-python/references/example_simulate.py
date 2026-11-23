@@ -575,6 +575,14 @@ def invoke_agent(payload, config=None):
     # makes a wrong-model run detectable from the artifacts alone — a repo .env silently
     # swapping the model was otherwise invisible (observed live: gpt-5-mini -> gpt-4.1 and
     # nothing on disk showed it). Point this at wherever YOUR agent resolves its model.
+    #
+    # `run_info` is the place for the harness's own bookkeeping (the model, a working folder, a log file).
+    # A string there that is a local path as a whole is replaced with `[plurai: local path not sent]`
+    # before it is sent. Any absolute path counts, and so does any string that starts with `~`, so a
+    # route such as `/api/x` is replaced too; full URLs and relative paths are kept. Only a whole value
+    # is replaced: a path inside a longer string (`saved to /Users/x/out.json`) is sent as written, so
+    # put a path in a value of its own. A path under any other returned key is sent as the agent's
+    # output, and judges and evals read it.
     if isinstance(result, dict):
         result.setdefault("run_info", {"model": os.environ.get("DEFAULT_LLM__NAME", "<your-resolved-model-id>")})
     # If your agent runs its OWN tool loop — it dispatches internally and returns prose, with no

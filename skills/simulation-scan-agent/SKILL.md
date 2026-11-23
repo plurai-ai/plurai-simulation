@@ -1682,9 +1682,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/grounding_consent.py" sources --workdir "
    skill delivers its own part as before. Exit 0 (`FOUND=descriptions,traces,corpus`) means this item replaces items 3
    and 4 and Step 4d, and never runs when the scan has not found all three.
 
-   **Plan every part; nothing is sent.** The script runs each ingest with `--plan-only` (the real archive, so the size,
-   posture and content address on the screen are the ones the upload will have; no request and no backend credential)
-   and renders the screen from the planned entries:
+   **Plan every part; nothing is sent.** The script runs each ingest with `--plan-only` (the real archive, as the upload
+   will be; no request, no backend credential) and renders the screen from the planned entries. Call it with a Bash
+   `timeout` of `600000`:
 
 ```bash
 cd "<agent-folder>"
@@ -1695,8 +1695,8 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/assert-backend-identity.sh" "" || { echo "
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/grounding_consent.py" plan --workdir "$WORKDIR" --plurai "$PLURAI_BIN" --backend "$SERVER_URL"; echo "consent plan exit=$?"
 ```
 
-   - Exit 4: the runner lacks `plan-only-parts`. Relay the upgrade line it printed, once, in product terms ("the
-     installed plurai is too old to show everything before it is sent"), and go to item 3.
+   - Exit 4: the runner lacks `plan-only-parts` or `multi-part-traces`. Relay the upgrade line it printed, once, in
+     product terms ("the installed plurai is too old to show everything before it is sent"), and go to item 3.
    - Exit 3: nothing was sent. The cause is on stderr. Different anonymization settings for the traces and the corpus
      are the error posture's item 2 (one environment holds one setting; `anonymize:` in `plurai.config.yaml`); any
      other cause is yours to fix once, and the plan is run again. When the plan still fails, go to item 3.
@@ -1706,17 +1706,17 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/grounding_consent.py" plan --workdir "$WO
 
    **Ask once, on the screen as printed.** The gate is `grounding-consent` (sanctioned ask — first run
    `cd "<agent-folder>"; bash "${CLAUDE_PLUGIN_ROOT}/scripts/flow-window.sh" sanction grounding-consent`). The
-   question holds every line before `SCREEN=` verbatim (copy the parts, sizes and postures; never retype or
-   summarize them), then asks whether to send them. Options: **Send all of them (recommended)** / **Not now: deliver
-   each part with its own command**. A gate the user did not answer is re-asked, and nothing below runs until they
+   question holds every line before `SCREEN=` verbatim (never retype or summarize them), then asks
+   whether to send them. Options: **Send all of them (recommended)** / **Not now: deliver each part with its own
+   command**. A gate the user did not answer is re-asked, and nothing below runs until they
    chose. **Under `run_driver: headless` the declared default for `grounding-consent` is `decline`**: nobody consented
-   to send the customer's content, so the plan stays unsent. A `/simulate` run puts this ask
-   to its user too.
+   to send the customer's content, so the plan stays unsent. A `/simulate` run puts this ask to its user
+   too.
 
    - **Not now**, or the declared default: nothing was sent. Go to item 3.
    - **Send all of them**: record the approval of that screen, then deliver. The script runs each ingest for real
-     with the hash its plan printed (`--expect-sha256`), so a part that is not what the screen showed is refused
-     before it is disclosed or sent:
+     with the hash its plan printed (`--expect-sha256`), so a part the screen did not show is refused before it
+     is disclosed or sent. Call it with a Bash `timeout` of `600000`:
 
 ```bash
 cd "<agent-folder>"

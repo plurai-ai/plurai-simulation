@@ -1113,8 +1113,7 @@ generation flow restarts into a session that has the tools.
 mockless skip never reaches it). The grounding ledger is the backend's record of what the agent's own
 files, its traces and its corpus say about it (`${CLAUDE_PLUGIN_ROOT}/docs/grounding-mirror.md`). One suite
 is built on ONE settled version of it, pinned here, so the env, the scenarios and the evals cannot be built
-on different versions. The scan delivered the agent's descriptions; `/analyze-traces` and `/build-rag-corpus`
-delivered more. Only your own edits deliver during this build and move the pin: an `/edit-env` session, and an input
+on different versions. Only your own edits deliver during this build and move the pin: an `/edit-env` session, and an input
 edit of the loop (the PRD, the variables or the config), which delivers and re-pins by item 6. A trace or corpus
 delivery, or a corpus build finishing, never moves it.
 
@@ -1133,15 +1132,14 @@ echo "SEND=$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/grounding_mirror.py" send --
    `WORKSPACE=` known, items 3 to 4 still run: the pull asks the backend for the newest grounding version of that
    workspace by its id and records the job it found, so item 3b and Step 1's corpus wait read that job, and the pin takes the version
    when it is settled. With `WORKSPACE=` empty too, nothing was ever delivered under this bench: skip items 2 to 4. A pin
-   already on disk (a committed one, from a teammate or an earlier build) stands. `SEND=` is the one rule for what a
+   already on disk stands. `SEND=` is the one rule for what a
    generator call does with `ledger_version` (`SEND <id>`, `JOB <id>`, `OMIT waived until <expiry>` or `OMIT unpinned`);
    item 5 acts on it. With `PIN=` empty and no version pulled, go on to Step 0c: the generators make the unpinned call
    (item 5), and the backend says whether the setup is recorded. Never start a delivery from here.
 
 2. **Wait for that job's version to settle**, not for the job to end: the knowledge-graph build of a corpus part
-   runs on after the version settles, Step 0c's env generation starts beside it on the pinned version, and the
-   scenarios and evals wait for it in Step 1's corpus wait. A job that is queued behind another delivery of the
-   same workspace is waited for the same way. Read the job and ask whether it has settled:
+   runs on after the version settles (item 3c). A job queued behind another delivery of the same workspace is waited
+   for the same way. Read the job and ask whether it has settled:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
@@ -1151,9 +1149,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status "{\"id\": \"$JOB\
   && mv "$ART/.grounding_status.json.tmp" "$ART/.grounding_status.json" \
   || { rm -f "$ART/.grounding_status.json.tmp"; echo "SETTLED=unread"; exit 0; }
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/grounding_mirror.py" settled --status "$ART/.grounding_status.json"; echo "grounding settle exit=$?"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/grounding_findings.py" credit --status "$ART/.grounding_status.json"
 ```
 
-   `0`: the wait is over: the version settled, or the job ended unsettled (a hold item 3b handles). `4`: still
+   A `CREDIT=` line wins over any exit: one stop, by the error posture's credit refusal rule, with `--refusal` its JSON
+   and `--continue "/analyze-traces"`. `0`: the wait is over: the version settled, or the job ended unsettled (a hold item 3b handles). `4`: still
    processing: wait in the foreground with `bash "${CLAUDE_PLUGIN_ROOT}/scripts/wait.sh" 60` and run the block again,
    in this turn. `SETTLED=unread` or exit `3`: read once more; a second: run the contact hand-off (`stop_message.py contact --done`). `1`: the job FAILED; it made no version, the mirror stays on the
    one before it, and a failed delivery is never retried from here. Read its `error` yourself with

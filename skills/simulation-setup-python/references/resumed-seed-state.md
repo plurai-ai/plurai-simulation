@@ -91,7 +91,13 @@ Five steps, and only steps 3–5 change with the framework:
    `host_effects`, `input_context`, `appended_output`, `run_info`) is read as NOT measured at its
    cut (single-hop replays fall back to full ones; the record step samples nothing), so an honest
    drop costs replays; a silent one reads as "not caught". Anything the agent routes on never goes
-   inside those keys (`run_info` is free-form).
+   inside those keys. `run_info` is the place for the harness's own bookkeeping: a string there
+   that is a local path as a whole is replaced with `[plurai: local path not sent]` before it is
+   sent. Any absolute path counts, and so does any string that starts with `~`, so a route such as
+   `/api/x` is replaced too; full URLs and relative paths are kept. Only a whole value is replaced:
+   a path inside a longer string (`saved to /Users/x/out.json`) is sent as written, so a path goes
+   in a value of its own. A path under any other returned key is sent as the agent's output, which
+   judges and evals read.
 4. **Tripwire: prove the write landed where turn 1 will look for it**, and that it left nothing
    half-done.
 5. **Pinned start node: arm turn 1 to begin there** — only when the seed carries `resume_point`.

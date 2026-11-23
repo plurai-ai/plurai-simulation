@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.10]
+
+- The plugin installs SDK 1.0.5: a trace export takes the most recent conversations, each whole, from LangSmith and Langfuse, and `--limit` counts conversations.
+- When a trace analysis is refused for credit, `/analyze-traces` ends on the credit message with the command that continues, instead of asking you to contact Plurai, and `/simulation-generate-suite` stops on the same message instead of building without the traces.
+- `/analyze-traces` no longer says the analysis reads every trace: it reads up to 100 conversations (units, when a conversation is split), a random sample of a larger export, and when it read a sample it says how many of how many.
+- When `/analyze-traces` exports traces again to replace a corpus held for its environment, the same delivery removes every archive that corpus was staged from, instead of being refused.
+- A trace export over one archive's size limit is no longer refused: `/analyze-traces`, and the scan's one consent screen, send it as several archives, each holding whole conversations, in one delivery that gets one analysis. The consent screen lists each archive as `part i of N`.
+- The harness templates say what `run_info` is for: it holds the harness's own bookkeeping, a string in it that is a local path as a whole is sent as `[plurai: local path not sent]` (any absolute path and any string that starts with `~`, so a route such as `/api/x` too; full URLs and relative paths are kept; a path inside a longer string is sent as written), and a path under any other returned key is sent as the agent's output, which judges and evals read. The example harness, the bridge harness, the bridge contract and the resumed-seed-state reference carry the rule.
+
 ## [1.0.9]
 
 - The plugin installs SDK 1.0.4: when the agent's error carries its model provider's own spend-cap refusal ("credit balance is too low"), the trial reads not measured (provider infra) instead of an agent failure.

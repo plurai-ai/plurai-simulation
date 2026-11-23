@@ -154,6 +154,12 @@ async def invoke_agent(payload, config=None):
     done = await _bridge_host().turn(thread_id=thread_id, turn_index=turn_index, text=text, parts=parts, request=dict(request))
     result = {
         'messages': [{'role': 'assistant', 'content': done.get('text') or ''}],
+        # `run_info` is the place for the harness's own bookkeeping. A string there that is a local path as a
+        # whole is replaced with `[plurai: local path not sent]` before it is sent. Any absolute path counts, and
+        # so does any string that starts with `~`, so a route such as `/api/x` is replaced too; full URLs and
+        # relative paths are kept. Only a whole value is replaced: a path inside a longer string
+        # (`saved to /Users/x/out.json`) is sent as written, so put a path in a value of its own. A path under
+        # any other returned key is sent as the agent's output, and judges and evals read it.
         'run_info': {
             'model': os.environ.get(MODEL_ENV) or MODEL_DEFAULT,
             'finish_reason': done.get('finish_reason'),

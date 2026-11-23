@@ -126,6 +126,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/grounding_findings.py" integrity --status
 ```
 
 The suite carries the printed line, verbatim, as the report's run-integrity line.
+A part refused for credit (a non-null `credit` on its `failed_parts` entry) never gets here: the suite's wait (Step 0b
+item 2) runs `grounding_findings.py credit`, and its `CREDIT=` line is the credit stop.
 
 ## After a delivery and after a pull
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""The bookkeeping `/analyze-traces` needs around delivering one trace part.
+"""The bookkeeping `/analyze-traces` needs around delivering the trace parts of one export.
 
-The skill exports the traces with `plurai ingest-traces`, hands the printed part entry to the backend's
+The skill exports the traces with `plurai ingest-traces`, hands the printed part entries to the backend's
 `ground_workspace_start`, and reads the result back from the grounding mirror. Three small steps sit between
 those calls, and this file holds them so no skill retypes them:
 
     trace_delivery.py names    --workdir D --out F     # write the names the agent descriptions declare, as a JSON list
-    trace_delivery.py entry    --entry F               # the entry `ingest-traces` printed, checked, as the `added` argument
+    trace_delivery.py entry    --entry F               # the entries `ingest-traces` printed, checked, as the `added` argument
     trace_delivery.py evidence --workdir D             # the tools the mirror holds trace evidence for
 
 `names` feeds `--declared-names`: under anonymized posture a field whose name a description declares keeps its
@@ -14,8 +14,9 @@ name through the scrub, so the traces can join the declared keys. The names come
 scan built (`artifacts/declared_part.json`); a workdir without one is read from its descriptions directly.
 Only tool and entity keys name trace fields, so profile, complication and agent-fact keys are left out.
 
-`entry` refuses what the backend would refuse (a part with no posture, a fingerprint on a raw part, none on an
-anonymized one), so the failure is stated before a tool call is spent. `evidence` reads the mirror and never
+`entry` reads the one object an SDK prints without `--multi-part`, or the JSON list it prints with it, and refuses
+what the backend would refuse (a part with no posture, a fingerprint on a raw part, none on an anonymized one, parts
+of one export under different settings, the same archive twice), so the failure is stated before a tool call is spent. `evidence` reads the mirror and never
 writes it.
 
 Exit codes: 0 done; 2 nothing to build from (`names`); 3 a check failed, stated on stderr, nothing written.
@@ -99,20 +100,35 @@ def _cmd_names(args: argparse.Namespace) -> int:
 # --- the printed entry -------------------------------------------------------------------------------
 
 
-def _check_entry(entry: Any) -> Optional[str]:
-    """The cause a printed trace part entry is not deliverable, or None."""
-    return grounding_files.check_part_entry(entry, TRACE_KIND)
+def entries_problem(value: Any) -> Optional[str]:
+    """The cause the trace part entries one export printed are not deliverable, or None.
+
+    `value` is the one object an SDK prints without `--multi-part`, or the list it prints with it. The phrase
+    completes "the part ..." ("entry 2 of 3 is raw and carries an anon_key_fingerprint")."""
+    entries = value if isinstance(value, list) else [value]
+    if not entries:
+        return 'entry list is empty'
+    for index, entry in enumerate(entries, 1):
+        problem = grounding_files.check_part_entry(entry, TRACE_KIND)
+        if problem is not None:
+            return f'entry {problem}' if len(entries) == 1 else f'entry {index} of {len(entries)} {problem}'
+    if len({(entry['posture'], entry.get('anon_key_fingerprint')) for entry in entries}) > 1:
+        return 'entries of one export carry different anonymization settings'
+    shas = [entry['sha256'] for entry in entries]
+    if len(set(shas)) != len(shas):
+        return 'entries name the same archive twice'
+    return None
 
 
 def _cmd_entry(args: argparse.Namespace) -> int:
     try:
-        entry = json.loads(Path(args.entry).read_text(encoding='utf-8'))
+        value = json.loads(Path(args.entry).read_text(encoding='utf-8'))
     except (OSError, ValueError):
-        return _fail(f'{args.entry} is not the JSON object `plurai ingest-traces` prints; the delivery did not complete.')
-    problem = _check_entry(entry)
+        return _fail(f'{args.entry} is not the JSON object or array `plurai ingest-traces` prints; the delivery did not complete.')
+    problem = entries_problem(value)
     if problem is not None:
-        return _fail(f'the part entry {problem}; nothing was delivered.')
-    print(json.dumps([entry], separators=(',', ':'), ensure_ascii=False))
+        return _fail(f'the part {problem}; nothing was delivered.')
+    print(json.dumps(value if isinstance(value, list) else [value], separators=(',', ':'), ensure_ascii=False))
     return 0
 
 
@@ -162,8 +178,8 @@ def main(argv: Optional[list] = None) -> int:
     names.add_argument('--workdir', required=True)
     names.add_argument('--out', required=True, help='write the JSON list of names here')
     names.set_defaults(func=_cmd_names)
-    entry = sub.add_parser('entry', help='check the entry `plurai ingest-traces` printed and print it as the `added` argument')
-    entry.add_argument('--entry', required=True, help='the file the printed object was saved to')
+    entry = sub.add_parser('entry', help='check the entries `plurai ingest-traces` printed and print them as the `added` argument')
+    entry.add_argument('--entry', required=True, help='the file the printed object or array was saved to')
     entry.set_defaults(func=_cmd_entry)
     evidence = sub.add_parser('evidence', help='the tools the grounding mirror holds trace evidence for')
     evidence.add_argument('--workdir', required=True)

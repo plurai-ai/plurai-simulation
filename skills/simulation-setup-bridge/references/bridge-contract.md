@@ -134,6 +134,12 @@ Child → host:
 8. **Ledger.** For each turn, `run_info.bridge = {ext_calls, out_of_turn, refused_egress, unmapped, sink}` (the keys are
    `constants.json` `ledger_keys`). Each event adds its `count`: `egress_refused` to `refused_egress`, `unmapped_call` and
    `unsupported_shape` to `unmapped`, `sink` to `sink`. It is kept out of `agent_state`.
+   `run_info` is the harness's own bookkeeping: a string in it that is a local path as a whole is
+   replaced with `[plurai: local path not sent]` before it is sent. Any absolute path counts, and so
+   does any string that starts with `~`, so a route such as `/api/x` is replaced too; full URLs and
+   relative paths are kept. Only a whole value is replaced: a path inside a longer string
+   (`saved to /Users/x/out.json`) is sent as written, so a path goes in a value of its own. A path
+   under any other returned key is sent as the agent's output, which judges and evals read.
 
 ## A.5 Serialization
 
