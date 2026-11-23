@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.0.11]
+
+- The plugin installs SDK 1.0.7: on Windows, the texts the SDK writes about a run no longer send a path under your home folder (`C:\Users\me\...`), in any spelling, nor its WSL, Git Bash, MSYS and Cygwin spellings (`/mnt/c/Users/me/...`).
+
 ## [1.0.10]
 
 - The plugin installs SDK 1.0.5: a trace export takes the most recent conversations, each whole, from LangSmith and Langfuse, and `--limit` counts conversations.
