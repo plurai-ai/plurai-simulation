@@ -220,17 +220,14 @@ never repeat it and never ask the user to refresh anything.
 
 ## The manifest helper
 
-All manifest reads/writes/drift-checks go through the shipped helper — never
-hand-edit `plurai.env.yaml`:
+All manifest reads and drift-checks go through the shipped helper — never
+hand-edit `plurai.env.yaml`. The ids in it (and in the id files beside it) are written by
+`${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py` alone, from a backend answer (SAVE and USE below use its
+`to-manifest` and `from-manifest` commands):
 
 ```bash
 PY=python  # or the project's interpreter
 EM="${CLAUDE_PLUGIN_ROOT}/skills/manage-envs/scripts/env_manifest.py"
-
-# write/refresh (preserves prior ids; recomputes fingerprints)
-$PY "$EM" write plurai_sim/envs/<name> --name <name> \
-    [--backend-url <url>] [--env-id <id>] [--scenario-set-id <id>] \
-    [--eval-set-id <id>] [--corpus-id <id>] [--corpus-ids <id> <id> ...]
 
 # read (JSON)            check drift (JSON: {in_sync, drift:[{file,status,stale_downstream}]})
 $PY "$EM" read plurai_sim/envs/<name>
@@ -247,6 +244,9 @@ Every skill that reads/writes artifacts resolves its working dir like this:
    `.active-env`).
 3. If `plurai_sim/envs/` does NOT exist, fall back to bare `plurai_sim/`
    (back-compat for single-env repos that predate this feature).
+
+A committed id (scenario set, eval set, env) is read with `read_id.py <scenarios|evals|env>`, never with `cat`: it takes
+the active env folder's marker, then its manifest key, then the root marker, the order CI reads them in.
 
 ### The env IS the workspace — its 3 input artifacts are scoped to it
 
@@ -325,15 +325,25 @@ Snapshot the CURRENT artifacts + backend ids into `plurai_sim/envs/<name>/`.
    The manifest records the pin itself when it exists (`pin` writes `ledger_version` into it); run step 4 first if the repair
    is run before the manifest is written. `pin` exit 3 means the manifest cannot record it: say the pin was not saved.
 
-3. Read the backend handles from the current dotfiles if present
-   (`.env_id` — written by `/generate-mock-env`; before the world has been stood up, i.e.
+3. The backend handles are the current dotfiles, if present
+   (`.env_id` from `/generate-mock-env`; before the world has been stood up, i.e.
    between `/simulation-scan-agent` and `/simulation-generate-suite`, there is no id yet and
    the manifest records none — saving then is fine, the inputs are the point, but that env
    cannot be switched-to until a suite run mints its world. Plus `.scenario_set_id`,
-   `.eval_set_id`, `.corpus_id`, and — for a per-tenant
-   multi-corpus setup — `.corpus_ids` (one id per line); pass it via `--corpus-ids`).
-4. Write the manifest with those ids + the logged-in backend's url as `backend_url`. It records the
-   pinned grounding version as `ledger_version` by itself: it reads the pin copied in step 2.
+   `.eval_set_id`, `.corpus_id`, `.doc_examples_set_id`, and — for a per-tenant
+   multi-corpus setup — `.corpus_ids` and `.knowledge_bases`).
+4. Write the manifest from them, with the logged-in backend's url as `backend_url`; the id-file writer reads the
+   dotfiles itself, then writes the env folder's own id markers from the manifest, so the saved env holds every copy
+   of each id that CI compares. The manifest records the pinned grounding version as `ledger_version` by itself: it reads the pin
+   copied in step 2.
+
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-plurai-urls.sh" || exit 1   # $SERVER_URL — the configured backend
+   "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" to-manifest --env-dir "${WORKDIR%%/plurai_sim*}/plurai_sim/envs/<name>" \
+     --name <name> --backend-url "$SERVER_URL" --from-dir "$WORKDIR"
+   ```
 5. Set `plurai_sim/.active-env` to `<name>`.
 6. Tell the user to `git add plurai_sim/envs/<name>/` (the manifest + artifacts +
    the backend-identity markers are meant to be committed; the machine-local
@@ -369,14 +379,19 @@ Switch the active environment and make sure its mock is live.
    `source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-plurai-urls.sh" || exit 1`, then
    `${SERVER_URL%/}` + that path — the whole base and its path prefix, never a rebuild
    from scheme+host, and the `|| exit 1` is what stops a tokenless remote base from
-   saving a URL the run cannot reach. Then the id dotfiles
-   (`.env_id`, `.scenario_set_id`, `.eval_set_id`, `.corpus_id`) from the manifest —
-   `.env_id` so `/simulation-generate-suite` Step 0c takes its cheap re-deploy branch
-   straight after a switch. If the
-   manifest carries a `corpus_ids` list, also write `plurai_sim/.corpus_ids` (one id per
-   line) so `/generate-scenarios` can pick up the per-tenant corpora — it is one of the three
-   shapes `scripts/corpus_coordinate.py` reads, and the only one a per-tenant env has.
-6. Set `plurai_sim/.active-env` to the resolved alias.
+   saving a URL the run cannot reach. Then the id dotfiles from the manifest with the
+   id-file writer (`.env_id`, `.scenario_set_id`, `.eval_set_id`, `.corpus_id`, and `.corpus_ids` when the manifest carries
+   a `corpus_ids` list): `.env_id` so `/simulation-generate-suite` Step 0c takes its cheap re-deploy branch
+   straight after a switch, `.corpus_ids` so `/generate-scenarios` can pick up the per-tenant corpora — it is one of the
+   three shapes `scripts/corpus_coordinate.py` reads, and the only one a per-tenant env has. The command is in step 6:
+   it runs once the active env is set, so the resolver names the env directory.
+6. Set `plurai_sim/.active-env` to the resolved alias, then write the id dotfiles of step 5:
+
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+   "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" from-manifest --env-dir "${WORKDIR%%/plurai_sim*}/plurai_sim/envs/<name>"
+   ```
 7. **Restore the grounding.** The env's mirror and pin come back with it. Run this AFTER step 6, so
    `$WORKDIR` is the env directory:
 

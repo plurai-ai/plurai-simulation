@@ -74,7 +74,7 @@ read each row from one envelope:
 | 89cde456…               | dataset_c         | failed | 1/3   | YYYY-MM-DD HH:MM  |
 ```
 
-Pull a `plurai_sim/.scenario_set_id` from the cwd (if present) and mark
+Read the scenario set id the workdir records (`source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios`; exit 1 means none) and mark
 the matching row with `*` so the user sees which set their current
 plurai_sim/ points at.
 
@@ -129,9 +129,9 @@ already gone — idempotent). On `deleted=true`, print:
 Deleted scenario_set_id=<uuid>.
 ```
 
-If the customer's `plurai_sim/.scenario_set_id` pointed at the deleted
-set, also `rm` that file so a subsequent `/simulation-run`
-fails fast rather than running against a missing set.
+If the scenario set the workdir records (`read_id.py scenarios`) is the deleted set, tell the user in one plain line
+that their suite points at a set that no longer exists, and that `/simulation-generate-suite` builds a new one. Leave
+the id files as they are: their copies move together, through the id-file writer, when a new set is built.
 
 ## Last step — pull the grounding mirror
 

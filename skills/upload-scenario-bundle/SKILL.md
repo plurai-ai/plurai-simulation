@@ -44,7 +44,7 @@ The split that matters:
 │       → UploadFinalizeResult { set_id, status: 'done', ... }        │
 │       (set_id is server-minted, in this same call)                  │
 │  6. MCP: get_upload_meta(set_id) → 'done'.                          │
-│  7. Write plurai_sim/.scenario_bundle_id (no newline) +             │
+│  7. write_id_file.py created → .scenario_bundle_id, + sidecars       │
 │       .scenario_bundle_augmentation (chosen level) +                │
 │       .scenario_bundle_intent (when + what for).                    │
 │  8. Tell the user to run /simulation-generate-suite, then VERIFY.   │
@@ -495,15 +495,19 @@ environment silently (e.g. add a missing `ROLES.md`) and re-run; for a backend p
 
 ### Step 6: Write the markers
 
+Write the `upload_scenario_bundle_start` result (`UploadFinalizeResult`) to `$ART/bundle_upload.json` with the Write tool.
+The id-file writer takes the `set_id` from it, and only when `status` is `done`:
+
 ```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"   # ABSOLUTE $PLURAI_DIR — cwd-reset-proof
-printf %s "<set_id>" > "$PLURAI_DIR/.scenario_bundle_id"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" created --kind scenario_bundle "$ART/bundle_upload.json"
 printf %s "0"        > "$PLURAI_DIR/.scenario_bundle_augmentation"
 printf '%s | %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<one line: what this bundle is FOR>" \
   > "$PLURAI_DIR/.scenario_bundle_intent"
 ```
 
-(The first two are one line each, no trailing newline — matching the `.doc_examples_set_id` /
+(The id file and the augmentation file are one line each, no trailing newline — matching the `.doc_examples_set_id` /
 `.scenario_set_id` convention.) `augmentation_level=0` is the faithful-reproduction
 default: one scenario per folder. Write a higher integer ONLY if the user
 explicitly wants variations (each folder then ALSO yields N varied scenarios as

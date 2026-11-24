@@ -1899,12 +1899,11 @@ mirror stops matching:**
 3. Then ensure the block reads exactly:
 
 ```
-# BEGIN plurai-simulation rev 11 (managed — edits inside are overwritten by /simulation-scan-agent)
+# BEGIN plurai-simulation rev 12 (managed — edits inside are overwritten by /simulation-scan-agent)
 **/plurai_sim/**/artifacts/*
 !**/plurai_sim/**/artifacts/data_profile.md
 !**/plurai_sim/**/artifacts/scenarios.md
 !**/plurai_sim/**/artifacts/evals.md
-!**/plurai_sim/**/artifacts/suite.json
 !**/plurai_sim/**/artifacts/agent_findings.md
 !**/plurai_sim/**/artifacts/fixes.md
 !**/plurai_sim/**/artifacts/pre_generation_findings.md
@@ -1975,10 +1974,11 @@ different reasons, one line each:
 - `data_profile.md` is a GENERATION INPUT — scenario and eval generation are grounded on it the
   way they are grounded on `simulation_prd.md` — so it has to survive a clone like every other
   input.
-- `scenarios.md`, `evals.md`, `suite.json`, `agent_findings.md`, `fixes.md`,
+- `scenarios.md`, `evals.md`, `agent_findings.md`, `fixes.md`,
   `pre_generation_findings.md` are the READER files: the deliverable a human opens to see what
-  the suite tests and what it found. A suite whose scenario text lives only on one machine is
-  not a suite the customer owns, and these carry that text. `agent_findings.md` is PRUNED PER
+  the suite tests and what it found. `scenarios.md` and `evals.md` are local reading copies; CI
+  reviews a suite change by its suite diff. `suite.json` is not committed: built locally, it
+  conflicts on merge. `agent_findings.md` is PRUNED PER
   EPOCH (`flow-window.sh arm` clears the confirmed tier), so a commit of it is a snapshot of
   that epoch, not an accumulating log.
 - `scan_contract.json` is the DRIFT BASELINE — the source fingerprint a later contract run

@@ -639,7 +639,7 @@ def _derive_stage(art: Path) -> str:
 
     DERIVED, never declared. The stage decides whether a coverage re-draw carries a finding, so an
     actor allowed to name its own stage can name its way straight past it — the asymmetry the
-    critic gate already avoids by reading `.scenario_set_id` off disk. This reads the same two
+    critic gate already avoids by reading the committed scenario set id (`read_id.py`). This reads the same two
     facts that gate does: Step 3b's precondition IS a `critic` entry naming the current set, so
     the presence of one is exactly what separates "still validating the machinery" from
     "building the deliverable".
@@ -647,8 +647,10 @@ def _derive_stage(art: Path) -> str:
     Unreadable either way → `qualification`, the stricter branch: an unreadable set id must
     never be the thing that silences the finding.
     """
+    import read_id  # noqa: PLC0415 - sibling script: the one reader of the committed suite ids
+
+    set_id = read_id.committed_id(art.parent, 'scenarios')
     try:
-        set_id = (art.parent / '.scenario_set_id').read_text(encoding='utf-8').strip()
         lines = (art / 'loop_log.md').read_text(encoding='utf-8').splitlines()
     except OSError:
         return 'qualification'

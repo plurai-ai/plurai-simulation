@@ -95,6 +95,11 @@ def _only(args: list[str], keep: list[str]) -> list[str]:
 
 
 def _current(workdir: Path, name: str) -> str:
+    """The value a workdir file holds now; a committed id through `read_id.py`, which takes its copies in CI's order."""
+    import read_id  # noqa: PLC0415 - sibling script: the one reader of the committed ids
+
+    if name in read_id.MARKER_KINDS:
+        return read_id.committed_id(workdir, read_id.MARKER_KINDS[name]) or ""
     path = workdir / name
     return path.read_text(encoding="utf-8").strip() if path.is_file() else ""
 

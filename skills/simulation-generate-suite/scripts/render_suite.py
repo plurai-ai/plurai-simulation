@@ -9,15 +9,20 @@ renderer: Claude does the judgement/derivation, the script does the pixels.
 
     python render_suite.py suite.json --artifacts-dir plurai_sim/artifacts
 
-Writes (all under --artifacts-dir, which is gitignored):
-    scenarios.md
-    evals.md
+Writes (all under --artifacts-dir):
+    scenarios.md               local reading copy; the managed .gitignore block leaves it stageable,
+    evals.md                   and CI ignores it. The review surface for a suite change is the
+                               suite diff CI renders from the backend's content, so neither file
+                               is checked against the ids.
     charts/scenarios_coverage.svg
     charts/scenarios_complexity.svg
     charts/environment.svg
     scenarios/<page>.md        (one per scenario; <page> is the id SANITISED to a single
                                 safe path segment — see page_name)
     suite.json                 (canonical copy)
+
+Committed: nothing here is required in the repo. The ids that pin the suite are the committed
+id files; `suite.json`, the charts and the scenario pages stay gitignored.
 
 Every section degrades gracefully: anything the spec omits (e.g. trace-derived
 value ranges / failure-mode rates, not available until the traces sync exists)

@@ -236,6 +236,23 @@ def write_manifest(  # noqa: PLR0913 — id fields are explicit by design
     return manifest
 
 
+def set_ids(env_dir: Path, updates: dict) -> dict:
+    """Move the named keys of an existing manifest and nothing else.
+
+    The fingerprints stay as they were: an edit of an artifact is not a generation from the current inputs, so a
+    drifted input still reads as drifted. ``updated_at`` moves. Raises FileNotFoundError when there is no manifest.
+    """
+    if yaml is None:
+        raise RuntimeError('pyyaml is required to write the env manifest')
+    manifest = read_manifest(env_dir)
+    if manifest is None:
+        raise FileNotFoundError(f'no {MANIFEST_FILENAME} in {env_dir}')
+    manifest.update(updates)
+    manifest['updated_at'] = _now_iso()
+    (env_dir / MANIFEST_FILENAME).write_text(yaml.safe_dump(manifest, sort_keys=False), encoding='utf-8')
+    return manifest
+
+
 def record_ledger_version(env_dir: Path, ledger_version: str) -> dict:
     """Set ``ledger_version`` in the existing manifest and nothing else.
 

@@ -2002,7 +2002,7 @@ def mock_endpoint(base_url: str, env_id: str) -> str:
     if parts.scheme != 'https' and not loopback:
         raise RewireError(f'{base_url} is not https; Salesforce will not call out to it')
     if not env_id:
-        raise RewireError("no mock env id; run the plugin's deploy_env and write the id to .env_id")
+        raise RewireError("no mock env id; run the plugin's env generation, which records the id in .env_id")
     return f'{base_url.rstrip("/")}/mock/{env_id}'
 
 
@@ -2635,7 +2635,7 @@ def main(argv: list[str] | None = None) -> int:
             # than reading `.env_id` itself, so the workdir layout is resolved in one place.
             env_id = args.env_id if args.env_id is not None else _default_env_id(project)
             if not env_id:
-                raise RewireError("no mock env id; run the plugin's env generation and write the id to .env_id")
+                raise RewireError("no mock env id; run the plugin's env generation, which records the id in .env_id")
             print(env_id)
             return 0
         if args.names:

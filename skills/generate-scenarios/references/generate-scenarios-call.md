@@ -41,6 +41,7 @@ generate_scenarios_start(
     workspace_id=<bench workspace id>,  # ALWAYS — the stdout of: source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_id.py"
     scenario_bundle_id=<str or None>,      # set_id from plurai_sim/.scenario_bundle_id (see below); None if absent
     additional_bundle_id=<str or None>,    # the merged REGRESSIONS + TRACE SCENARIOS bundle, authored BESIDE the walk into the same set (see below); None on every batch that is not the deliverable
+    bundle_only=False,                     # `/record-regression`'s plant passes True, with `adopt_from_scenario_set_id` and `additional_bundle_id`: adopt every donor scenario, author only the folders, walk nothing (see below); no other batch passes it
     augmentation_level=<int>,              # from plurai_sim/.scenario_bundle_augmentation (default 0); only meaningful with a bundle (see below)
     artifact_feedback=<str or None>,       # free-text feedback on a PRIOR batch's artifacts/documents (see below); None on a first pass
     intervention_point=False,

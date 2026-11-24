@@ -8,7 +8,7 @@ or probing a new artifact shape), read those comments, not your memory of them.
     source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"   # $PLURAI_PY: the tool declaration is read through PyYAML
     "$PLURAI_PY" build_run_json.py <out_dir> --workdir <plurai_sim> --dataset-name X --eval-set-id Y \
         --gt-revision N --agent-version V --run-name R [--local-only] [--run-mode M] \
-        [--expected-scenarios N] [--coverage-debt <file>] [--stage qualification|final|verify|repeat]
+        [--expected-scenarios N] [--coverage-debt <file>] [--eval-set-meta <file>] [--stage qualification|final|verify|repeat]
 
 Reads each `<out_dir>/<scenario>/` — its verdicts from `verdicts.json` and nowhere else
 (`scripts/verdicts_file.py`, docs/verdicts.md), what happened from transcript.json /
@@ -23,7 +23,8 @@ rather than defaulted, because both read as a number the report never earned.
 THE PRODUCER CONTRACT (`schema: plurai-run/1`). `stage` is the run's stage (`RUN_STAGES`), from `--stage`
 or kept from the previous run.json on a rebuild, never inferred from a folder name; `scripts/runs_index.py`
 indexes it and names the scored run. Every `evals[]` row carries `verdict_tier` / `tier_source` / `severity` /
-`from_trace` (:func:`eval_tier_fields`) — typed `null` / `unknown` / `null` / `null` when the eval set was not read, never guessed.
+`from_trace` (:func:`eval_tier_fields`): the tier is the one the backend serves for the eval set (`--eval-set-meta`, the
+eval set's `get_artifact_meta` answer), typed `null` / `unknown` when it was not read, never derived here.
 THE SCORES are the SDK's, never this file's: before anything is read, `plurai scores refresh` recomputes the run's
 scores block (`run_summary.json` → `scores`, `plurai.scoring`) and each row's `result`, `score` (0-100) and
 `fail_reasons` are its attempt's entry, copied; `totals` carries the block's `suite_score`, `agent_verdict` and
@@ -1731,93 +1732,103 @@ _HARNESS_BREACH_OWNER = 'harness@client'
 #: A breach the EVAL SET owns (`policy_error`, `guard_error`, `uncelled_policy`): ONE named policy produced no
 #: cell. It spares the verdict only when that policy is KNOWN unable to decide it (`_verdict_clean`).
 _POLICY_BREACH_OWNER = 'policy@eval_set'
-#: the backend's closed `verdict_tier` set (`policies/verdict_types.py`). A declared value outside it is a tier this
-#: plugin cannot read, so the policy's veto capability is UNKNOWN — never the default.
+#: the backend's closed tier set. A served tier outside it is one this plugin cannot read,
+#: so the policy's veto capability is UNKNOWN — never the default.
 VERDICT_TIERS = ('catastrophic', 'failing', 'standard')
-#: The declared tiers whose confident red fails the trial (`scenario_verdict.passed`).
+#: The tiers whose confident red fails the trial (`scenario_verdict.passed`).
 _VETO_TIERS = ('catastrophic', 'failing')
 #: The eval set the plugin holds locally, under `--workdir`.
 POLICIES_CONFIG_FILENAME = 'policies_config.yaml'
+#: The eval set's `get_artifact_meta` answer (`GET /artifacts/{eval_set_id}`), saved in the run dir before the build. Its
+#: `detail.policy_tiers` is the one source of a policy's effective tier: the Plurai backend resolves it the way a run scores it
+#: (the `terminate_values` floor included), so no client derives a tier.
+EVAL_SET_META_FILENAME = 'eval_set_meta.json'
+#: The key :func:`eval_set_bodies` sets on every policy body: the backend's effective tier, or ``None``.
+EFFECTIVE_TIER_KEY = 'effective_tier'
 
 
-#: Where a policy's effective tier came from (`evals[].tier_source`): its author's `verdict_tier`; a
-#: `terminate_values` STOP floor; the backend's derivation for an undeclared tier; or `unknown` — the eval set
-#: was not read, the policy is not in it, or it declares a tier outside :data:`VERDICT_TIERS`.
-TIER_SOURCES = ('declared', 'terminate_floor', 'derived', 'unknown')
+#: Where an `evals[]` row's tier came from (`tier_source`): `backend`, the eval set's served `policy_tiers`; `declared`,
+#: one of the plugin's own checks (`PLUGIN_CHECKS`), whose tier is set in code; or `unknown` — no eval-set meta was read,
+#: it lists no tier for the policy, or the tier is outside :data:`VERDICT_TIERS`.
+TIER_SOURCES = ('backend', 'declared', 'unknown')
 
 
-def policy_effective_tier(body: object) -> tuple[str | None, str]:
-    """``(tier, source)`` — the tier a confident red on this policy carries, and where it came from.
+def backend_policy_tiers(meta_path: Path, eval_set_id: str | None = None) -> dict[str, str] | None:
+    """``{policy: effective_tier}`` off a saved eval-set `get_artifact_meta` answer, or ``None`` when there is none to read.
 
-    Mirrors the backend's own classifiers (`eval_coverage.trial_tier` + `loader.is_integrity_floor`) rather
-    than inventing a third, one branch per row:
-
-    ======================================================  ==========================  =================
-    body                                                    tier                        source
-    ======================================================  ==========================  =================
-    any ``terminate_values`` floor, not declared            ``failing``                 ``terminate_floor``
-    ``catastrophic`` (a STOP floor at any scope still
-    lands in `decisive_violations`)
-    a declared ``verdict_tier`` in :data:`VERDICT_TIERS`    that tier                   ``declared``
-    undeclared, ``severity: high`` or                       ``failing``                 ``derived``
-    ``grades_source_fidelity: true``
-    undeclared, anything else                               ``standard``                ``derived``
-    a declared tier outside :data:`VERDICT_TIERS`, or a     ``None``                    ``unknown``
-    body this cannot read
-    ======================================================  ==========================  =================
+    ``None`` means: no file, unreadable, not an artifact answer, the answer of another eval set than ``eval_set_id`` (a
+    rescore under an edited set leaves the old answer in the run dir), or ``detail.policy_tiers`` is null (the backend could
+    not load the set's policies). Said on stderr when the file exists: a silent ``None`` would type every row unknown and
+    void every spared side-judge error with nothing pointing at why. Rows the backend serves malformed are skipped, never guessed.
     """
-    if not isinstance(body, dict):
-        return None, 'unknown'
-    declared = body.get('verdict_tier')
-    token = '' if declared is None else str(declared).strip().lower()
-    if body.get('terminate_values') and token != 'catastrophic':
-        return 'failing', 'terminate_floor'
-    if not token:
-        severity = body.get('severity')
-        high = (isinstance(severity, str) and severity.strip().lower() == 'high') or body.get('grades_source_fidelity') is True
-        return ('failing' if high else 'standard'), 'derived'
-    return (token, 'declared') if token in VERDICT_TIERS else (None, 'unknown')
+    if not meta_path.is_file():
+        return None
+    why = ''
+    try:
+        doc = json.loads(meta_path.read_text(encoding='utf-8'))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        doc, why = None, f'could not be read ({exc})'
+    detail = doc.get('detail') if isinstance(doc, dict) else None
+    rows = detail.get('policy_tiers') if isinstance(detail, dict) else None
+    if isinstance(doc, dict) and eval_set_id and doc.get('id') != eval_set_id:
+        rows, why = None, f'is the meta of eval set {doc.get("id")!r}, not {eval_set_id!r} (fetch the meta of the set this run is scored with)'
+    if not isinstance(rows, list):
+        why = why or ('carries no detail.policy_tiers (the backend could not load the eval set\'s policies)' if isinstance(detail, dict)
+                      else 'is not a get_artifact_meta answer')
+        print(f'note: {meta_path} {why} — no policy has an effective tier, so every evals[] row is tier_source unknown and every '
+              'policy_error / guard_error / uncelled_policy breach voids its verdict.', file=sys.stderr)
+        return None
+    return {row['name']: row[EFFECTIVE_TIER_KEY] for row in rows
+            if isinstance(row, dict) and isinstance(row.get('name'), str) and isinstance(row.get(EFFECTIVE_TIER_KEY), str)}
+
+
+def eval_set_meta_path(out: Path, explicit: str | None = None) -> Path:
+    """The eval-set meta a build of ``out`` reads: ``explicit`` (``--eval-set-meta``) when given, else
+    :data:`EVAL_SET_META_FILENAME` in the run dir — ``out`` itself, or its parent for a ``trial_<k>`` dir, since every
+    trial of a run is scored with the same eval set."""
+    return Path(explicit) if explicit else verdict_events.scores_home(out)[0] / EVAL_SET_META_FILENAME
+
+
+def served_tier(body: object) -> str | None:
+    """The backend's effective tier on a body :func:`eval_set_bodies` returned, or ``None`` when it is unknown.
+
+    Unknown covers a body that is not a mapping, a policy the served ``policy_tiers`` does not list, and a tier outside
+    :data:`VERDICT_TIERS`."""
+    tier = body.get(EFFECTIVE_TIER_KEY) if isinstance(body, dict) else None
+    return tier if tier in VERDICT_TIERS else None
 
 
 def policy_veto_capability(body: object) -> bool | None:
     """Whether this policy, had it produced a cell, could have FAILED the scenario by itself — or ``None``.
 
-    :func:`policy_effective_tier`'s reading as a bool: ``True`` for a ``catastrophic`` or ``failing`` tier
-    (declared, a ``terminate_values`` STOP floor, or derived from ``severity: high`` / ``grades_source_fidelity``),
-    ``False`` for ``standard``, ``None`` for an UNKNOWN tier — which the caller reads as "could have", never
-    as "could not".
+    :func:`served_tier` read as a bool: ``True`` for ``catastrophic`` or ``failing``, ``False`` for ``standard``,
+    ``None`` for an UNKNOWN tier — which the caller reads as "could have", never as "could not".
     """
-    tier, _source = policy_effective_tier(body)
+    tier = served_tier(body)
     return None if tier is None else tier in _VETO_TIERS
-
-
-def eval_set_veto_capability(workdir: str | None) -> dict[str, bool | None] | None:
-    """``{policy: policy_veto_capability(body)}`` over ``<workdir>/policies_config.yaml``, or ``None``.
-
-    ``None`` means the eval set was not read (no workdir, no file, no pyyaml, unreadable, not a mapping):
-    every `policy@eval_set` breach then reads as UNKNOWN tier and voids its verdict. See :func:`eval_set_bodies`.
-    """
-    bodies = eval_set_bodies(workdir)
-    return None if bodies is None else {name: policy_veto_capability(body) for name, body in bodies.items()}
 
 
 def eval_tier_fields(name: str, bodies: Mapping[str, object] | None) -> dict:
     """``{verdict_tier, tier_source, severity, from_trace}`` for one `evals[]` row — every key always present.
 
-    ``verdict_tier`` / ``tier_source`` are :func:`policy_effective_tier` over the policy's local body;
-    ``severity`` is its declared ``severity`` string, else ``None``; ``from_trace`` is :func:`_from_trace`
-    (born from a production-trace failure). A policy the local eval set does not hold (or an eval set that
-    was not read: ``bodies`` is ``None``) is ``None`` / ``unknown`` / ``None`` / ``None`` — never a guessed tier.
+    ``verdict_tier`` is :func:`served_tier` (the backend's effective tier) and ``tier_source`` is ``backend`` when there
+    is one, else ``None`` / ``unknown``; ``severity`` is the local body's declared ``severity`` string, else ``None``;
+    ``from_trace`` is :func:`_from_trace` (born from a production-trace failure). A policy the local eval set does not
+    hold (or an eval set that was not read: ``bodies`` is ``None``) is ``None`` / ``unknown`` / ``None`` / ``None``.
     """
     body = (bodies or {}).get(name)
-    tier, source = policy_effective_tier(body) if body is not None else (None, 'unknown')
+    tier = served_tier(body)
     severity = body.get('severity') if isinstance(body, dict) else None
-    return {'verdict_tier': tier, 'tier_source': source, 'severity': severity.strip().lower() if isinstance(severity, str) and severity.strip() else None,
+    return {'verdict_tier': tier, 'tier_source': 'backend' if tier is not None else 'unknown',
+            'severity': severity.strip().lower() if isinstance(severity, str) and severity.strip() else None,
             'from_trace': _from_trace(body)}
 
 
-def eval_set_bodies(workdir: str | None) -> dict[str, object] | None:
+def eval_set_bodies(workdir: str | None, *, tiers: Mapping[str, str] | None = None) -> dict[str, object] | None:
     """``{policy: body}`` off ``<workdir>/policies_config.yaml``, or ``None`` when the eval set was not read.
+
+    Every mapping body carries :data:`EFFECTIVE_TIER_KEY`: its tier in ``tiers`` (:func:`backend_policy_tiers`), else
+    ``None``. The key is always overwritten, so a tier typed in the local file is never read as the backend's.
 
     ``None`` means: no workdir, no file, no pyyaml, unreadable, or not a mapping. Said on stderr when the
     file exists and could not be read — a silent `None` would turn every spared side-judge error into an
@@ -1842,7 +1853,9 @@ def eval_set_bodies(workdir: str | None) -> dict[str, object] | None:
         print(f'note: {path} does not parse to a mapping ({type(doc).__name__}) — every policy_error / guard_error / '
               'uncelled_policy breach voids its verdict.', file=sys.stderr)
         return None
-    return {str(name): body for name, body in doc.items()}
+    served = tiers or {}
+    return {str(name): {**body, EFFECTIVE_TIER_KEY: served.get(str(name))} if isinstance(body, dict) else body
+            for name, body in doc.items()}
 
 
 #: The backend's name fallback for a policy that typed NEITHER source-fidelity field (`loader._SOURCE_FIDELITY_NAME_TOKENS`,
@@ -5430,10 +5443,12 @@ def _spec_of(out: Path, args: argparse.Namespace, scores_block: dict | None = No
     if not dirs:
         raise SystemExit(f'no scenario dirs under {out} — nothing to aggregate')
 
-    # Which policies could have failed a scenario by themselves, off the local eval set — read ONCE. An errored
-    # policy spares a verdict only when this says it could not (`_verdict_clean`); `None` spares none.
-    # The same read gives each `evals[]` row its effective tier (`eval_tier_fields`).
-    policy_bodies = eval_set_bodies(getattr(args, 'workdir', None))
+    # Which policies could have failed a scenario by themselves: the local eval set, each body carrying the effective tier
+    # the backend serves for it — read ONCE. An errored policy spares a verdict only when its tier says it could not
+    # (`_verdict_clean`); `None` spares none. The same read gives each `evals[]` row its tier (`eval_tier_fields`).
+    meta_path = eval_set_meta_path(out, getattr(args, 'eval_set_meta', None))
+    policy_tiers = backend_policy_tiers(meta_path, getattr(args, 'eval_set_id', None))
+    policy_bodies = eval_set_bodies(getattr(args, 'workdir', None), tiers=policy_tiers)
     # The operator's identity markers, captured when the run started (`operator_identity.py capture`). None: not checked.
     identity_markers = _identity.read_markers(out) if _identity else None
     if identity_markers is None:
@@ -6074,13 +6089,17 @@ def _spec_of(out: Path, args: argparse.Namespace, scores_block: dict | None = No
 
     evals = eval_rows(merged_policy_order(orders, skipped_lists), per_policy, per_policy_reasons,
                       per_policy_turns, per_policy_owners)
-    # Each row's EFFECTIVE tier — what a confident red on it does to the trial — off the local eval set. Every row
-    # carries the three keys; an eval set that was not read types every row unknown, said once here.
+    # Each row's EFFECTIVE tier — what a confident red on it does to the trial — as the backend serves it. Every row
+    # carries the three keys; an eval set or a tier list that was not read types every row unknown, said once here.
     for row in evals:
         row.update(PLUGIN_CHECKS[row['id']][1] if row['id'] in PLUGIN_CHECKS else eval_tier_fields(row['id'], policy_bodies))
     if policy_bodies is None and evals:
         print(f'note: the eval set was not read ({"no --workdir" if not getattr(args, "workdir", None) else POLICIES_CONFIG_FILENAME + " unread"}), '
               f'so every evals[] row carries verdict_tier null / tier_source unknown / from_trace null — no tier is guessed.', file=sys.stderr)
+    elif policy_tiers is None and evals:
+        print(f'note: no eval-set tiers were read ({meta_path} is missing or unreadable; save the eval set\'s get_artifact_meta '
+              'answer there), so every evals[] row carries verdict_tier null / tier_source unknown — no tier is derived locally.',
+              file=sys.stderr)
 
     spec: dict = {'schema': RUN_SCHEMA, 'run_name': args.run_name or out.name}
     # The run's STAGE, never inferred from a folder name: `--stage`, else the stage this run dir's previous
@@ -6854,6 +6873,9 @@ def _main(argv: list[str] | None) -> int:
     ap.add_argument('--run-name', help='defaults to the run dir name')
     ap.add_argument('--dataset-name')
     ap.add_argument('--eval-set-id', help='the eval-set these verdicts came from — stamps the render for staleness checks')
+    ap.add_argument('--eval-set-meta',
+                    help="the eval set's get_artifact_meta answer (GET /artifacts/<eval set id>), whose detail.policy_tiers "
+                         f'gives each policy its effective tier; defaults to <run dir>/{EVAL_SET_META_FILENAME}')
     ap.add_argument('--gt-revision', type=int, help='the GT revision scored against (0 is real, not absent)')
     ap.add_argument('--agent-version')
     ap.add_argument('--expected-scenarios', type=int,

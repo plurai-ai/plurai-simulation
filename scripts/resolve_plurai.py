@@ -35,7 +35,7 @@ The winner must pass a capability probe — `<candidate> --help` exits 0 and lis
 `ingest-*` subcommands — so a pre-ingest SDK generation is rejected with upgrade
 guidance instead of failing mid-flow. stdout carries ONLY the resolved absolute path
 (capture it verbatim); all diagnostics go to stderr. Non-zero exit = nothing usable; 3 = a runner
-was found and REFUSED (the client pin, a version other than `PINNED_SDK_VERSION`, or a file no installed
+was found and REFUSED (the client pin, a release outside the range `_sdk_in_range` names, or a file no installed
 `plurai-simulation-sdk` distribution lists) — never fall back. `EXIT_RUNNER_REFUSED` names that code.
 
 A runner older than `PINNED_SDK_VERSION` in a project environment of its own is offered the install, when the caller passes
@@ -44,8 +44,22 @@ carries the one question for the caller to ask (`_ask_text`), whose ask the same
 (`_sanction_blocker`) so the ask tool is the caller's next action, and `--install-pin [--require ...]` installs exactly the
 pin into that runner's environment once the answer is yes. The caller's own refusal exit stays 3 either way, and a run
 declared headless gets the stop text alone. A project environment that holds no runner at all is offered the same install
-under the question `MISSING_SDK_QUESTION`. A newer runner, an unreadable version and an environment that is not a venv or
+under the question `MISSING_SDK_QUESTION`. A runner of a later minor, an unreadable version and an environment that is not a venv or
 conda environment of the project get the stop text and no question: nothing downgrades or writes on a keypress.
+
+A runner older than the pin that also lacks a subcommand named with `--require` is offered the same install (`--ask`) or
+gets it (`--install-pin`): it lacks the subcommand because it is old, and the release the plugin needs has it. A runner at or
+past the pin that lacks one is a broken install and keeps the exit 1 with `UPGRADE_HINT`, as does a call with neither flag.
+
+A project that keeps its dependencies in a lock or a requirements file gets the SDK through it (`_locked_project`), after
+the same question, which names the files the install changes. A uv project is written with `uv add --dev` and a Python
+marker (`pyproject.toml`, `uv.lock`); a Poetry project with `poetry add --group dev` (`pyproject.toml`, `poetry.lock`; Poetry through `uvx`, at a fixed
+release from a fixed index with uv's configuration off, when `poetry` is not on PATH), and both files are put back when it fails; a requirements project gets the pin
+installed into its environment, and a requirements file that already lists the SDK gets that line set to the pin (a line is
+never added). Where the plugin cannot write (no `poetry` or `uvx`, no `pyproject.toml` beside `poetry.lock`, a requirements
+file with hashes) the project gets the stop text and no question. `--install-line` is the fallback for an SDK too old to
+probe: it prints the line for a Poetry or requirements project and exits `INSTALL_MANUAL`. Any other project keeps the
+install into its environment.
 
 TRUST MODEL
   The runner is looked up from the working directory and its callers run it with
@@ -100,10 +114,11 @@ except ImportError:  # a copy run outside the plugin decodes its children as the
 
 #: The SDK build this plugin release was tested with, as published on the package index under `SDK_DISTRIBUTION`. One
 #: constant, bumped by every plugin release; an SDK release precedes the plugin release that consumes it. The
-#: resolver accepts exactly this release: an older SDK lacks what the skills call, and a newer one is a build
-#: nobody tested the skills against. A release is `X.Y.Z`. A rehearsal build of the plugin pins one pre-release of
-#: it (`X.Y.ZrcN`) and accepts that pre-release alone, so `1.0.0` is refused while `1.0.0rc1` is pinned.
-PINNED_SDK_VERSION = '1.0.7'
+#: resolver accepts this release and every later release of its `major.minor` (`_sdk_in_range`): a project's lock decides
+#: which SDK it runs, and a patch release keeps what the skills call. An older SDK lacks it, and another minor is a line
+#: nobody tested the skills against. A release is `X.Y.Z`; a pre-release (`X.Y.ZrcN`, `X.Y.Z.devN`) orders below it. A
+#: rehearsal build of the plugin pins one pre-release, which admits its own later builds and the release.
+PINNED_SDK_VERSION = '1.1.0'
 
 #: The PyPI distribution that carries the `plurai` command line.
 SDK_DISTRIBUTION = 'plurai-simulation-sdk'
@@ -458,6 +473,21 @@ def _version_key(text):
     return _client_handshake.version_key(_version_text(text))
 
 
+def _sdk_in_range(version):
+    """Whether ``version`` is a release this plugin accepts: the pin's `major.minor`, at or above the pin.
+
+    Ordered by the handshake's key, so a pre-release is below its release and `1.1.0.dev405`, `1.1.0-dev.0` and `1.1.0rc1`
+    compare as pins and floors do. A version the handshake cannot place (no version, `1.1`, a local build) is outside the
+    range: nothing is accepted that cannot be ordered."""
+    have, need = _version_key(version), _version_key(PINNED_SDK_VERSION)
+    return have is not None and need is not None and have[:2] == need[:2] and have >= need
+
+
+def _pin_line():
+    """The pin's `major.minor` (`1.0`), the release line the plugin accepts."""
+    return '.'.join(PINNED_SDK_VERSION.split('.')[:2])
+
+
 def _version(candidate):
     """The resolved SDK's own version string, or None. `--version` landed after 0.3.0, so a
     missing subcommand — or any failure at all — is SILENCE, never an error: the resolve has
@@ -518,7 +548,7 @@ def _identity_line(path, identity):
 
 def _version_notice(path, version):
     """The ONE line the run log gets about runner-vs-plugin version skew. `resolve` refuses a runner whose
-    version is not the pin (`_pin_refusal`) before printing this, so the lines below are the cases that remain.
+    version is outside the range (`_pin_refusal`) before printing this, so the lines below are the cases that remain.
 
     A pure function of (path, version string) so each case is testable without a runner on disk. They are
     genuinely three, and collapsing any two of them is how a version fact stops being usable: the pinned
@@ -528,15 +558,15 @@ def _version_notice(path, version):
     if version is None:
         return (
             f'resolve_plurai: {path} reported no version (`--version` failed or is absent) — '
-            f'this plugin release is tested with exactly {PINNED_SDK_VERSION}.'
+            f'this plugin release is tested with {PINNED_SDK_VERSION} and later releases of its {_pin_line()} line.'
         )
     if _version_text(version) is None:
         return f'resolve_plurai: {path} ({version}) — version UNPARSEABLE, so it could not be checked against the {PINNED_SDK_VERSION} this plugin release is tested with.'
     return f'resolve_plurai: {path} ({version})'
 
 
-#: Exit code when the resolver REFUSES the runner it found: the client pin forbids it, or it reports a version
-#: other than `PINNED_SDK_VERSION`. Distinct from 1 ("nothing usable") on purpose: the run
+#: Exit code when the resolver REFUSES the runner it found: the client pin forbids it, or it reports a release
+#: outside the range of `_sdk_in_range`. Distinct from 1 ("nothing usable") on purpose: the run
 #: skill's resolver line falls back to a PATH runner on 1, and must not on 3 — falling back to
 #: another copy of a refused runner is precisely the stale-client run this exists to prevent.
 EXIT_RUNNER_REFUSED = 3
@@ -560,20 +590,23 @@ def _pin_stop(path, version, ask=False, resolve_args=()):
     the diagnostic line, then what the caller does with it: the stop text (`_stop_text`) to say as it stands or, only
     when ``ask`` is set and the runner is an older one that may be offered the install, the question (`_ask_text`)
     with the stop text for the answer that declines it. ``ask`` belongs to the command line a skill runs; a caller that
-    imports this module gets the stop text. An older and a newer release are refused alike and the same command fixes
-    both; only an older one is ever offered the install.
+    imports this module gets the stop text. An older release and one of another minor are refused alike and the same command
+    fixes both; only an older one is ever offered the install.
     """
     stated = _version_text(version) if version else None
-    if stated is None or stated == PINNED_SDK_VERSION:
+    if stated is None or _sdk_in_range(stated):
         return None
-    head = f'resolve_plurai: REFUSED — {path} is plurai {stated}, not the {PINNED_SDK_VERSION} this plugin release was tested with.'
+    head = (
+        f'resolve_plurai: REFUSED — {path} is plurai {stated}; this plugin release works with the {_pin_line()} releases from '
+        f'{PINNED_SDK_VERSION}, which is what it was tested with.'
+    )
     install = _runner_install(path)
     if install.unsafe:
         said = _unquotable_message(install.unsafe).removeprefix('resolve_plurai: ')
         return _Refusal(f'{head} {said}', f'{head} {said}')
-    stop = _stop_text(install.command)
+    stop = _stop_for(install.command, install.project)
     if ask and _older_target(path, stated) is not None:
-        question = _question_text(stated, _environment_label(install.environment))
+        question = _question_text(stated, _environment_label(install.environment), install.tool, _writes(install.project))
         return _Refusal(
             f'{head}\n{_ask_text(question, stop, resolve_args)}', stop, f'{head}\n{_ask_text(question, stop, resolve_args, sanctioned=True)}'
         )
@@ -592,6 +625,34 @@ _LOCK_FILES = ('uv.lock', 'poetry.lock', 'Pipfile.lock', 'pdm.lock')
 #: The question, as the caller asks it: a header, a text and two options, in that order.
 SDK_QUESTION_HEADER = 'Plurai SDK'
 SDK_QUESTION_OPTIONS = ('Install it', 'Not now')
+
+#: The lock writers whose files the plugin changes, each with the two files a customer is told about.
+_LOCK_TOOLS = {'uv': 'pyproject.toml and uv.lock', 'poetry': 'pyproject.toml and poetry.lock'}
+
+
+def _names(files):
+    """File names as a sentence reads them: `a`, `a and b`, `a, b and c` (sorted)."""
+    names = sorted(os.path.basename(path) for path in files)
+    return names[0] if len(names) == 1 else f'{", ".join(names[:-1])} and {names[-1]}'
+
+
+def _changes(tool, files=()):
+    """The sentence that tells a customer what adding the SDK to a project's lock or requirements file does."""
+    if tool == 'requirements':
+        return f'It changes {_names(files)}, can change other packages in the environment, and Plurai commands wait until it is done.'
+    return f'It changes {_LOCK_TOOLS[tool]}, can change other packages in the lock, and Plurai commands wait until it is done.'
+
+
+#: The question for a uv project whose dependencies hold no SDK. `harness-setup` asks the same words.
+LOCK_SDK_QUESTION = f'Plurai needs its SDK in this project. Add it to the dev dependencies now? {_changes("uv")}'
+
+#: The same for a Poetry project.
+POETRY_SDK_QUESTION = f'Plurai needs its SDK in this project. Add it to the dev dependencies now? {_changes("poetry")}'
+
+
+def requirements_sdk_question(files):
+    """The question for a requirements project whose files list the SDK that no environment holds: it names the files."""
+    return f'Plurai needs its SDK in this project. Install it now? {_changes("requirements", files)}'
 
 #: The question for a project environment that holds no SDK at all. `harness-setup` asks the same words, so a customer meets one
 #: question however the SDK turns out to be missing.
@@ -617,25 +678,29 @@ def _shebang_python(path):
 
 
 class _Install(NamedTuple):
-    """Where a runner lives and the one command that puts the pin there (see :func:`_runner_install`)."""
+    """Where a runner lives and the one command that puts the pin there (see :func:`_runner_install`). ``tool`` is the lock
+    writer the command belongs to (:class:`_Locked`), or ``None`` for an installer of the environment itself."""
 
     environment: object
     python: str
     command: object
     unsafe: object
+    tool: object = None
+    project: object = None
 
 
 def _runner_install(path):
     """The :class:`_Install` of the runner at ``path``: ``(environment, interpreter, command, unsafe)``, where it lives and the one command that
     puts the pin there. ``environment`` is a venv or conda environment of its own, else ``None``; ``unsafe`` is the first
-    path the shell would act on, which no command can carry (``command`` is then ``None``).
+    path the shell would act on, which no command can carry (``command`` is then ``None``); ``tool`` is the lock writer of a
+    project that keeps a lock (:func:`_locked_project`).
 
     The command follows how the runner was installed, because a command for any other place leaves this runner as it is:
     the environment's own installer for a venv or conda environment (`python -m pip`, or `uv pip --python` where there
     is no pip), `uv tool install --force` for a uv tool and `pipx install --force` for a pipx application, which the
     runner on PATH reaches through a link into their own venv, and the interpreter the script starts with
     (`<python> -m pip install`) for a script installed into some other Python. A runner none of these describe gets the
-    environment's own installer as for a venv."""
+    environment's own installer as for a venv, or the project's lock writer where the project keeps a lock."""
     spec = sdk_install_args()
     real = os.path.realpath(path)
     environment, python = os.path.dirname(os.path.dirname(path)), _runner_python(path)
@@ -652,7 +717,10 @@ def _runner_install(path):
             command, named = f'"{interpreter}" -m pip install {spec}', [interpreter]
     if unsafe := _unquotable(*named):
         return _Install(environment, python, None, unsafe)
-    return _Install(environment, python, command or _install_into(environment, spec, python), None)
+    if command:
+        return _Install(environment, python, command, None)
+    command, project = _venv_install(environment, python=python)
+    return _Install(environment, python, command, None, project.tool if project else None, project)
 
 
 def _environment_label(environment):
@@ -668,6 +736,12 @@ def _version_below_pin(stated):
     offered the install."""
     have, need = _version_key(stated), _version_key(PINNED_SDK_VERSION)
     return have is not None and need is not None and have < need
+
+
+def _older_than_pin(path):
+    """Whether the runner at ``path`` reports a release plainly before the pin, by the same reading `resolve` checks the pin with."""
+    _, version = _runner_version(path)
+    return bool(version) and _version_below_pin(_version_text(version))
 
 
 def _headless():
@@ -689,6 +763,8 @@ def _older_target(path, stated):
     install = _runner_install(path)
     if install.unsafe or not install.environment or not _is_env(install.environment) or not os.access(install.python, os.X_OK):
         return None
+    if _manual(install.project):
+        return None
     return install.environment, install.python
 
 
@@ -697,6 +773,8 @@ def _missing_target():
     and the SDK can go into it (its interpreter runs, its path is safe to quote, its Python is one the SDK installs on),
     else ``None``. The one test behind the question for a missing SDK and behind the install that answers it."""
     if _headless():
+        return None
+    if _manual(_locked_project()):
         return None
     environment = _target_venv()
     if not environment or not _is_env(environment) or _unquotable(environment):
@@ -714,19 +792,39 @@ def _has_lock_file():
     return any(os.path.isfile(os.path.join(root, name)) for name in _LOCK_FILES)
 
 
-def _stop_text(command, locked=None):
+def _stop_text(command, locked=None, tool=None, files=None):
     """What the customer reads when the SDK is not the release this plugin needs and nothing is installed: the stop line,
     for a project with a lock file (``locked``, read from the project when not given) how to keep it, and last the one
-    command, so that nothing follows the line the customer copies."""
+    command, so that nothing follows the line the customer copies.
+
+    ``tool`` is the lock writer the command belongs to (`_Locked`): its command already adds the SDK to the project's own
+    dependencies, so only a requirements file says where the line goes. ``files`` is for a requirements project the plugin
+    writes: the files that list the SDK, whose line the customer sets by hand beside the command (``()`` says nothing); with
+    no ``files`` the command is the requirement line itself, which the customer adds to the file."""
     lines = [f'Plurai commands need {SDK_DISTRIBUTION} {PINNED_SDK_VERSION} in this project. Install it when ready, then run the command again:']
-    if _has_lock_file() if locked is None else locked:
+    if tool == 'requirements' and files:
+        lines.append(f'This project lists {SDK_DISTRIBUTION} in {_names(files)}; change that line to {SDK_DISTRIBUTION}=={PINNED_SDK_VERSION} too.')
+    elif tool == 'requirements' and files is None:
+        lines.append('This project keeps its dependencies in requirements.txt; add this line to it, then install the file.')
+    elif tool is None and (_has_lock_file() if locked is None else locked):
         lines.append(f"This project has a lock file; adding {SDK_DISTRIBUTION} {PINNED_SDK_VERSION} to the project's own dependencies keeps it there.")
     lines.append(command)
     return '\n'.join(lines)
 
 
-def _question_text(stated, label):
-    """The install question's text, naming both releases and the environment."""
+def _question_text(stated, label, tool=None, files=()):
+    """The install question's text, naming both releases and the environment, or for a project that keeps its dependencies in a
+    lock or a requirements file the files the install changes (``files``: the requirements files whose line is set)."""
+    if tool in _LOCK_TOOLS:
+        return (
+            f'This plugin release needs {SDK_DISTRIBUTION} {PINNED_SDK_VERSION}; this project has the older {stated}. '
+            f'Add {PINNED_SDK_VERSION} to the dev dependencies now? {_changes(tool)}'
+        )
+    if tool == 'requirements' and files:
+        return (
+            f'This plugin release needs {SDK_DISTRIBUTION} {PINNED_SDK_VERSION}; this project has the older {stated}. '
+            f'Install {PINNED_SDK_VERSION} into {label} now? {_changes(tool, files)}'
+        )
     return (
         f'This plugin release needs {SDK_DISTRIBUTION} {PINNED_SDK_VERSION}; this project has the older {stated}. '
         f'Install {PINNED_SDK_VERSION} into {label} now? It may change other packages there, and Plurai commands wait until it is done.'
@@ -804,22 +902,45 @@ def _install_pin(path, target):
     The installer runs without the bearer, like every other child of this script that is not the SDK."""
     environment, python = target
     label = _environment_label(environment)
-    command = _install_into(environment, sdk_install_args(), python)
+    command, project = _venv_install(environment, python=python, running=True)
+    shown, _ = _venv_install(environment, python=python)
+    files = _lock_files(project)
+    saved = _Restore(files)
+    output = ''
     try:
-        installed = subprocess.run(  # noqa: S602 - the line this resolver composes, from paths `_older_target` found safe to quote
-            command, shell=True, capture_output=True, check=False, timeout=_INSTALL_TIMEOUT, env=_probe_env()
-        ).returncode == 0
-    except (OSError, subprocess.SubprocessError):
+        if project is not None and project.tool == 'requirements':
+            _set_requirement_lines(files)
+        done = subprocess.run(  # noqa: S602 - the line this resolver composes, from paths `_older_target` found safe to quote
+            command, shell=True, capture_output=True, text=True, check=False, timeout=_INSTALL_TIMEOUT, env=_probe_env(),
+            cwd=project.directory if project is not None and project.tool == 'poetry' else None, **utf8_child_text(),
+        )
+        installed, output = done.returncode == 0, f'{done.stdout or ""}\n{done.stderr or ""}'
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
         installed = False
     if installed:
         _capabilities.cache_clear()
         runner = path or _venv_runner(environment)
         installed = os.access(runner, os.X_OK) and _version_text(_runner_version(runner)[1]) == PINNED_SDK_VERSION
     if not installed:
-        print(f'{_install_failed_line(label)}\n{_stop_text(command)}', file=sys.stderr)
+        saved.put_back()
+        print(_install_failed_text(label, project, shown, output), file=sys.stderr)
         return EXIT_RUNNER_REFUSED
     print(_installed_line(label))
     return 0
+
+
+def _install_failed_text(label, project, command, output):
+    """What the customer reads when the install did not leave the pin in place: the failure line, for a project the plugin
+    writes the files that were put back (and for Poetry its own reason), then the stop text with the line to run by hand."""
+    lines = [_install_failed_line(label)]
+    if project is not None and project.tool == 'poetry' and not project.manual:
+        if reason := _solver_reason(output):
+            lines.append(f'Poetry said:\n{reason}')
+        lines.append('pyproject.toml and poetry.lock are as they were.')
+    elif project is not None and project.tool == 'requirements' and project.files and not project.manual:
+        lines.append(f'{_names(project.files)} {"is as it was" if len(project.files) == 1 else "are as they were"}.')
+    lines.append(_stop_for(command, project))
+    return '\n'.join(lines)
 
 
 def _venv_config(venv):
@@ -846,6 +967,13 @@ def _venv_python(venv):
     return os.path.join(venv, 'bin', 'python')
 
 
+def runner_python(runner):
+    """The interpreter of the environment a resolved `plurai` runner is installed in: the one that imports the SDK.
+
+    A runner reached through a link (pipx and `uv tool` put one in `~/.local/bin`) is followed to the environment that holds it."""
+    return _venv_python(os.path.dirname(os.path.dirname(os.path.realpath(runner))))
+
+
 #: Characters a printed command cannot carry inside double quotes without the shell acting on them. A skill runs the
 #: command it is given unchanged, and a folder name comes from the repository, so a path holding one is refused, never
 #: quoted. A backslash is a path separator on Windows, so it is refused only elsewhere.
@@ -868,17 +996,43 @@ def _unquotable_message(path):
 _UV_HOMES = ('~/.local/bin', '~/.cargo/bin')
 
 
-def _uv():
-    """`uv` as a printed command names it: the bare word when it is on PATH, else the quoted path of the one in
-    `_UV_HOMES`, else ``None``. A path the shell would act on is not printed."""
-    if shutil.which('uv'):
-        return 'uv'
+def _uv_home_tool(tool):
+    """``tool`` (`uv` or `uvx`) as a printed command names it: the bare word when it is on PATH, else the quoted path of the
+    one in `_UV_HOMES`, else ``None``. A path the shell would act on is not printed."""
+    if shutil.which(tool):
+        return tool
     for home in _UV_HOMES:
-        for name in ('uv.exe', 'uv') if _platform.WINDOWS else ('uv',):
+        for name in (f'{tool}.exe', tool) if _platform.WINDOWS else (tool,):
             path = os.path.join(os.path.expanduser(home), name)
             if os.path.isfile(path) and os.access(path, os.X_OK) and not _unquotable(path):
                 return f'"{path}"'
     return None
+
+
+def _uv():
+    """`uv` as a printed command names it, or ``None`` (see :func:`_uv_home_tool`)."""
+    return _uv_home_tool('uv')
+
+
+#: The Poetry release `uvx` fetches when `poetry` is not on PATH, and the index it comes from. The repository is untrusted
+#: and `uvx` reads the `uv.toml` and `pyproject.toml` of the folder it runs in (an index, a source), so the tool itself is
+#: fetched from a fixed place with that configuration off (`--no-config`) and one release nobody else chose. Poetry then runs
+#: in the project and reads the project's own sources for the SDK, as it does for the customer. Moving this release is a
+#: plugin release of its own. A Poetry judges a lock written by a newer Poetry stale (`[dependency-groups]`, a supplemental
+#: source), and its `add` then fails or rewrites the lock, so the release stays at or above the current Poetry and the
+#: project's own Poetry version is never read to choose it.
+POETRY_VIA_UVX = '2.5.1'
+POETRY_TOOL_INDEX = 'https://pypi.org/simple'
+
+
+def _poetry():
+    """`poetry` as a printed command names it: the bare word when it is on PATH, else Poetry through `uvx` (fetched from
+    `POETRY_TOOL_INDEX` at `POETRY_VIA_UVX`, with no project configuration) where uv's tool runner is on hand, else ``None``.
+    ``uvx --default-index`` needs uv 0.4.23 or newer; an older uv fails the add, and the files are put back."""
+    if shutil.which('poetry'):
+        return 'poetry'
+    uvx = _uv_home_tool('uvx')
+    return f'{uvx} --no-config --default-index {POETRY_TOOL_INDEX} poetry@{POETRY_VIA_UVX}' if uvx else None
 
 
 def _install_into(venv, spec, python=None):
@@ -896,6 +1050,221 @@ def _install_into(venv, spec, python=None):
 
 #: The oldest Python the SDK installs on.
 SDK_MIN_PYTHON = (3, 12)
+
+
+class _Locked(NamedTuple):
+    """A project that keeps its dependencies in a lock or a requirements file: ``tool`` is `uv`, `poetry` or `requirements`;
+    ``directory`` is where the dependency is added (uv: the folder of the nearest `pyproject.toml`; else where the file is).
+    ``files`` are the requirements files that list the SDK, whose line is set to the pin. ``manual`` is set where the plugin
+    cannot write the project and only prints the line."""
+
+    tool: str
+    directory: str
+    files: tuple = ()
+    manual: bool = False
+
+
+def _manual(project):
+    """Whether ``project`` is one the plugin only prints the line for."""
+    return project is not None and project.manual
+
+
+def _writes(project):
+    """The requirements files the plugin sets a line in for ``project``, as the install question names them."""
+    return project.files if project is not None and project.tool == 'requirements' and not project.manual else ()
+
+
+#: A requirement on the SDK in a requirements file: the name (any spelling pip reads as the same), its extras, then the rest.
+_SDK_REQUIREMENT = re.compile(r'(?P<head>\s*plurai[-_.]+simulation[-_.]+sdk\s*(?:\[[^\]]*\])?)(?P<tail>.*)', re.IGNORECASE | re.DOTALL)
+_REQUIREMENT_INCLUDE = re.compile(r'\s*(?:-r|--requirement)[\s=]*(\S+)')
+
+
+def _updated_requirement(line):
+    """``line`` with its version range on the SDK replaced by `==<pin>` (extras, marker, comment and line ending kept), or
+    ``None`` when the line is no requirement on a release of the SDK: another package, or a requirement that names a source."""
+    match = _SDK_REQUIREMENT.fullmatch(line)
+    if not match:
+        return None
+    tail = match.group('tail')
+    if tail.strip() and tail.lstrip()[0] not in '=<>~!;#':
+        return None
+    cut = next((i for i, char in enumerate(tail) if char in ';#'), len(tail))
+    spec, rest = tail[:cut], tail[cut:]
+    return f"{match.group('head').rstrip()}=={PINNED_SDK_VERSION}{spec[len(spec.rstrip()):]}{rest}"
+
+
+def _requirements_listing(directory):
+    """``(files, hashed)``: the requirements files of ``directory`` (`requirements*.txt` and what they include with `-r`,
+    inside the folder) that list the SDK, sorted, and whether any of them carries hashes."""
+    seen, listed, hashed = set(), [], False
+
+    def visit(path):
+        nonlocal hashed
+        real = os.path.realpath(path)
+        if real in seen or not os.path.isfile(real) or not _inside(real, os.path.realpath(directory)):
+            return
+        seen.add(real)
+        try:
+            with open(real, encoding='utf-8', newline='') as handle:
+                lines = handle.read().splitlines(keepends=True)
+        except (OSError, UnicodeDecodeError):
+            return
+        for line in lines:
+            if include := _REQUIREMENT_INCLUDE.match(line):
+                visit(os.path.join(os.path.dirname(real), include.group(1)))
+        if any(_updated_requirement(line) is not None for line in lines):
+            listed.append(real)
+            hashed = hashed or any('--hash' in line for line in lines)
+
+    for path in sorted(glob.glob(os.path.join(directory, 'requirements*.txt'))):
+        visit(path)
+    return tuple(sorted(listed)), hashed
+
+
+def _project_span():
+    """The directories from the cwd up to the project boundary, nearest first.
+
+    The boundary is the first directory holding `.git`: a workspace member holds `plurai_sim/` below the lock that
+    belongs to it, so `plurai_sim/` ends the walk only where no `.git` is above. Without any boundary the span is the cwd
+    alone, so a lock in some parent folder of an unrelated tree is never read."""
+    start = os.path.abspath(os.getcwd())
+    span, directory, sim = [], start, None
+    while True:
+        span.append(directory)
+        if sim is None and os.path.isdir(os.path.join(directory, 'plurai_sim')):
+            sim = len(span)
+        if os.path.exists(os.path.join(directory, '.git')):
+            return span
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            return span[:sim] if sim else [start]
+        directory = parent
+
+
+def _locked_project():
+    """The :class:`_Locked` of the project at the cwd, or ``None`` when it keeps no lock the plugin can write for.
+
+    * `uv.lock` at or above the agent, with a `pyproject.toml` at or below it and `uv` on hand: uv. A workspace member
+      adds to its own `pyproject.toml` and the lock above it.
+    * `poetry.lock`: poetry, which the plugin runs (`poetry`, else Poetry through `uvx`, `_poetry`) when a `pyproject.toml` lies beside the lock;
+      else the line is printed for the user.
+    * `requirements.txt` and no lock: the requirements file, whose listed SDK line the plugin sets and whose environment gets
+      the pin; a file with hashes is printed for the user.
+
+    A `uv.lock` with no `pyproject.toml` to add to, or with no `uv`, is no uv project: the venv install stays."""
+    span = _project_span()
+    for index, directory in enumerate(span):
+        if os.path.isfile(os.path.join(directory, 'uv.lock')):
+            project = next((d for d in span[: index + 1] if os.path.isfile(os.path.join(d, 'pyproject.toml'))), None)
+            if project is not None and _uv() and not _unquotable(project):
+                return _Locked('uv', project)
+            break
+    for tool, name in (('poetry', 'poetry.lock'), ('requirements', 'requirements.txt')):
+        for directory in span:
+            if os.path.isfile(os.path.join(directory, name)) and not (tool == 'requirements' and _has_lock_file()):
+                if tool == 'poetry':
+                    return _Locked(tool, directory, manual=not (os.path.isfile(os.path.join(directory, 'pyproject.toml')) and _poetry()))
+                files, hashed = _requirements_listing(directory)
+                return _Locked(tool, directory, files, manual=hashed)
+    return None
+
+
+def sdk_lock_requirement(extras=(), quote='"'):
+    """`plurai-simulation-sdk[<extras>]==<pin> ; python_version >= "3.12"`: the requirement a project's dependencies list,
+    with the marker's value in ``quote`` (a shell line that wraps the requirement in double quotes passes `'`). The marker
+    is there because a project whose `requires-python` reaches below the SDK's Python cannot resolve the SDK without it."""
+    extra = f'[{",".join(extras)}]' if extras else ''
+    return f'{SDK_DISTRIBUTION}{extra}=={PINNED_SDK_VERSION} ; python_version >= {quote}{SDK_MIN_PYTHON[0]}.{SDK_MIN_PYTHON[1]}{quote}'
+
+
+def _lock_command(project, extras=(), running=False):
+    """The line that adds the SDK to ``project``'s own dependencies. The plugin runs uv's and Poetry's after a yes (``running``
+    adds Poetry's `--no-plugins`, because the repository is untrusted); a requirements file takes the requirement itself."""
+    extras, single = sorted(set(extras)), "'"
+    if project.tool == 'uv':
+        return f'{_uv()} add --dev --directory "{project.directory}" "{sdk_lock_requirement(extras, quote=single)}"'
+    if project.tool == 'poetry':
+        return f'{"poetry" if project.manual else _poetry() or "poetry"}{" --no-plugins" if running else ""} add --group dev "{sdk_lock_requirement(extras, quote=single)}"'
+    return sdk_lock_requirement(extras)
+
+
+def _venv_install(venv, extras=(), python=None, running=False):
+    """``(command, project)``: the command that puts the pin (with ``extras``) into the project's environment, and the
+    :class:`_Locked` project it belongs to, or ``None`` for the environment's own installer.
+
+    A project that keeps a lock gets the SDK through it, so the lock holds the SDK and a later sync does not drop it
+    (:func:`_locked_project`); any other project, and a requirements project the plugin writes (whose file the caller sets
+    beside the install), gets `pip` or `uv pip` into ``venv``."""
+    project = _locked_project()
+    if project is not None and (project.tool != 'requirements' or project.manual):
+        return _lock_command(project, extras, running), project
+    return _install_into(venv, sdk_install_args(sorted(set(extras))), python), project
+
+
+def _stop_for(command, project):
+    """The stop text for ``command``, the install of ``project`` (a :class:`_Locked`, or ``None``)."""
+    if project is None:
+        return _stop_text(command)
+    if project.tool == 'requirements' and not project.manual:
+        return _stop_text(command, tool='requirements', files=project.files)
+    return _stop_text(command, tool=project.tool)
+
+
+def _lock_files(project):
+    """The files the plugin changes for ``project`` and puts back when the install fails."""
+    if project is None or project.manual:
+        return ()
+    if project.tool == 'poetry':
+        return tuple(os.path.join(project.directory, name) for name in ('pyproject.toml', 'poetry.lock'))
+    return project.files if project.tool == 'requirements' else ()
+
+
+class _Restore:
+    """The bytes of ``paths`` as they are now, to put back (a file that did not exist is removed)."""
+
+    def __init__(self, paths):
+        self.saved = {}
+        for path in paths:
+            try:
+                with open(path, 'rb') as handle:
+                    self.saved[path] = handle.read()
+            except OSError:
+                self.saved[path] = None
+
+    def put_back(self):
+        for path, data in self.saved.items():
+            try:
+                if data is None:
+                    if os.path.exists(path):
+                        os.remove(path)
+                else:
+                    with open(path, 'wb') as handle:
+                        handle.write(data)
+            except OSError as exc:  # a file that cannot be put back is said, never left silently half-edited
+                print(f'resolve_plurai: could not put {path} back ({type(exc).__name__}: {exc}).', file=sys.stderr)
+
+
+def _set_requirement_lines(files):
+    """Set the SDK line of every file in ``files`` to the pin; the rest of each file is written as it was read."""
+    for path in files:
+        with open(path, encoding='utf-8', newline='') as handle:
+            lines = handle.read().splitlines(keepends=True)
+        text = ''.join(_updated_requirement(line) or line for line in lines)
+        with open(path, 'w', encoding='utf-8', newline='') as handle:
+            handle.write(text)
+
+
+_ANSI = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
+
+
+def _solver_reason(output):
+    """Poetry's own account of why it could not add the SDK, from its output: the solver's lines (`Because …` to the end,
+    at most 8), else the last error line, else ``''``."""
+    lines = [line.rstrip() for line in _ANSI.sub('', output).splitlines() if line.strip()]
+    start = next((i for i, line in enumerate(lines) if line.lstrip().startswith('Because')), None)
+    if start is not None:
+        return '\n'.join(line[:240] for line in lines[start : start + 8])
+    return _install_error(output) or ''
 
 
 def _venv_python_version(venv):
@@ -1092,7 +1461,7 @@ def resolve(required=_DEFAULT_REQUIRED, *, enforce_pin=True, features=(), ask=Fa
     # several, take the first that PASSES the capability probe instead of
     # hard-failing on an alphabetically-first stale one (.venv-old must not block
     # a current .venv-plurai).
-    path = label = None
+    path = label = lacks = None
     for cand_path, cand_label in existing:
         cand_abs = os.path.abspath(cand_path)
         # Vetted before it is run, because running it is what a bad candidate wants.
@@ -1113,6 +1482,11 @@ def resolve(required=_DEFAULT_REQUIRED, *, enforce_pin=True, features=(), ask=Fa
             break
         is_glob_tier = cand_label.startswith('repo ') and cand_label != 'repo .venv'
         if not is_glob_tier:
+            if (ask or install_pin) and _older_than_pin(cand_abs):
+                # An old SDK lacks the verb because it is old: the pin refusal below asks for (or installs) the release
+                # that has it. A runner at or past the pin that lacks one is a broken install, which the hint covers.
+                path, label, lacks = cand_abs, cand_label, missing
+                break
             print(
                 f'resolve_plurai: {cand_abs} ({cand_label}) does not provide {", ".join(missing)} '
                 f'(SDK too old) — {UPGRADE_HINT}',
@@ -1145,6 +1519,9 @@ def resolve(required=_DEFAULT_REQUIRED, *, enforce_pin=True, features=(), ask=Fa
     refusal = _pin_stop(path, version, ask or install_pin, resolve_args)
     if refusal is not None:
         return None, _refuse_pin(path, version, refusal, install_pin, on_refusal)
+    if lacks:
+        print(f'resolve_plurai: {path} ({label}) does not provide {", ".join(lacks)} (SDK too old) — {UPGRADE_HINT}', file=sys.stderr)
+        return None, 1
     print(_version_notice(path, version), file=sys.stderr)
     return path, 0
 
@@ -1167,10 +1544,23 @@ def _refuse_missing(target, install_pin, resolve_args):
     if install_pin:
         return _install_pin(None, target)
     environment, python = target
-    stop = _stop_text(_install_into(environment, sdk_install_args(), python))
+    command, project = _venv_install(environment, python=python)
+    stop = _stop_for(command, project)
     head = f'resolve_plurai: REFUSED — no `plurai` is installed in {_environment_label(environment)}, where the SDK of this project belongs.'
-    print(f'{head}\n{_ask_text(MISSING_SDK_QUESTION, stop, resolve_args, sanctioned=_sanction_blocker())}', file=sys.stderr)
+    question = _missing_question(project)
+    print(f'{head}\n{_ask_text(question, stop, resolve_args, sanctioned=_sanction_blocker())}', file=sys.stderr)
     return EXIT_RUNNER_REFUSED
+
+
+def _missing_question(project):
+    """The question for a project environment that holds no SDK: the files the install changes, when the plugin writes any."""
+    if project is None or project.manual:
+        return MISSING_SDK_QUESTION
+    if project.tool == 'uv':
+        return LOCK_SDK_QUESTION
+    if project.tool == 'poetry':
+        return POETRY_SDK_QUESTION
+    return requirements_sdk_question(project.files) if project.files else MISSING_SDK_QUESTION
 
 
 def _record_pin_refusal(text):
@@ -1203,9 +1593,31 @@ def _leave_support_reference(code):
 #: `.venv`, stderr how to start the harness from the project's environment instead).
 VENV_FOUND, VENV_NONE, VENV_UNUSABLE, VENV_ASK = 0, 1, 4, 5
 
+#: `--install-line` exit: the line is for the user to run (a Poetry or requirements project keeps its own dependencies); stdout
+#: is the line, stderr says where it goes, and nothing is to be run.
+INSTALL_MANUAL = 6
 
-def _install_command(extras):
-    """``(line, None)``: the install line for the pinned release with ``extras``, or ``(None, VENV_UNUSABLE)`` (stderr says why)."""
+#: Where a project's own dependencies live, by the tool whose line is printed.
+_MANUAL_FILES = {'poetry': 'poetry.lock', 'requirements': 'requirements.txt'}
+
+
+def _manual_sentence(tool):
+    """What the customer reads beside a line that is theirs to run: where the project keeps its dependencies and what to do."""
+    return (
+        f'This project keeps its dependencies in {_MANUAL_FILES[tool]}, so the plugin will not run it for you: '
+        'add the line to the project, install, then run the command again.'
+    )
+
+
+def _install_command(extras, through_lock=True):
+    """``(line, None)``: the install line for the pinned release with ``extras``, ``(line, INSTALL_MANUAL)`` when the line
+    is the user's to run, or ``(None, VENV_UNUSABLE)`` (stderr says why).
+
+    A project that keeps a lock gets the line that writes it (:func:`_locked_project`), which is asked first. The extractor
+    install is never asked (`_install`), so it passes ``through_lock=False`` and installs into the environment."""
+    project = _locked_project() if through_lock else None
+    if project is not None:
+        return _lock_command(project, extras), None if project.tool == 'uv' else INSTALL_MANUAL
     spec = sdk_install_args(sorted(set(extras)))
     venv = _target_venv()
     if venv and _unquotable(_venv_python(venv)):
@@ -1228,6 +1640,9 @@ def _print_install_line(args):
     if line is None:
         return code
     print(line)
+    if code == INSTALL_MANUAL:
+        print(f'resolve_plurai: {_manual_sentence(_locked_project().tool)}', file=sys.stderr)
+        return code
     return 0
 
 
@@ -1244,9 +1659,10 @@ def _install_error(stderr):
 
 
 def _install(args):
-    """`--install --extra extract [--extra <driver>] --record <artifacts dir>`: run the install line, then record its
-    outcome from the real exit code — success removes `<dir>/.extractor_missing`, failure writes `{extras, exit, error}`
-    (:func:`_install_error`). The outcome line is printed last; the exit is the install's."""
+    """`--install --extra extract [--extra <driver>] --record <artifacts dir>`: run the install line into the project's
+    environment (never through a lock, which only a question may change), then record its outcome from the real exit code —
+    success removes `<dir>/.extractor_missing`, failure writes `{extras, exit, error}` (:func:`_install_error`). The outcome
+    line is printed last; the exit is the install's."""
     extras, record, rest = [], None, list(args)
     while rest:
         if rest[0] == '--extra' and len(rest) > 1 and _EXTRA_NAME.fullmatch(rest[1]):
@@ -1261,7 +1677,7 @@ def _install(args):
         print(f'resolve_plurai: --install needs `--extra extract` and `--record` naming an existing directory (got {record!r})', file=sys.stderr)
         return 64
     marker = os.path.join(record, EXTRACTOR_MISSING)
-    line, code = _install_command(extras)
+    line, code = _install_command(extras, through_lock=False)
     stderr = ''
     if line is not None:
         try:

@@ -36,7 +36,8 @@ so a false pass stands. ``list`` also lists at most ``n`` conclusive PASS units,
 self-consistency vote or low confidence), one whose (scenario, policy) has a red trial first; ``split`` — per (scenario,
 policy) with a red trial, ONE pass unit of another trial, a doubtful one first, then at a red turn; and ``stakes`` —
 :data:`STAKES_PER_POLICY` pass units per policy, judge or code check, a :data:`STAKES_RULES` rule names in
-``<workdir>/policies_config.yaml``. The first unit of each stakes policy with no red in the run is drawn before the
+``<workdir>/policies_config.yaml`` (the ``veto`` rule reads the effective tier the backend serves, saved beside the run as
+``eval_set_meta.json``). The first unit of each stakes policy with no red in the run is drawn before the
 rounds; each round then draws :data:`GREEN_DRAW`, cut at ``n``. A sampled green's row is
 ``CONFIRMED PASS`` / ``FALSE PASS`` / ``UNDECIDABLE``; a FALSE PASS quotes the violating reply.
 
@@ -133,7 +134,7 @@ sys.path.insert(0, str(HERE.parent / 'skills' / 'simulation-run' / 'scripts'))
 import record_finding  # noqa: E402 - sibling script: the findings store and its subject grammar
 import red_cell_audit  # noqa: E402 - sibling script: the one audit file name and shape (C5)
 from build_run_json import _AGENT_STATE_TOOL_TRAIL_KEY as TOOL_TRAIL_KEY  # noqa: E402 - the trail key the run.json reader reads
-from build_run_json import eval_set_bodies, policy_veto_capability  # noqa: E402 - after the sys.path lines it depends on
+from build_run_json import backend_policy_tiers, eval_set_bodies, eval_set_meta_path, policy_veto_capability  # noqa: E402 - after the sys.path lines it depends on
 from gate_ledger import OVERRULE_REASON_MIN_CHARS, fingerprint  # noqa: E402
 import verdicts_file  # noqa: E402 - the one reader of an item's verdicts
 
@@ -828,7 +829,7 @@ STAKES_PER_POLICY = 2
 DOUBT_CONFIDENCE = 0.95
 #: One round of the green draw: a doubtful pass is the likeliest false one, so it takes half the sample.
 GREEN_DRAW = (DOUBT, SPLIT, DOUBT, STAKES)
-#: What makes a policy's passes worth reading: its red fails the scenario, or its declared severity says so.
+#: What makes a policy's passes worth reading: its red fails the scenario (its served tier), or its declared severity says so.
 STAKES_RULES: Tuple[Tuple[str, Callable[[Mapping[str, Any]], bool]], ...] = (
     ('veto', lambda body: policy_veto_capability(dict(body)) is True),
     ('severity', lambda body: str(body.get('severity') or '').strip().lower() in ('high', 'critical')),
@@ -1296,7 +1297,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if args.cmd == 'list':
             found = run.red_units()
             index: Dict[str, Any] = {'run_dir': str(run.out), 'items': sorted(run.dirs), 'red_units': len(found)}
-            bodies = eval_set_bodies(args.workdir)
+            bodies = eval_set_bodies(args.workdir, tiers=backend_policy_tiers(eval_set_meta_path(run.out)))
             stakes = stakes_policies(bodies) if bodies is not None else []
             greens = {unit: {'sampled': why} for unit, why in sample_greens(run, stakes, args.greens).items()}
             index.update(green_units=len(greens), stakes_policies=stakes if bodies is not None else None)

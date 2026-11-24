@@ -116,11 +116,37 @@ request that quietly destroys what the eval measures:
   drops a verdict the linked run recorded. When that reply is not the defect, close the row with
   `declined_reason: mis-recorded: <why>` instead — only when the folder was cut at a turn its verdict does not name.
 
+## Changing a policy's verdict tier
+
+A policy's tier is its `verdict_tier` field: `catastrophic`, `failing` or `standard`. It decides how the policy counts in a
+scenario verdict, and `/simulation-ci` gates a pull request on the policies whose tier is in `fail_on.tags`. A wrong tier is
+fixed here, in the eval; `ci.yaml` has no tier override.
+
+- Send the request through the turn loop (Step 3) as the user wrote it, naming the policy and the tier. The backend session
+  edits that one field, so the review in Step 5 shows `modified <policy_name> (changed: verdict_tier)`.
+- Do not edit `verdict_tier` in the local `policies_config.yaml`: the backend eval set is the copy that scores
+  (see "WHICH COPY SCORES").
+- The backend holds the tier rule. A form rule (length, tone, closing line, layout) stays `standard` at any severity; `failing`
+  needs a hard limit the contract states, and `catastrophic` a PRD red line. If the backend declines a tier or asks for a
+  quote, pass its answer on and let the user choose.
+- Say that moving a policy into or out of the gating tags changes which pull requests fail the check. A policy the user only
+  distrusts for now is a `/simulation-ci` `ignore` rule, not a tier change.
+
 ## Step 1: Confirm preconditions
 
-Read `plurai_sim/.eval_set_id` — this file is written by
-`/generate-evals` and carries the backend's eval-set UUID. If missing,
-tell the user the evals are not built yet (`/simulation-generate-suite` builds them); do not proceed.
+Read the committed eval set id with the id reader, never with `cat`:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals; echo "rc=$?"
+```
+
+It reads the copies in the order CI does: the active env folder's `.eval_set_id`, its manifest's `eval_set_id`, then
+`plurai_sim/.eval_set_id`. So the edit starts from the set CI tests, in every layout. `rc=1`: no copy holds an id, so
+tell the user the evals are not built yet (`/simulation-generate-suite` builds them) and do not proceed. A
+`WARNING(read_id)` line says the copies disagree: tell the user in one plain line which ids are recorded and ask which
+eval set to edit before going on (`/simulation-ci` writes the chosen id into every copy). Every `<eval_set_id>` and
+`.eval_set_id` below is this command's output.
 
 Also confirm `plurai_sim/policies_config.yaml` exists — both for
 context (you'll show the user the current state) and because the
@@ -154,7 +180,8 @@ PLURAI_BIN="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_plurai.py" --ask --
 # sync overwrites policies_config.yaml, so a sibling deployment's eval set must never land on it.
 source "${CLAUDE_PLUGIN_ROOT}/scripts/assert-backend-identity.sh" "" || exit 1
 if [ -n "$PLURAI_BIN" ]; then
-  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/sdk_call.py" "$PLURAI_BIN" fetch policies "$(cat "$PLURAI_DIR/.eval_set_id")" \
+  EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/sdk_call.py" "$PLURAI_BIN" fetch policies "$EVAL_SET_ID" \
     --out "$PLURAI_DIR/policies_config.yaml"; echo "rc=$?"
 else
   echo "rc=no-runner"   # no plurai CLI in this repo: nothing was fetched, the mirror is unverified
@@ -255,7 +282,7 @@ Then open the session. Call:
 ```
 edit_session_start(
     target_kind='evals',
-    target_id=<from .eval_set_id>,
+    target_id=<eval_set_id, from read_id.py evals>,
     workspace_id=<bench workspace id>,  # ALWAYS — the stdout of: source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_id.py"; scopes any include_trace_brief pull (below) to THIS bench's brief for the whole session
     ledger_version=<the pin, read above>,  # REQUIRED; never drop it to get a call through
     # run_upload_id: OMIT. The backend resolves the newest run whose upload provenance names this
@@ -270,7 +297,11 @@ The response is an `EditSessionStarted`:
 Save `session_id` in working memory (do NOT persist to a file —
 sessions are ephemeral and a new one is opened per `/edit-evals` run).
 **There is no `eval_set_id` key** — the id you passed comes back as `target_id`, because one
-generic start serves evals / env / corpus.
+generic start serves evals / env / corpus. On a published eval set, `target_id` is the session's COPY and `source_id`
+the set it was copied from: the edits live under the copy, and
+a commit ships it as a new id. Pass `target_id` wherever a call during the session names the edited set. Neither is a
+committed id: `.eval_set_id` takes the `minted_id` of `end_edit_session` (Step 5) and nothing else, so do not write
+`target_id` or `source_id` into it.
 
 **Without a linked run the start response carries no `run_findings` and stages no
 `inputs/run_findings.md`**; that costs you the run evidence and nothing else, so do not block the
@@ -514,13 +545,13 @@ policies.yaml endpoint serves the working DRAFT; ~30 KB that should never transi
    PLURAI_BIN="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_plurai.py" --ask --require 'fetch policies')" || { [ $? -eq 3 ] && exit 1; }   # 3 = the resolver stopped or asked: follow the lines it printed — never proceed on an empty PLURAI_BIN
    # --allow-draft: mid-session the route serves the session's DRAFT, which is the copy wanted here.
    # A failure writes nothing, so fall back rather than read a path that holds an older copy or none.
-   { [ -n "$PLURAI_BIN" ] && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/sdk_call.py" "$PLURAI_BIN" fetch policies <eval_set_id> \
+   { [ -n "$PLURAI_BIN" ] && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/sdk_call.py" "$PLURAI_BIN" fetch policies <target_id> \
        --out "$PLURAI_DIR/.policies_draft.yaml" --allow-draft; } \
      || { [ $? -eq 7 ] && exit 7; echo "FETCH-FAILED"; }
    ```
    (A refusal of this plugin or its SDK exits the block with 7 and prints the update text: say it verbatim and alone, then stop.
    `FETCH-FAILED` — no `plurai` CLI in this repo, a backend without the endpoint, or any other
-   failure: `fetch_artifact(eval_set_id, paths=['policies_config.yaml'])` and write it to that same scratch path
+   failure: `fetch_artifact(<target_id>, paths=['policies_config.yaml'])` and write it to that same scratch path
    — always narrowed; a whole-set fetch can exceed the MCP result ceiling.)
    **In a session opened over a refused set's kept draft (`detail.draft_ref`), skip the curl.**
    That route returns 404 by design there, because an unpublished draft never scores. Read the
@@ -654,7 +685,9 @@ complete (typically because the user said "looks good"). Then:
      draft no longer fails): call `revert_edited_policies` with the printed arguments, write its
      result to `$ART/revert_edited_policies.result.json` and read it through `end_session_outcome.py` (same
      command, that file) — it logs the revert's revision and `policies_changed`, so the revision every
-     later re-score carries is one the loop log names — then sync the mirror as after any commit.
+     later re-score carries is one the loop log names. The revert copies the eval set under another id: record its
+     `minted_id` with `write_id_file.py minted` on that file (same command as above), then sync the mirror as after
+     any commit.
      The backend kept the edit exactly as sent; the revert is your
      own follow-up edit, which it commits as a new revision, so a silenced audited TRUE RED never stays.
      A `skipped` policy: end any session open on the set and call it once more; still skipped,
@@ -687,11 +720,23 @@ complete (typically because the user said "looks good"). Then:
 
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"   # $PLURAI_PY: the writer reads a saved env's manifest
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/end_session_outcome.py" "$PLURAI_DIR/.end_session.json" \
      --scope-rows "<the audited run dir>"   # its red_cell_audit.json IN / OUT OF SCOPE rows; omit with no audit
    # 0 = the edits landed · 3 = refused / closed_unchanged / closed_failed / not_found · 2 = usage
    # 4 = outcome=running: poll the printed finalize_id (above), then call end_edit_session once more
+   "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" minted "$PLURAI_DIR/.end_session.json"
+   # moves the eval set id to the result's minted_id and nothing else, in every copy: the env folder's .eval_set_id, its
+   # manifest key and the root .eval_set_id; a null minted_id (refused, closed_unchanged, running, closed_failed) writes nothing
    ```
+
+   **Never write an id file another way**: not with `printf` or `echo` into a file, not with the Write tool, not into
+   one copy only. The writer is the one thing that keeps the copies in step, and CI refuses a branch whose copies
+   disagree. When it exits 2, report its `ERROR(write_id_file)` line and stop; do not record the id by hand.
+
+   **The id the writer left is the eval set from here on**: every later `<eval_set_id>` below, the mirror sync, the
+   re-score and the next session read it again through `read_id.py evals`. Stage it with the mirror
+   (`stage-inputs.sh .eval_set_id`, which stages the copies the writer moved with it) on a commit.
 
    It prints `outcome=` first and `reason=` WHOLE, then each gate finding as a `finding:` line with
    the holding count, the `guard` report and its `decision:`, on a commit the `eval_revision=` and
@@ -734,7 +779,8 @@ complete (typically because the user said "looks good"). Then:
      PLURAI_BIN="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_plurai.py" --ask --require 'fetch policies')" || { [ $? -eq 3 ] && exit 1; }   # 3 = the resolver stopped or asked: follow the lines it printed — never proceed on an empty PLURAI_BIN
      source "${CLAUDE_PLUGIN_ROOT}/scripts/assert-backend-identity.sh" "" || exit 1
      if [ -n "$PLURAI_BIN" ]; then
-       python3 "${CLAUDE_PLUGIN_ROOT}/scripts/sdk_call.py" "$PLURAI_BIN" fetch policies <eval_set_id> --out "$PLURAI_DIR/policies_config.yaml"; echo "rc=$?"
+       EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
+       python3 "${CLAUDE_PLUGIN_ROOT}/scripts/sdk_call.py" "$PLURAI_BIN" fetch policies "$EVAL_SET_ID" --out "$PLURAI_DIR/policies_config.yaml"; echo "rc=$?"
      else
        echo "rc=no-runner"
      fi
@@ -827,8 +873,9 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
    source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+   EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
    "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/rescore_run.py" --run-dir "$(cat "$WORKDIR/.last_run")" \
-     --eval-set-id <id> --scenario-set-id <id> --run-upload-id <id> --results-dir "$ART/rescore_results"
+     --eval-set-id "$EVAL_SET_ID" --scenario-set-id <id> --run-upload-id <id> --results-dir "$ART/rescore_results"
    ```
 
    It submits every item's `score_run` at once, each `rescore='changed'` — never `'all'`: a policy
@@ -864,6 +911,21 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
      not a fix
    - What the check still lists as stale, in plain words: a re-run updates `rerun` items, a
      re-score `rescore` items
+
+## Last step — id files to commit
+
+Run this once, after the last edit above and before the hand-off. It lists, from git and never from memory, each suite id file
+(a `.scenario_set_id` / `.eval_set_id` / `.env_id` marker, or an id key of an env folder's `plurai.env.yaml`) that differs from `HEAD`.
+CI runs the ids that are committed, so a change pushed without its id files runs the old suite and shows no sign of the edit.
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/id_changes.py" list --workdir "$WORKDIR"
+```
+
+Put each `ID-FILE <path>: <old> -> <new>` line in the hand-off (the file, the id it held at `HEAD`, the id now) and tell the user to
+commit those files together with the change. `ID-FILES clean` and `ID-FILES unknown` (not a git work tree): say nothing about it.
 
 ## Last step — pull the grounding mirror
 

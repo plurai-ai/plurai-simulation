@@ -31,8 +31,12 @@ add nothing to a line, reword none, and put `<command>` in where a line names it
 - The SDK is missing: one question, `Plurai needs its SDK in this project. Install it now?`, or, for a project with
   no environment, `Create a .venv in this project and install the Plurai SDK into it?`. The harness's approval prompt
   shows the exact command, so do not repeat it.
+- The SDK is missing in a project that keeps its dependencies in `uv.lock`: one question, `Plurai needs its SDK in this project. Add it to the dev dependencies now? It changes pyproject.toml and uv.lock, can change other packages in the lock, and Plurai commands wait until it is done.` It replaces the question above, and the SDK goes into the project's own dependencies, so a later `uv sync` keeps it.
+- The SDK is missing in a project that keeps its dependencies in `poetry.lock`: one question, `Plurai needs its SDK in this project. Add it to the dev dependencies now? It changes pyproject.toml and poetry.lock, can change other packages in the lock, and Plurai commands wait until it is done.` It replaces the first question above, and the SDK goes into the project's own dependencies, so a later `poetry install` keeps it.
+- The SDK is missing in a requirements project whose files list it: one question, the text the resolver prints under `question:` (it names the files it changes). The SDK is installed into the project's environment and the line in those files is set to the release; no line is added to a file that does not list the SDK, and that project gets the first question above.
+- The SDK is missing in a Poetry or requirements project the plugin cannot write (no `pyproject.toml` beside `poetry.lock`, neither `poetry` nor `uvx` on this machine, a requirements file with hashes): no question and no install. Say `This project keeps its dependencies in <poetry.lock or requirements.txt>, so the plugin will not run it for you: add the line to the project, install, then run the command again.` and then the line in a code block.
 - The SDK is older than this plugin release needs: one question, the text the resolver prints under `question:` (it names
-  both versions and the environment), with its header and options. On `Install it`, the line the install prints
+  both versions and the environment, or the files it changes for a project that keeps its dependencies in a lock or a requirements file), with its header and options. On `Install it`, the line the install prints
   (`Installed plurai-simulation-sdk <version> into <environment>.`). On `Not now`, the stop lines the resolver prints, as
   they stand.
 - The SDK is newer than this plugin release needs, or cannot be installed over from here: the stop lines the resolver prints, as they stand. No question.
@@ -152,11 +156,18 @@ Plurai support.`
    looks:
 
    ```bash
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_plurai.py" --install-line
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_plurai.py" --install-line || true
    ```
 
-   Ask the user whether to install it now, with the question of "What the user sees"; the harness shows them the line
-   when it asks to run it.
+   A line that starts with `poetry add`, `uvx` or with `plurai-simulation-sdk` is the user's to run: the project
+   keeps its dependencies in `poetry.lock` or `requirements.txt`, and this step never runs that line (the `question:` of
+   step 2 is how the plugin writes such a project, and it is not reached here: no environment, or an SDK too old to
+   run). Say the sentence of "What the user sees" (the file named) and the line in a code block, and stop. The resolver
+   prints the same sentence on stderr and exits 6 for such a line.
+
+   Any other line is run after a yes. Ask the user whether to install it now, with the question of "What the user sees"; the harness shows
+   them the line when it asks to run it. A line that starts with `uv add` writes the SDK into `pyproject.toml` and
+   `uv.lock`: ask the question for a project that keeps its dependencies in `uv.lock` instead.
 
    - On yes, run that exact line, unchanged. If the install prints an error, stop: tell the user in one sentence that
      the install failed and why, and do not start the login. If it succeeds, run the SDK check above again: a path is

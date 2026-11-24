@@ -18,7 +18,7 @@ You are the LOCAL Claude Code agent. `/simulation-scan-agent` has produced `plur
 │  4. On status='done':                                         │
 │     → join mock_service_url to $SERVER_URL (the whole base)   │
 │       and save it to plurai_sim/.mock_service_url.            │
-│     → save the env id to plurai_sim/.env_id.                 │
+│     → write_id_file.py created → .env_id (+ env manifest).    │
 │     → hand off to /simulation-generate-suite.                │
 └─────────────────────────────────────────────────────────────┘
                                   ▲
@@ -495,25 +495,17 @@ http://backend.example.com:8217
 
 **Don't `git add` it** — it's a per-run artifact tied to one backend job, not project state. Nothing to edit in any `.gitignore`: the repo-root managed block (`/simulation-scan-agent` Step 5) ignores it already, as machine-local runtime state. If the repo's block is missing or its BEGIN line carries an older rev, re-run `/simulation-scan-agent` Step 5.
 
-**Also write the env id — this is the handle everything downstream re-deploys by.** The `env_session_id` the Job envelope returned IS the persistent `env_id`, and the mock DEFINITION lives durably on the backend, so this file is what lets `/simulation-generate-suite` Step 0c re-deploy the existing world in seconds instead of paying for a second generation. Write it self-resolving — the harness resets the shell between Bash calls, so a `$WORKDIR` set in an earlier snippet is EMPTY here and `printf … > "/.env_id"` would land at the filesystem root while this skill reports success:
+**Also record the env id — this is the handle everything downstream re-deploys by.** The `env_session_id` the Job envelope returned IS the persistent `env_id`, and the mock DEFINITION lives durably on the backend, so this file is what lets `/simulation-generate-suite` Step 0c re-deploy the existing world in seconds instead of paying for a second generation. The id-file writer reads the done env job itself and writes `.env_id`; in a named-env repo (`plurai_sim/envs/` exists, the env can be re-activated later) it records the id and `backend_url` in the active env's manifest too. It resolves the workdir itself — the harness resets the shell between Bash calls, so a `$WORKDIR` set in an earlier snippet is EMPTY here:
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; printf %s "<env_session_id>" > "$WORKDIR/.env_id"
-```
-
-`.mock_session_id` (below) carries the same value and stays for the teardown path in the failure table; **`.env_id` is the canonical handle** — `/simulation-generate-suite` Step 0c re-deploys from it, `/manage-envs` re-materialises it on an env switch, and `/edit-env` and `/analyze-traces` check it before falling back to the manifest / `list_artifacts`.
-
-**Environment manifest (if this repo uses named envs).** The `env_session_id` the backend returned IS the persistent `env_id` — the mock definition now lives durably on the backend and is re-deployable by id (it no longer expires after a TTL; only the live deployment does). If `plurai_sim/envs/` exists (a named-env repo), record the id into the active env's manifest so the env can be re-activated later:
-
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"   # ABSOLUTE $PLURAI_DIR — cwd-reset-proof
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-plurai-urls.sh" || exit 1   # $SERVER_URL — the configured backend
-$PY "${CLAUDE_PLUGIN_ROOT}/skills/manage-envs/scripts/env_manifest.py" \
-    write "$PLURAI_DIR" --name "$(basename "$PLURAI_DIR")" --env-id <env_session_id> \
-    --backend-url "$SERVER_URL"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status '{"id": "<env_session_id>"}' \
+  | "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" created --kind env --backend-url "$SERVER_URL" -
 ```
 
-See the `manage-envs` skill for the layout + resolver. If the repo has no `envs/`, skip this — the bare `plurai_sim/` flow is unchanged.
+`.mock_session_id` (below) carries the same value and stays for the teardown path in the failure table; **`.env_id` is the canonical handle** — `/simulation-generate-suite` Step 0c re-deploys from it, `/manage-envs` re-materialises it on an env switch, and `/edit-env` and `/analyze-traces` check it before falling back to the manifest / `list_artifacts`. See the `manage-envs` skill for the layout + resolver.
 
 ### Step 5.5: Join the mock path to the resolved server base
 

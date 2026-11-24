@@ -50,9 +50,10 @@ fi
 # by verify_config.py's _SPLIT_HELPER_NAMES); a single-file simulate.py has none — absent skips.
 # artifacts/data_profile.md is an INPUT, not evidence: generation is grounded on it like the PRD,
 # so it is un-ignored by the managed block and staged here. The rest of artifacts/ stays local,
-# EXCEPT the READER files — scenarios.md / evals.md / suite.json / agent_findings.md / fixes.md.
+# EXCEPT the READER files — scenarios.md / evals.md / agent_findings.md / fixes.md.
 # Those carry the suite's own scenario text and its findings: the deliverable a human opens. A
-# suite whose text lives on one machine is not a suite the customer owns. `.corpus_scope` is the
+# suite whose text lives on one machine is not a suite the customer owns. scenarios.md and evals.md
+# are local reading copies that CI ignores; suite.json is not committed at all. `.corpus_scope` is the
 # human gloss on `.corpus_id` and travels with it — the id alone says nothing about what was
 # ingested. artifacts/pre_generation_findings.md is a READER file too — the scan's own verdict on
 # its conclusions — and artifacts/scan_contract.json is the DRIFT BASELINE the contract CLI's
@@ -85,7 +86,7 @@ fi
 # the backend refuses a batch that drops a document its predecessor chain was built from.
 DEFAULT_INPUTS="simulate.py plurai.config.yaml simulation_prd.md \
 bench_manifest.json probes host_probes \
-artifacts/data_profile.md artifacts/scenarios.md artifacts/evals.md artifacts/suite.json \
+artifacts/data_profile.md artifacts/scenarios.md artifacts/evals.md \
 artifacts/agent_findings.md artifacts/fixes.md \
 artifacts/pre_generation_findings.md artifacts/scan_contract.json artifacts/verification.json regressions \
 trace_scenarios \
@@ -183,6 +184,39 @@ for f in $REQUESTED; do
     MISSING="$MISSING $f"
   fi
 done
+
+# A scenario or eval set id has copies that `write_id_file.py` moves together: an env folder's marker, that folder's
+# manifest key and the root marker. CI refuses copies that disagree, so the copies of a staged marker are staged with it.
+# A marker counts as a copy when it holds the same bytes as the staged one; the root of a repo whose CI tests another env
+# holds that env's id and stays as it is. A copy marker brings its folder's manifest along.
+_stage_copy() {
+  _label="${1#"$REPO"/}"
+  case " $STAGED " in *" $_label "*) return 0 ;; esac
+  _classify "$1" "$_label"
+  if ! _add "$1"; then
+    echo "stage-inputs: git add failed for $1" >&2
+    exit 1
+  fi
+  STAGED="$STAGED $_label"
+}
+# `_copy_dirs` holds one directory per line, read back line by line: a repo path with a space is one directory.
+case "$WORKDIR" in
+  */plurai_sim/envs/*) _copy_dirs="${WORKDIR%/envs/*}" ;;
+  *) _copy_dirs="$(for _d in "$WORKDIR"/envs/*/; do [ -d "$_d" ] && printf '%s\n' "${_d%/}"; done)" ;;
+esac
+for f in $REQUESTED; do
+  case "$f" in .scenario_set_id | .eval_set_id) ;; *) continue ;; esac
+  [ -e "$WORKDIR/$f" ] || continue
+  [ -e "$WORKDIR/plurai.env.yaml" ] && _stage_copy "$WORKDIR/plurai.env.yaml"
+  while IFS= read -r _dir; do
+    [ -n "$_dir" ] || continue
+    cmp -s "$_dir/$f" "$WORKDIR/$f" || continue
+    _stage_copy "$_dir/$f"
+    [ -e "$_dir/plurai.env.yaml" ] && _stage_copy "$_dir/plurai.env.yaml"
+  done <<< "$_copy_dirs"
+done
+unset _copy_dirs _dir _d _label
+unset -f _stage_copy
 
 # Every OTHER top-level `*.py` is harness too: conftest.py and test_agent_envelope.py (the contract
 # tier), _skill_tools.py, and any helper module simulate.py imports — without which a clone cannot

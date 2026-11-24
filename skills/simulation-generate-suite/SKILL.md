@@ -35,7 +35,7 @@ your new work is authoring the title and summary of any scenario that has no bac
 │       only when the run itself did not measure the agent)                  │
 │     gate exit: record ≤6 confirmed findings as regressions/ folders        │
 │  3b. FINAL generation — same inputs, count=7 (flat) →                      │
-│       overwrite .scenario_set_id (this set is the deliverable)             │
+│       record .scenario_set_id (this set is the deliverable)                │
 │       relink evals → audit vs the final suite → close gaps additively      │
 │  4. fetch meta + build suite.json (coverage, complexity, evals, schema)    │
 │  5. render → scenarios.md, evals.md, charts/*.svg, scenarios/*.md          │
@@ -861,8 +861,8 @@ Four rules, and they cost nothing to follow:
       consumes `corpus_ids`, `label` and `tool` and discards the rest, so they are inert on
       the wire and load-bearing on disk. Say the drop and its reason in the round's notes too,
       but the manifest is what the next run actually reads. Re-record the same entries into the
-      env manifest when this repo uses named envs (the `env_manifest.py write
-      --knowledge-bases` call in Step 1's corpus wait), or the env copy keeps the stale
+      env manifest when this repo uses named envs (the `write_id_file.py to-manifest`
+      call in Step 1's corpus wait), or the env copy keeps the stale
       claim and wins the resolution order.
 
     Then, with the answerability verdict in hand:
@@ -1312,8 +1312,9 @@ teardown LEAKS a deployed mock and its port:
      rule — the section "Applying the
      document-field annotation rule" at the end of this step — before entering Step 1. It is local, free and needs no job.
      Already annotated, or no marker naming a field of this schema: byte-identical, say nothing.
-   - Found the id anywhere other than `.env_id`? Write it there too (self-resolving:
-     `source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; printf %s "<id>" > "$WORKDIR/.env_id"`),
+   - Found the id anywhere other than `.env_id`? Record it there too with the id-file writer (self-resolving; the envelope
+     of the env job is `job_status(id=<id>)`:
+     `source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status '{"id": "<id>"}' | "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" created --kind env -`),
      so the next run takes the cheap branch directly.
    - **Check the world is not STALE before trusting it.** The env was generated from
      `plurai.config.yaml` + `simulation_prd.md`, and both move: `/build-rag-corpus` Step 6.5 rewrites
@@ -1727,11 +1728,10 @@ After a recorded build, put the bases where the other consumers read them. Under
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"   # ABSOLUTE $PLURAI_DIR — cwd-reset-proof
-[ -f "$PLURAI_DIR/.knowledge_bases" ] && python3 "${CLAUDE_PLUGIN_ROOT}/skills/manage-envs/scripts/env_manifest.py" write \
-  "$PLURAI_DIR" --name "$(basename "$PLURAI_DIR")" \
-  --knowledge-bases "$(cat "$PLURAI_DIR/.knowledge_bases")"
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/stage-inputs.sh" .knowledge_bases .corpus_id
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+[ -f "$PLURAI_DIR/.knowledge_bases" ] && [ -f "$PLURAI_DIR/plurai.env.yaml" ] && "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" to-manifest \
+  --env-dir "$PLURAI_DIR" --name "$(basename "$PLURAI_DIR")" --from-dir "$PLURAI_DIR"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/stage-inputs.sh" .knowledge_bases .corpus_id
 "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/grounding_pull.py" knowledge "$WORKDIR"
 ```
 
@@ -1742,7 +1742,7 @@ read back for a decision.
 
 Run the **generate-scenarios skill**,
 forwarding `[context]`. A bench that declares a route smoke runs it (Step 0c, "The route smoke") as soon as that
-skill's `generate_scenarios_start` has returned its job id, before the wait. The skill writes `$WORKDIR/.scenario_set_id`; **record that id into the phase
+skill's `generate_scenarios_start` has returned its job id, before the wait. The skill leaves the set id in `$WORKDIR/.scenario_set_id`; **record that id into the phase
 record too** — a marker file is untyped IPC: an id that only ever reaches disk is an id
 `phase resume` reads as MARKER-ONLY, produced by nothing it can name.
 
@@ -1750,11 +1750,12 @@ record too** — a marker file is untyped IPC: an id that only ever reaches disk
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-plurai-urls.sh"
+SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
 "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/bench_manifest.py" phase record \
-  --phase scenarios --status landed --set scenario_set="$(cat "$WORKDIR/.scenario_set_id")" \
+  --phase scenarios --status landed --set scenario_set="$SCENARIO_SET_ID" \
   --landed "<successful_scenarios>" --requested "<total_scenarios>" \
   --lost-kind "<the lost slots' gate ids, when any slot was lost>"
-"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/report_pieces.py" bundle "$WORKDIR" --set-id "$(cat "$WORKDIR/.scenario_set_id")"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/report_pieces.py" bundle "$WORKDIR" --set-id "$SCENARIO_SET_ID"
 ```
 
 The last line pulls the landed set onto the page (a cache hit when a wake already pulled it); its exit
@@ -1938,13 +1939,14 @@ every recorded regression. Its `generate_evals_start` goes through Step 0's job 
 **The moment `generate_evals_start` returns its job id, before that job's first poll and in the same turn, launch
 Step 2a's sanity pass with its launch block below (it returns once the run plays); then poll the eval job.** The record and publish
 lines here run when the job lands.
-It writes `$WORKDIR/policies_config.yaml` and `$WORKDIR/.eval_set_id` — **record it**:
+It leaves `$WORKDIR/policies_config.yaml` and the eval set id in `$WORKDIR/.eval_set_id` — **record it**:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
 "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/bench_manifest.py" phase record \
-  --phase evals --status landed --set eval_set="$(cat "$WORKDIR/.eval_set_id")" \
+  --phase evals --status landed --set eval_set="$EVAL_SET_ID" \
   --eval-revision "<get_artifact_meta(<eval_set_id>).detail.eval_revision, when reported>"
 "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/report_pieces.py" draft "$WORKDIR"
 ```
@@ -1988,7 +1990,7 @@ here first.
 
 Write each qualification scenario's `get_scenario` JSON to `$ART/sanity/worlds/<scenario_name>.json` in one Bash call,
 never through the turn: the names are the Step 1 set's (`scenario_names` in `$ART/.pieces/meta_<set id>.json`), and per name
-`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" get_scenario "{\"scenario_set_id\": \"$(cat "$WORKDIR/.scenario_set_id")\", \"scenario_name\": \"<name>\"}" > "$ART/sanity/worlds/<name>.json.tmp" && mv "$ART/sanity/worlds/<name>.json.tmp" "$ART/sanity/worlds/<name>.json" || rm -f "$ART/sanity/worlds/<name>.json.tmp"`
+`SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" get_scenario "{\"scenario_set_id\": \"$SCENARIO_SET_ID\", \"scenario_name\": \"<name>\"}" > "$ART/sanity/worlds/<name>.json.tmp" && mv "$ART/sanity/worlds/<name>.json.tmp" "$ART/sanity/worlds/<name>.json" || rm -f "$ART/sanity/worlds/<name>.json.tmp"`
 (after `mkdir -p "$ART/sanity/worlds"`). Then launch it with the block below, a foreground call that returns once the
 run plays (`run_start.py`, as `/simulation-run` launches a run), unscored (no eval set) and one sample. The
 per-turn budget is the agent's own (`$WORKDIR/.turn_timeout`, else the qualification default): the launch passes no turn
@@ -2002,9 +2004,10 @@ MOCK_FLAG=(); grep -qwE 'mockless|local' "$WORKDIR/.run_mode" 2>/dev/null || { M
 PLURAI_BIN="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_plurai.py" --ask)" || { [ $? -eq 3 ] && exit 1; }
 [ -n "$PLURAI_BIN" ] && [ -x "${PLURAI_BIN%/*}/plurai-run-simulation" ] && RUNNER="${PLURAI_BIN%/*}/plurai-run-simulation" || RUNNER=plurai-run-simulation
 source "${CLAUDE_PLUGIN_ROOT}/scripts/runner-gate-flags.sh"   # $OVERRULE_FLAGS — the plugin's ledger, when it exists
+SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/run_start.py" -- \
 "$RUNNER" \
-  --scenario-set-id "$(cat "$WORKDIR/.scenario_set_id")" \
+  --scenario-set-id "$SCENARIO_SET_ID" \
   --agent-module-path "$AGENT_MODULE_PATH" \
   --out "$ART/sanity/1" \
   "${MOCK_FLAG[@]}" \
@@ -2185,7 +2188,8 @@ mechanical finding, write EVERY one of them to `$ART/deferrals.md` immediately �
    **(a) Check the eval link.** A run whose eval set points at a DIFFERENT scenario set
    scores nothing and has to be repeated: read `detail.scenario_set_id` from
    `job_status(id=<eval_set_id>)` and compare it with `$WORKDIR/.scenario_set_id`. On a
-   mismatch call `relink_eval_scenario_set` before running, and act on everything it returns
+   mismatch call `relink_eval_scenario_set` before running, record its `minted_id` (Step 3b's relink rules say how: the
+   relink copies the eval set under a new id, and only `.eval_set_id` moves), and act on everything it returns
    by Step 3b's relink rules (deliverable file) — `guard_coverage`, `dead_flow_scope` and a premise warning
    carrying a concrete guard are all mechanical there, and they are no less mechanical here.
    It is one read plus one disk-and-AST call — seconds against the minutes a mis-linked run
@@ -2229,8 +2233,8 @@ mechanical finding, write EVERY one of them to `$ART/deferrals.md` immediately �
    "Solvability".
 
    ```
-   solvability_check_start(run_upload_id=<the qual-1 upload>, eval_set_id=<.eval_set_id>,
-                           scenario_set_id=<.scenario_set_id>, author_missing_paths=True)
+   solvability_check_start(run_upload_id=<the qual-1 upload>, eval_set_id=<read_id.py evals>,
+                           scenario_set_id=<read_id.py scenarios>, author_missing_paths=True)
    ```
 
    Nothing the critic reads depends on it, so it runs under the critic wait. **Poll it before you
@@ -2321,7 +2325,7 @@ mechanical finding, write EVERY one of them to `$ART/deferrals.md` immediately �
    name an INPUT defect, so fix that artifact (the input-artifacts surface in
    analyze-simulation step 3) and regenerate once — passing `redraws=0` like every other
    qualification batch, so the repair is measured rather than papered over by a substitute
-   scenario, **and `previous_scenario_set_id=$(cat "$WORKDIR/.scenario_set_id")`** so the rebuilt
+   scenario, **and `previous_scenario_set_id=<read_id.py scenarios>`** so the rebuilt
    dimension graph keeps its flow ids and the eval set stays scoped (this is the step where the
    graph actually rebuilds — an input edit is what invalidates it). A Step 3 regeneration measures even
    when it returns ZERO — the zero-batch carve-out belongs to Step 1, which has nothing else to
@@ -2357,11 +2361,13 @@ mechanical finding, write EVERY one of them to `$ART/deferrals.md` immediately �
      ```
 
      **`count` is the TOTAL you want to end up with, not the shortfall**, and getting this wrong
-     is refused every time rather than occasionally: the backend raises when
-     `count <= len(adoptable)` — "count={count} must EXCEED the {n} adoptable scenario(s) — a
-     top-up always generates at least one fresh scenario".
-     Six landed out of seven means `count=7`, not `count=1`; `count=1` is below the six adoptable
-     and is refused before a single scenario is drawn.
+     is refused every time rather than occasionally: a top-up WITHOUT `bundle_only` always
+     generates at least one fresh scenario, so `count` must exceed the number of adoptable scenarios
+     and the backend refuses any `count` at or below it. Six landed out of seven means
+     `count=7`, not `count=1`; `count=1` is below the six adoptable and is refused before a single
+     scenario is drawn. A top-up that carries `additional_bundle_id` follows the same rule, and
+     only `bundle_only` (passed by `/record-regression`, never by this skill) lifts it. This step's top-up is
+     a qualification batch and carries no bundle.
 
      **Do NOT take the refusal's own advice literally.** When the byte-identity diff refuses, the
      message ends "Generate without the parameter (all {count} scenarios fresh)". Dropping
@@ -2456,8 +2462,8 @@ mechanical finding, write EVERY one of them to `$ART/deferrals.md` immediately �
    clean** — start it yourself before routing anything:
 
    ```
-   suite_diagnostics_start(run_upload_id=<the round's upload, below>, eval_set_id=<.eval_set_id>,
-                           scenario_set_id=<.scenario_set_id>, run_stage='qualification',
+   suite_diagnostics_start(run_upload_id=<the round's upload, below>, eval_set_id=<read_id.py evals>,
+                           scenario_set_id=<read_id.py scenarios>, run_stage='qualification',
                            current_harness_fingerprint=<HARNESS_FP>)
    ```
 
@@ -2634,9 +2640,11 @@ mechanical finding, write EVERY one of them to `$ART/deferrals.md` immediately �
       OUT="$(cat "$WORKDIR/.last_run")"                                 # likewise; the resolver does not export it
       source "${CLAUDE_PLUGIN_ROOT}/scripts/assert-backend-identity.sh" '<backend_identity() object>' || exit 1
       PLURAI_BIN="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_plurai.py" --ask --require ingest-run)" || { [ $? -eq 3 ] && exit 1; }   # 3 = the resolver stopped or asked: follow the lines it printed
+      EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
+      SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
       python3 "${CLAUDE_PLUGIN_ROOT}/scripts/sdk_call.py" "$PLURAI_BIN" ingest-run --run-dir "$OUT" --workspace-root "$PLURAI_DIR" \
-        --eval-set-id "$(cat "$WORKDIR/.eval_set_id")" \
-        --scenario-set-id "$(cat "$WORKDIR/.scenario_set_id")" \
+        --eval-set-id "$EVAL_SET_ID" \
+        --scenario-set-id "$SCENARIO_SET_ID" \
         --harness-fingerprint "$HARNESS_FP"
       ```
 
@@ -2693,9 +2701,11 @@ mechanical finding, write EVERY one of them to `$ART/deferrals.md` immediately �
       # coordinate compares unequal to everything and would report the frame moved on every later
       # check, stopping the eval lane for the rest of the build.
       OUT="$(cat "$WORKDIR/.last_run")"
+      SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
+      EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
       python3 "${CLAUDE_PLUGIN_ROOT}/scripts/lane_pin.py" write \
-        --scenario-set-id "$(cat "$WORKDIR/.scenario_set_id")" \
-        --eval-set-id "$(cat "$WORKDIR/.eval_set_id")" \
+        --scenario-set-id "$SCENARIO_SET_ID" \
+        --eval-set-id "$EVAL_SET_ID" \
         --run-upload-id "<the returned run_upload_id>" --out-dir "$OUT" \
         --backend-build "<backend_identity().build_id — the FIELD, not the object; '' if you have none>" \
         --backend-source "<backend_identity().source_id — the FIELD; '' if you have none>" \
@@ -3029,7 +3039,8 @@ mechanical finding, write EVERY one of them to `$ART/deferrals.md` immediately �
    Then, in order:
    1. **Quiesce the eval lane.** Finish the round in flight against the OLD pin, then CLOSE the
       edit session — the backend refuses the relink while a session is held.
-   2. **`relink_eval_scenario_set`** — this IS the merge. Work its audit output (guard coverage,
+   2. **`relink_eval_scenario_set`** — this IS the merge. Record its `minted_id` in `.eval_set_id` (Step 3b's relink
+      rules), then work its audit output (guard coverage,
       dead flow scope, a premise warning carrying a concrete guard) in ONE `/edit-evals` round,
       charged to the NEXT interval, by the mechanical rules Step 3b (deliverable file) gives.
    3. **Re-upload the new run artifacts** → a new `run_upload_id`.

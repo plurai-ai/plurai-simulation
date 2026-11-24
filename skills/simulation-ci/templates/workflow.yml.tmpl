@@ -1,0 +1,60 @@
+# plurai:managed rev={{rev}} - re-render with /simulation-ci; edit plurai_sim/ci.yaml for the verdict settings
+name: Plurai simulation ({{agent}})
+on:
+  # --- user-owned: triggers ---
+{{triggers}}
+  # --- end user-owned ---
+permissions: {}           # each job asks for what it needs; the workflow grants nothing by default
+concurrency:
+  # PR: one group per PR, a new push cancels the old run. Main: one group per commit, never cancelled (GitHub keeps one
+  # running and one pending run per group, so a shared main group drops commits). Merge queue: one group per entry.
+  # Schedule and dispatch: one group per event and ref, so manual runs on two branches never share a group.
+  group: ${{ github.event_name == 'pull_request' && format('plurai-{{agent}}-pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('plurai-{{agent}}-main-{0}', github.sha) || github.event_name == 'merge_group' && format('plurai-{{agent}}-mq-{0}', github.event.merge_group.head_sha) || format('plurai-{{agent}}-{0}-{1}', github.event_name, github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  simulate:
+    name: Plurai simulation ({{agent}})   # the check a branch protection rule names; one per agent
+    # Never skipped on fork PRs: a skipped required check counts as passed. With no token the action ends the run
+    # as "not measured: no secrets".
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read       # the action fetches main's run.json for "vs main"
+{{id_token}}
+    # --- user-owned: wall bound ---
+{{timeout}}
+    # --- end user-owned ---
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # no git credential stays in the workspace the agent reads
+{{cloud_region}}
+      # --- user-owned: install your agent's dependencies ---
+{{install}}
+      # --- end user-owned ---
+      - uses: plurai-ai/simulate-action@{{ref}}
+        with:
+          workdir: {{workdir}}
+{{url}}
+          token: ${{ secrets.PLURAI_TOKEN }}     # the service-account key `plurai ci token` writes
+          selection: ${{ inputs.selection }}     # workflow_dispatch only; empty on other events, where the action picks smoke or full
+          include_content: auto                  # transcripts, judge text and the suite diff body
+          retention_days: 7                      # transcripts; run.json and the reports keep the repository's retention
+        # --- user-owned: the names in plurai.config.yaml agent.env; change a line to vars.NAME for a variable ---
+{{env}}
+        # --- end user-owned ---
+  report:
+    # Publishes the one sticky comment of this agent (pull requests) and a check run that shows the report (every event). It
+    # never runs agent code and is the only job with a write token: `pull-requests` for the comment, `checks` for the check.
+    # The check is named apart from the simulate check above, which branch protection requires. Delete this job to turn both off.
+    needs: simulate
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      checks: write
+    steps:
+      - uses: plurai-ai/simulate-action/comment@{{ref}}
+        with:
+          result: ${{ needs.simulate.result }}
+          check_name: Plurai simulation results ({{agent}})

@@ -42,8 +42,10 @@ python3 -I "${CLAUDE_PLUGIN_ROOT}/scripts/backend_check.py"
 
 ## Step 1: Preconditions
 
-Read `plurai_sim/.eval_set_id` (written by `/generate-evals`). If missing, tell
-the user the evals are not built yet (`/simulation-generate-suite` builds them) and stop.
+Read the committed eval set id with the id reader, never with `cat`: `source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals`. It reads the
+copies in CI's order (the active env folder's marker, its manifest key, the root marker). Exit 1 (no copy holds one):
+tell the user the evals are not built yet (`/simulation-generate-suite` builds them) and stop. Every `<read_id.py evals>`
+below is its output.
 
 Read `plurai_sim/policies_config.yaml`. List the policies whose `type` is
 `llm_as_judge` — these are the only optimizable candidates. If there are none, tell
@@ -102,7 +104,7 @@ is answered by the table of the section "The `ledger_version` refusals" below St
 
 ```
 optimize_eval_start(
-    eval_set_id=<from .eval_set_id>,
+    eval_set_id=<read_id.py evals>,
     policy_name=<chosen>,
     workspace_id=<bench workspace id>,  # ALWAYS — the stdout of: source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_id.py"
     ledger_version=<the pin, read above>,  # REQUIRED; never drop it to get a call through
@@ -215,10 +217,9 @@ only.
 optimize_eval_adopt(optimize_job_id=<saved>)
 ```
 
-This is the only call that changes the eval set. It backs up the original, copies
-the judge program into the eval set's `out/hybrid/<policy>/`, and rewrites the
-policy to `type: hybrid` — **the `eval_set_id` is unchanged**, so the user's
-existing run commands and saved envs keep working. On the **rubric route** it changes
+This is the only call that changes the eval set. It copies the eval set under a NEW id (`minted_id`); in the copy it
+backs up the original, copies the judge program into `out/hybrid/<policy>/`, and rewrites the
+policy to `type: hybrid`. The eval set it was made on keeps its policies and its pinned digest. On the **rubric route** it changes
 only that policy's grading instructions (`system_prompt`); the policy stays
 `llm_as_judge`, and the ground-truth hold below never applies.
 
@@ -235,6 +236,20 @@ fingerprint, reason}])` with `gate_id` and `fingerprint` copied from that findin
 and `reason` citing the evidence. `gate_authority.overrules` answers it (`applied`
 adopts). When you keep the original judge, tell the user only that it was kept.
 
+Then record the minted eval set: write the adopt result to `$ART/optimize_adopt.result.json` with the Write tool and pass
+it to the id-file writer. It moves `.eval_set_id` to `minted_id.id` and nothing else, and writes nothing when `minted_id`
+is null (`adopted: false`: nothing was adopted). From here `<eval_set_id>` is the id it left.
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" minted "$ART/optimize_adopt.result.json"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/stage-inputs.sh" .eval_set_id
+```
+
+Never write an id file another way (`printf`, `echo`, the Write tool, or one copy by hand): the writer keeps the env
+folder's marker, its manifest key and the root marker in step, and CI refuses a branch whose copies disagree.
+
 Then refresh the local copy:
 1. Sync the mirror from the PROMOTED bytes:
 
@@ -244,7 +259,8 @@ Then refresh the local copy:
    # The guard checks $SERVER_URL against the backend this session is bound to before the fetch.
    source "${CLAUDE_PLUGIN_ROOT}/scripts/assert-backend-identity.sh" "" || exit 1
    if [ -n "$PLURAI_BIN" ]; then
-     python3 "${CLAUDE_PLUGIN_ROOT}/scripts/sdk_call.py" "$PLURAI_BIN" fetch policies <eval_set_id> --out "$PLURAI_DIR/policies_config.yaml"; echo "rc=$?"
+     EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
+     python3 "${CLAUDE_PLUGIN_ROOT}/scripts/sdk_call.py" "$PLURAI_BIN" fetch policies "$EVAL_SET_ID" --out "$PLURAI_DIR/policies_config.yaml"; echo "rc=$?"
    else
      echo "rc=no-runner"   # no plurai CLI in this repo: nothing was fetched; use the MCP fallback below
    fi
@@ -265,7 +281,7 @@ Then refresh the local copy:
    does not load; `--revert` and report. `rc=16` from the fetch means an `/edit-evals` session
    is open (nothing was synced, so there is nothing to verify): close it and re-sync, do NOT
    revert the adoption over it.
-3. `.eval_set_id` is unchanged — say so explicitly.
+3. `.eval_set_id` moved to the minted eval set; later runs score it. Say so in one plain line.
 
 ## Revert
 
@@ -273,13 +289,15 @@ Then refresh the local copy:
 optimized policy, then:
 
 ```
-optimize_eval_revert(eval_set_id=<from .eval_set_id>, policy_name=<chosen>)
+optimize_eval_revert(eval_set_id=<read_id.py evals>, policy_name=<chosen>)
 ```
 
-This restores the original `llm_as_judge` from the newest backup and removes the
+This copies the eval set under a NEW id (`minted_id`) and, in the copy, restores the original `llm_as_judge` from the newest backup and removes the
 hybrid artifact (an adopted rubric: the previous instructions, from the backup that
 adopt recorded). A refusal because the policy changed since the rubric was adopted
-means: change it with `/edit-evals` instead. `optimize_eval_revert` validated the restored config server-side;
+means: change it with `/edit-evals` instead. Record the copy like an adopt: write the result to `$ART/optimize_revert.result.json`
+and run `source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"; "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" minted "$ART/optimize_revert.result.json"`.
+`optimize_eval_revert` validated the restored config server-side;
 re-sync the local `policies_config.yaml` with `plurai fetch policies` (same
 block as Step 6) and re-run `verify_policies.py` on it — the same LOAD CHECK as Step 6.2, for
 the same reason: a revert rewrote the file too.

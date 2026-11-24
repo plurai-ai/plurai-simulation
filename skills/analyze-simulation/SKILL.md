@@ -364,8 +364,8 @@ in this loop looks unless you start the job. Upload the run once — the `ingest
 the invocation: announce it in product terms, never ask consent for it** — then:
 
 ```
-suite_diagnostics_start(run_upload_id=<the upload>, eval_set_id=<.eval_set_id>,
-                        scenario_set_id=<.scenario_set_id>, run_stage='qualification',
+suite_diagnostics_start(run_upload_id=<the upload>, eval_set_id=<read_id.py evals>,
+                        scenario_set_id=<read_id.py scenarios>, run_stage='qualification',
                         current_harness_fingerprint=<HARNESS_FP>)
 ```
 
@@ -452,8 +452,9 @@ repair, not caution. Hard cap: two full passes. The steps:
 
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+   SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/append_loop_log.py" --kind critic \
-     --finding "pass <N> — clean|<K> root causes" --note "set $(cat "$WORKDIR/.scenario_set_id")"
+     --finding "pass <N> — clean|<K> root causes" --note "set $SCENARIO_SET_ID"
    ```
 
    Step 3b reads it as a precondition: the final batch may only be built from a set a critic has actually judged, and a score_run cell is not that judgement.
@@ -802,9 +803,10 @@ repair, not caution. Hard cap: two full passes. The steps:
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
    source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+   EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
    "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/red_cells.py" labels --run-dir "<run dir>" \
      --run-upload-id <the run's run_upload_id> --stage qualification \
-     --eval-set-id "$(cat "$WORKDIR/.eval_set_id")" --out "$ART/eval_labels.args.json"
+     --eval-set-id "$EVAL_SET_ID" --out "$ART/eval_labels.args.json"
    python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" upload_eval_labels "@$ART/eval_labels.args.json" > "$ART/eval_labels.json"
    ```
    It prints the rows it skipped and why (no cause, a quote not in that turn's reply, a unit no longer red);

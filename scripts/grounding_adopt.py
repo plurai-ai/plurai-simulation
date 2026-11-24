@@ -183,7 +183,9 @@ def has_env(workdir: Path) -> bool:
 
 def has_evals(workdir: Path) -> bool:
     """Whether an eval set stands on this workdir: the marker `/generate-evals` writes names it."""
-    return grounding_files.read_marker(workdir, '.eval_set_id') is not None
+    import read_id  # noqa: PLC0415 - sibling script: the one reader of the committed suite ids
+
+    return read_id.committed_id(workdir, 'evals') is not None
 
 
 def _build_unfinished(workdir: Path) -> Optional[bool]:

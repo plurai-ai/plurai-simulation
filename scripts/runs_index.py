@@ -93,11 +93,9 @@ def _name_key(name: str) -> list[tuple[int, int, str]]:
 
 
 def _scenario_set_id(workdir: Path) -> str | None:
-    try:
-        value = (workdir / '.scenario_set_id').read_text(encoding='utf-8').strip()
-    except (OSError, UnicodeDecodeError):
-        return None
-    return value or None
+    import read_id  # noqa: PLC0415 - sibling script: the one reader of the committed suite ids
+
+    return read_id.committed_id(workdir, 'scenarios')
 
 
 def _previous(index_path: Path) -> dict[str, dict]:

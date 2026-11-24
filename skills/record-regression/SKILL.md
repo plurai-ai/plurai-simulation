@@ -23,8 +23,8 @@ suite build has just confirmed one. The conversation that exposed it lives only 
 artifacts, and the next suite build regenerates every scenario — so unless the conversation is recorded now, the reproducer is gone
 before the fix can be verified against it, and long before a relapse could be caught.
 
-This command records it. It writes **one folder and nothing else** (Step 6c adds the folder's
-local `replays.json`):
+This command records it. It writes **one folder** (Step 6c adds the folder's local `replays.json`), and at fix
+acceptance (`--issue`) plants it into a new scenario set (Step 7b):
 
 ```
 plurai_sim/regressions/
@@ -46,10 +46,12 @@ or, when the issue is on the **opening turn** and there is nothing to seed:
     first_talk.txt                       ← the recorded opening message, said verbatim, no pin
 ```
 
-**Nothing is uploaded and nothing is generated here.** The folder reaches a scenario set through
-the **final batch** of the next `/simulation-generate-suite`, which stages this directory and
-`trace_scenarios/` together and uploads them as one bundle. Until then `--verify` checks the fix through the original scenario, which is the
-loop exactly as it stands.
+**Where the folder goes.** At fix acceptance (`--issue`) it is planted at once: Step 7b uploads it as a one-folder bundle
+and tops the current scenario set up with it into a NEW scenario set id, which the id-file writer records in
+`.scenario_set_id` in the same branch as the fix. At a suite build's gate exit (`--finding`) nothing is planted here: the
+**final batch** of that `/simulation-generate-suite` stages this directory and `trace_scenarios/` together and uploads
+them as one bundle. Either way `--verify` checks the fix through the original scenario, which is the loop exactly as it
+stands: the folder stays on disk, and `--verify` runs the whole set.
 
 **What the folder deliberately does NOT hold:** world state, agent context, persona, scenario
 prose, evals. Every build authors those again from the current pipeline. Freezing them would
@@ -61,9 +63,9 @@ of what production's tools returned, read by the world author as a constraint.
 **Why each choice is what it is.** The bench can be wrong: a test-setup or mock-env defect can
 produce a failure that looks like the agent's. So a regression keeps agent evidence only, and only
 an agent issue from a clean run is recorded (Step 1 states the test). An accepted bench fix puts
-every active regression back under re-verify. The final batch is the only publisher, because a
-second place where scenarios enter a set is a second thing that can drift. A regression stays after
-its fix, and `--verify` runs the whole set.
+every active regression back under re-verify. The folder, not the set, is the record: a plant and the final batch
+both author their scenario from the folder, and the final batch re-authors every folder it finds, so the two cannot
+drift apart. A regression stays after its fix, and `--verify` runs the whole set.
 
 <!-- BEGIN backend-check: generated from ${CLAUDE_PLUGIN_ROOT}/docs/backend-check-block.md; edit there -->
 ## Check the backend first
@@ -596,8 +598,9 @@ echo "SAMPLE_EXIT=$?"
   ```bash
   source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
   F="$WORKDIR/regressions/regression_<issue_slug>"; P="$ART/regression_picks/regression_<issue_slug>"
+  EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" sample-payload "$F" "$P.samples.json" \
-    --eval-set-id "$(cat "$WORKDIR/.eval_set_id")" > "$P.payload.json" \
+    --eval-set-id "$EVAL_SET_ID" > "$P.payload.json" \
   && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" score_sampled_replies "@$P.payload.json" > "$P.scored.json" \
   && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" confirm "$F" --samples "$P.samples.json" \
        --scored "$P.scored.json" --picks-dir "$ART/regression_picks"
@@ -645,17 +648,111 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/append_loop_log.py" --kind regression \
   --finding "recorded regression_<issue_slug> from <scenario> cut at turn <K> — <the issue title>"
 ```
 
+## Step 7b — plant it into a new scenario set (`--issue` only)
+
+Skip this step under `--finding`: the build's final batch carries the folder, and this step would author it twice. Skip
+it too, saying the folder joins the scenario set at the next `/simulation-generate-suite`, when `read_id.py scenarios`
+or `read_id.py evals` exits 1 (no set to top up yet), when Step 6c deleted the folder as rare at the cut, and when
+the stage below holds the folder back or lists no folder.
+
+The plant is the backend's top-up path: the current set's scenarios come across as they are, the folder is authored
+beside them against the current environment, and the result is a NEW scenario set id. The eval set id does not move
+here; it still links to the set the top-up adopted from.
+
+0. **Note the id you start from**: the output of `source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios`, as `<previous set id>`.
+
+1. **Stage this folder alone.** `N` is the number of scenarios the current set holds
+   (`get_artifact_meta(<read_id.py scenarios>)`, `detail.scenario_names`). The call below sends `bundle_only=true` with
+   `count` = `N`: the backend adopts every donor scenario as it is, authors the folder alone and walks nothing. It
+   refuses unless every scenario of the donor set is adoptable (passes the backend's quality bar) and `count` equals
+   that number. The cap counts the scenarios the job generates, not the adopted ones, so the stage takes `--count 0`
+   and a donor set of any size fits.
+
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+   "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/final_bundle.py" stage --workdir "$WORKDIR" --out "$ART/regression_bundle" \
+     --only regression_<issue_slug> --count 0 > "$ART/regression_bundle.json"
+   echo "stage exit=$?"; cat "$ART/regression_bundle.json"
+   ```
+
+   Exit 2 names why nothing was staged (a name that would not ship as itself, a folder with neither pin nor opener, a
+   cap): report it in its own words and stop; the folder joins the set at the next build. A `held_back` entry (the
+   harness cannot replay the pin's seed) or an empty `folders` ends the step the same way.
+
+2. **Upload it as ONE bundle**, the lane `/trace-to-scenarios` Step 4 uses:
+
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+   PLURAI_BIN="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_plurai.py" --ask --require ingest-bundle)" || { [ $? -eq 3 ] && exit 1; }   # 3 = the resolver stopped or asked: follow the lines it printed — never proceed on an empty PLURAI_BIN
+   # bash cannot see which backend the MCP server is bound to. Call the read-only backend_identity()
+   # MCP tool first and paste its object here verbatim.
+   source "${CLAUDE_PLUGIN_ROOT}/scripts/assert-backend-identity.sh" '<backend_identity() object>' || exit 1
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/sdk_call.py" "$PLURAI_BIN" ingest-bundle \
+       --workspace-root "$PLURAI_DIR" \
+       --bundle-dir "$ART/regression_bundle"
+   #   stdout → the manifest JSON (capture it verbatim, change nothing)
+   #   stderr → the resolved TARGET line, then the disclosure preview. READ THE TARGET LINE:
+   #            it is the authoritative statement of which backend this upload reached.
+   cat "$ART/regression_bundle/BUNDLE.md"                 # raw posture: send this
+   cat "$PLURAI_DIR/.plurai/uploads/overview_md.md"       # anonymized posture: send THIS instead
+   ```
+
+   A `WARNING (disclosure: home_named)` line from `ingest-bundle` is printed before any byte leaves: relay it to the
+   operator in that step's own message, naming the files it lists. It does not stop the upload.
+
+   A non-zero `ingest-bundle` exit is a HARD STOP: nothing was uploaded. Then
+   `upload_scenario_bundle_start(manifest=<the captured stdout>, overview_md=<the BUNDLE.md content, or the anonymized
+   overview the CLI named>)` → `UploadFinalizeResult { set_id, status: 'done' }`. **Never write that `set_id` to
+   `.scenario_bundle_id`**: that marker means "build the WHOLE set from these folders", and a one-folder bundle parked
+   there turns the next suite into one replayed conversation. The id is passed once, as `additional_bundle_id`.
+
+3. **Top the set up.** Run the **generate-scenarios skill** in top-up form, forwarding: `adopt_from_scenario_set_id` and
+   `previous_scenario_set_id` = `<read_id.py scenarios>`, `eval_set_id` = `<read_id.py evals>`, `additional_bundle_id` = the
+   upload's `set_id`, `bundle_only` = `true`, `count` = `N`, every other input byte-identical to the call that
+   generated the set (the backend refuses the adoption on any field that differs; the refusal names it, so fix the
+   field it names and never drop `adopt_from_scenario_set_id`; the generation inputs are the ones the suite build
+   sent, in the build's loop log and the `/generate-scenarios` call contract). The new set holds the `N` adopted
+   scenarios and the folder's scenario. The backend fails the job, and mints nothing, when no folder of the bundle
+   ships, and fails the same way when its own re-check of the donor against changed PRD directives leaves fewer
+   adoptable scenarios than `count`. A finished top-up answers `detail.minted_id` (`{kind: "scenarios", id}`) and
+   `detail.copied_from` (`<previous set id>`). The skill polls the job and, on `done`, records `detail.minted_id.id`
+   with the id-file writer (`write_id_file.py created --kind scenarios --top-up`), which moves `.scenario_set_id` and
+   nothing else. Never write an id file another way (`printf`, `echo`, the Write tool, or one copy by
+   hand): CI refuses a branch whose copies disagree. A failed job leaves the branch as it was: say the folder joins the set at the next build. A refusal
+   (a donor scenario that is not adoptable, or a `count` that differs from the adoptable number) does the same, and
+   you report it to the user with the numbers it names and stop: never retry with a smaller `count` or without
+   `bundle_only`, because the regression set must not drop a donor scenario unasked.
+
+4. **Check the folder arrived, and stage the marker.** `final_bundle.py missing` exits 1 when the new set lacks the folder:
+   the backend could not author it. Put `.scenario_set_id` back on `<previous set id>` through the writer
+   (`mcp_call.py job_status '{"id": "<previous set id>"}' | write_id_file.py created --kind scenarios --keep-fingerprints -`) and skip
+   the `stage-inputs.sh` line, so the branch never carries a new id without the regression; keep the folder and say it
+   joins at the next build.
+
+   ```bash
+   source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+   source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+   SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
+   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" get_artifact_meta "{\"id\": \"$SCENARIO_SET_ID\"}" \
+     | "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/final_bundle.py" missing - --workdir "$WORKDIR" --staged "$ART/regression_bundle.json" \
+     && bash "${CLAUDE_PLUGIN_ROOT}/scripts/stage-inputs.sh" .scenario_set_id
+   ```
+
+   The new `.scenario_set_id` belongs in the same branch as the fix. `.eval_set_id` is unchanged.
+
 ## Step 8 — report
 
 One short paragraph. What was recorded, from where, and what happens to it next:
 
 > Recorded **`regression_refund_timing_invented`** — the refund-timing issue, replayed from
-> `scenario_02` cut at turn 1. It joins the scenario set at the next `/simulation-generate-suite`,
-> as one extra scenario in the final batch. Until then `--verify` checks the fix through the
-> original scenario.
+> `scenario_02` cut at turn 1. It is in the scenario set now: the set has a new id, which belongs in the
+> same commit as the fix. `--verify` checks the fix through the original scenario.
 
-With `--finding`, the next step is the same final batch, and it is in this very build: say
-`It joins the scenario set in this build's final batch.` instead.
+When Step 7b was skipped or planted nothing, say instead: `It joins the scenario set at the next
+/simulation-generate-suite, as one extra scenario in the final batch. Until then --verify checks the fix through the
+original scenario.` With `--finding`, the next step is the same final batch, and it is in this very build: say
+`It joins the scenario set in this build's final batch.`
 
 Add the band from Step 6c in plain words — `caught again in 4 of 5 replays at that turn`, or
 `seen once`. Name any warning that came out of Step 5, Step 6 or Step 6b in a second line, and when Step 6b

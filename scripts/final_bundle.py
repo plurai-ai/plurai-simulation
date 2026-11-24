@@ -10,6 +10,7 @@ Verbs:
 
 ``stage``          copy every finished regression and trace scenario into one clean directory
                    with one ``BUNDLE.md``, holding trace scenarios back where they cannot run.
+                   ``--only`` stages the named regressions alone (a fix planting its own).
 ``missing``        read the delivered set's metadata and name, per kind, the folders it was asked
                    for and does not carry, each with why.
 ``target-graded``  whether the eval set grades a scenario's target at all, and if not, which
@@ -34,8 +35,9 @@ recorded before the pin carried documents). Four more hold-backs apply to trace 
   issue, and leaving it out is the operator's call.
 * **There is no harness to ask.** A workdir with no ``simulate.py`` holds every pinned folder
   back, regressions included, with no spawn.
-* **The cap.** The backend refuses a job whose ``count + folders`` exceeds
-  ``scenario_job_max_count``. Trace scenarios are held back last-first until the rest fits;
+* **The cap.** The backend refuses a job whose generated scenarios plus folders exceed
+  ``scenario_job_max_count``; scenarios adopted from a donor do not count (``--count 0`` stages a
+  bundle-only top-up). Trace scenarios are held back last-first until the rest fits;
   regressions alone over the cap refuse the stage, because retiring a regression is the
   operator's call.
 
@@ -226,8 +228,12 @@ def stage(
     harness: Path | None = None,
     count: int = WALK_COUNT,
     max_count: int = SCENARIO_JOB_MAX_COUNT,
+    only: Collection[str] | None = None,
 ) -> dict[str, Any]:
     """Stage the merged bundle into ``out`` and return what rode and what was held back.
+
+    ``only`` names the regression folders that ride; no other regression and no trace scenario is looked at, so a
+    fix plants the one regression it recorded. A name that is not a regression folder is refused.
 
     Everything is checked before ``out`` is touched: an unfinished regression, a name that would
     not ship as itself, regressions alone over the cap, and a seed check that reaches no verdict
@@ -241,6 +247,12 @@ def stage(
     seed_fidelity_path(workdir).unlink(missing_ok=True)
     regression_folders = regressions.folders(regressions_dir)
     trace_folders = trace_scenarios.folders(traces_dir)
+    if only is not None:
+        unknown = sorted(set(only) - {folder.name for folder in regression_folders})
+        if unknown:
+            raise Refused(f'--only names {", ".join(unknown)}, which is not a folder under {regressions_dir}.')
+        regression_folders = [folder for folder in regression_folders if folder.name in only]
+        trace_folders = []
 
     unfinished: list[str] = []
     resumed: list[Path] = []
@@ -458,7 +470,10 @@ def _read_json_arg(path: Path, what: str) -> Any:
 
 def cmd_stage(args: argparse.Namespace) -> int:
     check = functools.partial(check_seeds_with_smoke, fidelity_out=seed_fidelity_path(args.workdir))
-    staged = stage(args.workdir, args.out, check_seeds=check, harness=args.harness, count=args.count, max_count=args.max_count)
+    staged = stage(
+        args.workdir, args.out, check_seeds=check, harness=args.harness, count=args.count, max_count=args.max_count,
+        only=args.only or None,
+    )
     print(json.dumps(staged, indent=2))
     return 0
 
@@ -513,8 +528,12 @@ def build_parser() -> argparse.ArgumentParser:
     staging.add_argument('--workdir', required=True, type=Path, help='the plurai_sim workdir holding both directories')
     staging.add_argument('--out', required=True, type=Path, help='the staging directory, cleared first ("$ART/final_bundle")')
     staging.add_argument('--harness', type=Path, help="the harness whose Init is asked each pinned folder's seed (default: <workdir>/simulate.py)")
-    staging.add_argument('--count', type=int, default=WALK_COUNT, help='the walk count the folders ride beside')
+    staging.add_argument('--count', type=int, default=WALK_COUNT, help='walk scenarios drawn beside the folders (0 when all are adopted)')
     staging.add_argument('--max-count', type=int, default=SCENARIO_JOB_MAX_COUNT, help="the backend's scenario_job_max_count")
+    staging.add_argument(
+        '--only', action='append', metavar='FOLDER',
+        help='stage only this regression folder (repeatable); no other regression and no trace scenario rides',
+    )
     staging.set_defaults(func=cmd_stage)
 
     absent = sub.add_parser(

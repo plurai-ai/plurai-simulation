@@ -124,10 +124,12 @@ SHAPE_INCOMPLETE = 'incomplete'
 #: The three provenance keys the dedup reads off a pin. ``cut_turn`` is absent from an uncut pin.
 PROVENANCE_KEYS = ('source_file', 'thread_id', 'cut_turn')
 
-#: The walk count of the delivered batch, which the folders ride beside.
+#: The walk count of the delivered batch, which the folders ride beside (none when a top-up adopts every walk
+#: scenario).
 WALK_COUNT = 7
 
-#: The backend's default ``scenario_job_max_count``. The job refuses ``count + folders`` above it.
+#: The backend's default ``scenario_job_max_count``. The job refuses the scenarios it generates plus the folders
+#: above it.
 SCENARIO_JOB_MAX_COUNT = 50
 
 PYTHON_HARNESS = 'simulate.py'

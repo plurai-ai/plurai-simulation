@@ -152,6 +152,7 @@ SCOPED_COMMANDS: tuple[str, ...] = (
     "ground-scenarios",
     "manage-envs",
     "optimize-eval",
+    "record-regression",
     "refine-scenarios",
     "trace-to-scenarios",
     "upload-doc-examples",

@@ -80,7 +80,7 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-plurai-urls.sh" || exit 1
 MOCK_URL="${MOCK_URL:-$(cat "$PLURAI_DIR/.mock_service_url" 2>/dev/null || true)}"
 
 # Eval set (optional): explicit --eval-set-id wins, else the saved .eval_set_id.
-EVAL_SET_ID="${EVAL_SET_ID:-$(cat "$PLURAI_DIR/.eval_set_id" 2>/dev/null || true)}"
+[ -n "${EVAL_SET_ID:-}" ] || EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals --absent '')" || exit $?
 
 # SCENARIO_ID_FLAGS = one --scenario-id per name from get_artifact_meta, e.g.
 #   --scenario-id generated_dataset_scenario_01 --scenario-id generated_dataset_scenario_02

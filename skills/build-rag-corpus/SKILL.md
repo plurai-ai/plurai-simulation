@@ -60,7 +60,7 @@ The split that matters:
 └──────────────────────────────────────────────────────────────────────┘
 ┌── later, in the suite (Step 1's corpus wait) ────────────────────────┐
 │  wait for the grounding job → apply the corpus health gate to each   │
-│  build → write `.knowledge_bases` / `.corpus_id` for the healthy.    │
+│  build → `grounding_corpus.py record` writes the markers (Step 6).   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 

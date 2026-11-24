@@ -50,8 +50,8 @@
         "floor_header": "X-Plurai-Min-Client",
         "header": "X-Plurai-Client",
         "minimum_versions": {
-          "plurai-simulation": "0.0.0",
-          "plurai-simulation-sdk": "0.0.0"
+          "plurai-simulation": "1.1.0-dev.0",
+          "plurai-simulation-sdk": "1.1.0-dev.0"
         },
         "refusal": {
           "error": "client_upgrade_required",
@@ -2142,6 +2142,7 @@
           "workspace_id",
           "scenario_bundle_id",
           "additional_bundle_id",
+          "bundle_only",
           "augmentation_level",
           "artifact_feedback",
           "redraws",
@@ -2180,6 +2181,7 @@
           "adopt_from_scenario_set_id",
           "artifact_feedback",
           "augmentation_level",
+          "bundle_only",
           "command_run_id",
           "count",
           "dataset_description",

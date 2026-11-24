@@ -14,7 +14,7 @@ it compares, each with the action a move costs. Nothing branches per artifact: `
 asks each input's comparator in `COMPARE`, and keeps the HEAVIEST action per item
 (`rerun` > `rescore` > `pull` > `rebuild`). A whole-run (or whole-set) entry subsumes its items.
 
-CURRENT values come only from files the plugin already writes (`.scenario_set_id`, `.eval_set_id`,
+CURRENT values come only from files the plugin already writes (the suite ids, read through `read_id.py`,
 `.env_id`, the corpus markers, the harness files, `policies_config.yaml`, `artifacts/.pieces/`,
 `suite_state.json`) plus the backend observations `--refresh` stores in `current.remote`. RECORDED
 values are read from the producer's own file each time (`run.json`, each item's verdicts, `suite.json`,
@@ -61,6 +61,7 @@ import corpus_coordinate  # noqa: E402 - sibling script: all three corpus marker
 import fix_verification  # noqa: E402 - sibling script: the fix plan's header and table grammar live there
 import harness_fingerprint  # noqa: E402 - sibling script: the harness fingerprint lives there
 import lane_pin  # noqa: E402 - sibling script: the staleness reason vocabulary is owned there
+import read_id  # noqa: E402 - sibling script: the one reader of the committed suite ids
 import record_finding  # noqa: E402 - sibling script: the findings store reader lives there
 import url_guard  # noqa: E402 - the one answer to "may the bearer go to this URL"
 import verdicts_file  # noqa: E402 - the one reader of an item's verdicts
@@ -223,8 +224,8 @@ class Ctx:
         self.art = workdir / 'artifacts'
         self.manifest = manifest
         self.entries: list[Entry] = []
-        self.current_set = _marker(workdir, '.scenario_set_id')
-        self.current_eval = _marker(workdir, '.eval_set_id')
+        self.current_set = read_id.committed_id(workdir, 'scenarios')
+        self.current_eval = read_id.committed_id(workdir, 'evals')
         self.pieces = _doc(self.art / '.pieces' / 'pieces.json')
         self._harness: Any = UNRECORDED
 

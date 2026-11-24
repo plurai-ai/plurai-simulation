@@ -21,7 +21,7 @@ without provisioning LLM credentials themselves.
 │     → surface phase + scenarios_completed/total.              │
 │  4. On status='done':                                          │
 │     → final Job envelope has summary (no separate end call).  │
-│     → write plurai_sim/.scenario_set_id (one line).           │
+│     → write_id_file.py created → .scenario_set_id             │
 │     → tell the user to /simulation-run.          │
 └──────────────────────────────────────────────────────────────┘
                                   ▲
@@ -527,6 +527,7 @@ generate_scenarios_start(
     workspace_id=<bench workspace id>,  # ALWAYS — the stdout of: source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_id.py"
     scenario_bundle_id=<str or None>,      # set_id from plurai_sim/.scenario_bundle_id (see below); None if absent
     additional_bundle_id=<str or None>,    # the merged REGRESSIONS + TRACE SCENARIOS bundle, authored BESIDE the walk into the same set (see below); None on every batch that is not the deliverable
+    bundle_only=False,                     # `/record-regression`'s plant passes True, with `adopt_from_scenario_set_id` and `additional_bundle_id`: adopt every donor scenario, author only the folders, walk nothing (see below); no other batch passes it
     augmentation_level=<int>,              # from plurai_sim/.scenario_bundle_augmentation (default 0); only meaningful with a bundle (see below)
     artifact_feedback=<str or None>,       # free-text feedback on a PRIOR batch's artifacts/documents (see below); None on a first pass
     intervention_point=False,
@@ -557,7 +558,7 @@ Read it off the marker, and pass it whenever the marker exists:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
-cat "$WORKDIR/.eval_set_id" 2>/dev/null || echo ABSENT
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals --absent ABSENT || exit $?
 ```
 
 `ABSENT` is a legitimate state and it is not a failure: on a first pass the evals do not exist
@@ -565,6 +566,9 @@ yet — omit the parameter and say so in the summary, because that batch was dea
 its rubrics. On every LATER call — a regeneration, a top-up, the suite's Step 3b deliverable —
 the file exists and omitting it is a silent downgrade. A backend that rejects the parameter is an
 older box: drop it, re-call, and say the same line.
+
+Only `ABSENT` means no eval set exists. A read that exits non-zero is an error to stop on and show the user, never an absent
+id: exit 2 is a merge conflict in an id file (or a file that holds no id), and a build that carries on would test another suite.
 
 **The FIRST draw after `/generate-evals` carries `eval_set_id` + `previous_scenario_set_id`.** A
 batch dealt without the id is blind to the demands its own eval set derives, so every judge
@@ -651,10 +655,11 @@ exhausted turn budget is refused separately and says so, so read the whole warni
 concluding the box was healthy.
 
 **`previous_scenario_set_id` — pass it on EVERY regeneration for an agent that already has a
-scenario set.** Read it from `$WORKDIR/.scenario_set_id`, which the previous generation wrote:
+scenario set.** Read it with the id reader, which takes the copy CI tests (`ABSENT` on the very first batch; a non-zero exit
+is an error to stop on, never an absent id):
 
 ```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; cat "$WORKDIR/.scenario_set_id" 2>/dev/null
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios --absent ABSENT || exit $?
 ```
 
 A flow's id is a slug of the name the extraction model chooses, so rebuilding the dimension graph
@@ -697,7 +702,7 @@ printf '%s\n' "<returned id>" > "$PLURAI_DIR/.scenario_job_id"
 
 The repo-root managed block (`/simulation-scan-agent` Step 5) already ignores it — it is a
 crash-recovery sidecar, not project state. If the repo's block is missing or its BEGIN line
-carries an older rev, re-run `/simulation-scan-agent` Step 5. On success, write `.scenario_set_id` as usual and
+carries an older rev, re-run `/simulation-scan-agent` Step 5. On success, record the id as Step 6 says and
 DELETE the sidecar — a stale one next to a completed set is misleading. If it is still present at the START of a later run, that is an interrupted job:
 call `job_status(id=<id>)` on it before generating anything new, and adopt the result if it
 finished.
@@ -842,8 +847,14 @@ folders and never walks the graph, while `additional_bundle_id` authors its fold
 full walk, in the same job, into the same set. The walk still deals its entire `count` and every
 draw it makes is byte-identical to the one it would make with no bundle; the set then holds
 `count` walk scenarios **plus one per folder**. `augmentation_level` does not apply — a folder
-yields exactly one scenario. It is mutually exclusive with `scenario_bundle_id` and with
-`adopt_from_scenario_set_id`, and the backend refuses the call rather than picking one.
+yields exactly one scenario. It is mutually exclusive with `scenario_bundle_id`, and the backend
+refuses the call rather than picking one. It combines with `adopt_from_scenario_set_id` as a top-up, and
+`count` must then exceed the number of adoptable scenarios: the walk draws the difference beside the
+folders. `bundle_only=True` is the one exception, and only `/record-regression` passes it: it needs both
+`adopt_from_scenario_set_id` and `additional_bundle_id`, `count` equal to the number of scenarios the donor
+set holds, and a donor whose every scenario is adoptable. The job adopts the donor, authors only the
+folders, walks nothing, and fails without minting a set id if its own re-check drops a donor scenario.
+Any other batch leaves it `False`.
 
 What goes in it here is **two directories merged into one bundle** — `plurai_sim/regressions/`,
 one folder per confirmed agent issue, written by `/record-regression`, and
@@ -887,20 +898,9 @@ detail:                    # kind-specific typed payload
   scenarios_total: <int>
 ```
 
-**Save `id` (the scenario_set_id).** Every poll + the eventual end call need
-it, and you'll write it to `plurai_sim/.scenario_set_id` on completion.
+**Save `id` (the scenario_set_id).** Every poll + the eval call need it. On completion
+`write_id_file.py` records it (Step 6): the marker, and the active env's manifest when the repo uses named envs.
 (`detail.scenario_set_id` mirrors `id`.)
-
-**Environment manifest (if this repo uses named envs).** If `plurai_sim/envs/`
-exists, also record the set id into the active env's manifest so a later env switch
-can verify it later:
-
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"   # ABSOLUTE $PLURAI_DIR — cwd-reset-proof
-python "${CLAUDE_PLUGIN_ROOT}/skills/manage-envs/scripts/env_manifest.py" write "$PLURAI_DIR" --name "$(basename "$PLURAI_DIR")" --scenario-set-id <scenario_set_id>
-```
-
-Skip if there's no `envs/`. See the `manage-envs` skill.
 
 If the call raises `ValueError("scenario_storage_root is not configured...")`,
 the backend doesn't have scenario-gen enabled — not fixable from the customer side: run the contact hand-off (`stop_message.py contact --done`). Don't retry.
@@ -1243,13 +1243,27 @@ facts), then regenerate once the artifact that read the wrong side. Report it
 to the user in one product sentence ("one PRD claim disagreed with the docs;
 corrected and noted"), never the raw warning text.
 
-Write the id to `<plurai_dir>/.scenario_set_id` (one line, no trailing
-newline). This file is the contract between `/generate-scenarios` and
-`/simulation-run` — the latter reads it and passes
-`--scenario-set-id <id>` to `plurai-run-simulation`.
+Record the id with the id-file writer, which reads the done job itself. `.scenario_set_id` is the contract between
+`/generate-scenarios` and `/simulation-run` — the latter reads it and passes `--scenario-set-id <id>` to
+`plurai-run-simulation`. In a named-env repo the writer also moves the manifest's `scenario_set_id` and refreshes its
+input fingerprints. A status other than `done` writes nothing and exits 2.
 
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status '{"id": "<scenario_set_id>"}' \
+  | "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" created --kind scenarios -
 ```
-<scenario_set_id>
+
+For a top-up that carries `additional_bundle_id` (`adopt_from_scenario_set_id` set) the writer reads the answer's
+`detail.minted_id`, the job's own set id (`{kind: "scenarios", id}`), which a finished top-up answers beside
+`detail.copied_from`. It refuses an answer without one, so a top-up that minted nothing never moves `.scenario_set_id`:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status '{"id": "<scenario_set_id>"}' \
+  | "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" created --kind scenarios --top-up -
 ```
 
 **Stage it** — it names the backend set the committed inputs correspond to, so a clone

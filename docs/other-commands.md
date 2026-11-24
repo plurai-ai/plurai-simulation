@@ -14,6 +14,7 @@ Beyond the lifecycle, these commands are available when you need them:
 | `/author-trace-adapter` | Diagnose a trace export the converter does not already understand, and author the workspace adapter that teaches it the format. |
 | `/trace-to-scenarios` | The command `/ground-scenarios` uses for conversations; you can also run it directly. Turns thread exports into scenarios that RESUME where the real conversation stopped. |
 | `/upload-scenario-bundle` | The command `/ground-scenarios` uses for records; you can also run it directly. Publishes hand-authored folders of real records so generated scenarios are grounded in them. |
+| `/simulation-ci` | Set up CI for your simulations: finds each agent, checks it is ready, renders a GitHub workflow per agent with its `ci.yaml`, and prints the token and secret commands to run. Run again to edit the setup. |
 | `/harness-setup` | Log in again, or switch organization. |
 | `/optimize-eval` | Improve one eval's judge and compare the candidates. You choose whether to adopt one. |
 | `/plurai-diagnose` | Print a bundle to send to Plurai support. |

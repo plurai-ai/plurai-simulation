@@ -123,7 +123,9 @@ class Disk:
         return records[cut + 1:]
 
     def set_id(self) -> str | None:
-        return self.marker('.scenario_set_id')
+        import read_id  # noqa: PLC0415 - sibling script: the one reader of the committed suite ids
+
+        return read_id.committed_id(self.wd, 'scenarios')
 
     def meta_detail(self) -> dict | None:
         meta = self.json(META)

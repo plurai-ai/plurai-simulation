@@ -17,7 +17,8 @@
 #                                   projector runs under the same install as the contract)
 #   3. $VIRTUAL_ENV/bin           — the venv the operator activated
 #   4. ./.venv/bin, then other ./.venv*|./venv* — repo-root venvs, sorted
-#   5. PATH
+#   5. the venvs of each directory above the cwd, nearest first, up to the project boundary
+#   6. PATH
 #
 # Native Windows (Git Bash / MSYS / Cygwin, by _plurai_py_on_windows): a venv keeps its interpreter in
 # `Scripts/python.exe`, so each `*/bin` tier is followed by its `*/Scripts` twin, `python.exe` is
@@ -181,6 +182,42 @@ _plurai_py_scan_venvs() {
   return 1
 }
 [ -n "$PLURAI_PY" ] || _plurai_py_scan_venvs || true
+# The project venv ABOVE the cwd. A skill snippet runs from `plurai_sim/` or an env folder below it, and the project's
+# `.venv` sits at its root: the walk goes up to the project boundary, the first directory (the cwd included) holding
+# `.git` or `plurai_sim/`, as `resolve_plurai.py` finds the project root. The boundary is found FIRST, and with none
+# nothing above the cwd is read: a venv in some parent of an unrelated tree (a shared temp dir) belongs to someone else.
+# A candidate found here is outside the cwd's tree, so it must look like a venv (`pyvenv.cfg`) and is vetted as a named
+# one (compiled).
+_plurai_py_boundary() {
+  _plurai_dir="$PWD"
+  while [ ! -e "$_plurai_dir/.git" ] && [ ! -d "$_plurai_dir/plurai_sim" ]; do
+    _plurai_up="$(_plurai_py_dirname "$_plurai_dir")"
+    [ "$_plurai_up" = "$_plurai_dir" ] && { unset _plurai_dir _plurai_up; return 1; }
+    _plurai_dir="$_plurai_up"
+  done
+  printf '%s' "$_plurai_dir"
+  unset _plurai_dir _plurai_up
+}
+_plurai_py_scan_ancestors() {
+  if [ -n "${ZSH_VERSION:-}" ]; then
+    setopt local_options no_nomatch 2>/dev/null || true
+  fi
+  _plurai_root="$(_plurai_py_boundary)" || return 1
+  _plurai_dir="$PWD"
+  while [ "$_plurai_dir" != "$_plurai_root" ]; do
+    _plurai_dir="$(_plurai_py_dirname "$_plurai_dir")"
+    for _plurai_venv in "$_plurai_dir"/.venv* "$_plurai_dir"/venv*; do
+      [ -f "$_plurai_venv/pyvenv.cfg" ] || continue
+      if _plurai_py_tier "$_plurai_venv/bin" named || { [ "$_plurai_py_win" = 1 ] && _plurai_py_tier "$_plurai_venv/Scripts" named; }; then
+        unset _plurai_root _plurai_dir _plurai_venv
+        return 0
+      fi
+    done
+  done
+  unset _plurai_root _plurai_dir _plurai_venv
+  return 1
+}
+[ -n "$PLURAI_PY" ] || _plurai_py_scan_ancestors || true
 [ -n "$PLURAI_PY" ] || _plurai_py_probe "$(command -v python3 2>/dev/null || true)"
 [ -n "$PLURAI_PY" ] || _plurai_py_probe "$(command -v python 2>/dev/null || true)"
 
@@ -200,4 +237,4 @@ fi
 
 export PLURAI_PY PLURAI_PY_HAS_YAML
 unset _plurai_py_first _plurai_py_win _plurai_py_hint
-unset -f _plurai_py_on_windows _plurai_py_dirname _plurai_py_posix _plurai_py_probe _plurai_py_in_tree _plurai_py_is_compiled _plurai_py_is_interpreter _plurai_py_tier _plurai_py_scan_venvs 2>/dev/null || true
+unset -f _plurai_py_on_windows _plurai_py_dirname _plurai_py_posix _plurai_py_probe _plurai_py_in_tree _plurai_py_is_compiled _plurai_py_is_interpreter _plurai_py_tier _plurai_py_scan_venvs _plurai_py_boundary _plurai_py_scan_ancestors 2>/dev/null || true

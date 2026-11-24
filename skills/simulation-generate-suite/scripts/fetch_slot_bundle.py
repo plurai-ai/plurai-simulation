@@ -229,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.set_id.strip():
         # REFUSED BY NAME, at the same exit as a missing backend, because it is the same class
         # of fault: the client asked the wrong question. The documented invocation is
-        # `--set-id "$(cat "$WORKDIR/.scenario_set_id")"`, so a missing marker expands to the
+        # `--set-id "$(python3 .../read_id.py scenarios)"`, so a missing id expands to the
         # empty string, builds `GET <server>/artifacts/` and comes back 404/405 — caught below
         # and printed as INCONCLUSIVE, on which the skill text says "re-run it". That loop never
         # resolves and under the headless driver it burns the phase budget to a STALL.

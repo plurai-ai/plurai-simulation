@@ -27,7 +27,7 @@ then materialize.
 │  5. MCP: end_scenarios_session(session_id) → adapt_request          │
 │  6. Ask count. MCP: generate_scenarios_start(…, adapt_request=…)    │
 │  7. Poll job_status(id=set_id) until done.                             │
-│  8. Write .scenario_set_id from terminal job_status result.         │
+│  8. write_id_file.py created: .scenario_set_id from the done job.   │
 │  9. Tell the user to /simulation-run.                  │
 └─────────────────────────────────────────────────────────────────────┘
                                   ▲
@@ -585,15 +585,7 @@ the backend doesn't have scenario-gen enabled — not fixable from the customer 
 If the call raises a `ValueError("count N exceeds scenario_job_max_count=...")`,
 lower count and retry silently.
 
-**Environment manifest (if this repo uses named envs).** If `plurai_sim/envs/`
-exists, also record the set id into the active env's manifest:
-
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"   # ABSOLUTE $PLURAI_DIR — cwd-reset-proof
-python "${CLAUDE_PLUGIN_ROOT}/skills/manage-envs/scripts/env_manifest.py" write "$PLURAI_DIR" --name "$(basename "$PLURAI_DIR")" --scenario-set-id <scenario_set_id>
-```
-
-Skip if there's no `envs/`.
+The id is recorded when the job is done (Step 9), marker and named-env manifest together.
 
 ### Step 8: Poll for progress
 
@@ -778,11 +770,14 @@ detail:
   coverage: {count, total_flows, covered, uncovered}
 ```
 
-Write the id to `<plurai_dir>/.scenario_set_id` (one line, no trailing
-newline):
+Record the id with the id-file writer, which reads the done job itself and also moves the active env's manifest in a
+named-env repo. A status other than `done` writes nothing and exits 2:
 
-```
-<scenario_set_id>
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status '{"id": "<scenario_set_id>"}' \
+  | "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" created --kind scenarios -
 ```
 
 **Stage it** — it names the backend set the committed inputs correspond to. Nothing to

@@ -189,7 +189,7 @@ The `requested_action` field is usually one of:
      source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"   # ABSOLUTE $PLURAI_DIR — cwd-reset-proof
      MOCK_URL=$(cat "$PLURAI_DIR/.mock_service_url")
      source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-plurai-urls.sh" || exit 1   # sets SERVER_URL; refuses tokenless remote URLs
-     SCENARIO_SET_ID=$(cat "$PLURAI_DIR/.scenario_set_id")
+     SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
      # Resolve the runner off the client's venv, never bare PATH — a PATH-found runner can
      # belong to a different install than the agent's own (see /simulation-run Step 3).
      PLURAI_BIN="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_plurai.py" --ask)" || { [ $? -eq 3 ] && exit 1; }   # 3 = the resolver stopped or asked: follow the lines it printed — never fall back

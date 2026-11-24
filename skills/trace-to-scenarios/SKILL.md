@@ -44,7 +44,7 @@ The split that matters:
 │  5. MCP: upload_scenario_bundle_start(manifest=…)                   │
 │       → UploadFinalizeResult { set_id, status: 'done' }             │
 │  6. MCP: get_upload_meta(set_id) → 'done'.                          │
-│  7. Write plurai_sim/.scenario_bundle_id (no newline) +             │
+│  7. write_id_file.py created → .scenario_bundle_id, then            │
 │       .scenario_bundle_augmentation + .scenario_bundle_intent.      │
 │  8. Hand off to /generate-scenarios, then VERIFY resumed-ness.      │
 └─────────────────────────────────────────────────────────────────────┘
@@ -552,9 +552,13 @@ Synchronous — one confirming read, no polling.
 
 ### Step 6: Write the markers
 
+Write the `upload_scenario_bundle_start` result (`UploadFinalizeResult`) to `$ART/bundle_upload.json` with the Write tool.
+The id-file writer takes the `set_id` from it, and only when `status` is `done`:
+
 ```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"   # ABSOLUTE $PLURAI_DIR
-printf %s "<set_id>" > "$PLURAI_DIR/.scenario_bundle_id"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" created --kind scenario_bundle "$ART/bundle_upload.json"
 printf %s "0"        > "$PLURAI_DIR/.scenario_bundle_augmentation"
 printf '%s | %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "<one line: what this bundle is FOR — e.g. resume <n> exported conversations at their real resume points>" \
   > "$PLURAI_DIR/.scenario_bundle_intent"

@@ -287,6 +287,11 @@ def _workdir(explicit: str | None) -> Path:
 
 
 def _marker(workdir: Path, name: str) -> str | None:
+    """A marker's one line; a committed id through `read_id.py`, which takes its copies in CI's order."""
+    import read_id  # noqa: PLC0415 - sibling script: the one reader of the committed ids
+
+    if name in read_id.MARKER_KINDS:
+        return read_id.committed_id(workdir, read_id.MARKER_KINDS[name])
     try:
         value = (workdir / name).read_text(encoding='utf-8').strip()
     except OSError:

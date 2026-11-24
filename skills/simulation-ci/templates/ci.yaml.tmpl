@@ -1,0 +1,7 @@
+{{env}}
+{{smoke}}
+trials: 3                     # a scenario x policy fails only when it is violated in every trial
+fail_on:
+  tags: [catastrophic, failing, regression]   # tags that make a scenario x policy gating: catastrophic, failing, standard, regression
+overrides: []                 # CI-only ignore rules. Each: scenario and/or policy (exact or `*` glob),
+                              # `ignore: true`, `reason` (required), `expires` (optional date)

@@ -30,7 +30,7 @@ prints `0` — never an empty pattern, which `grep -c` matches against every lin
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
-SET="$(cat "$WORKDIR/.scenario_set_id" 2>/dev/null)"
+SET="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios --absent '')" || exit $?
 if [ -z "$SET" ]; then echo 0; else grep -A1 -- '`critic`' "$ART/loop_log.md" 2>/dev/null | grep -c -- "$SET"; fi
 ```
 
@@ -114,7 +114,7 @@ count, the steering and the bundle. A queued final job re-issued to add a missed
 queue time and a cancel.
 
 **`eval_set_id` is one of them, and by this step it always exists.** Pass
-`$WORKDIR/.eval_set_id` — the slot plan seats the eval set's steering demands into the seven
+the output of `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals` — the slot plan seats the eval set's steering demands into the seven
 slots it is about to draw, and it can only do that when it is told which set will grade them.
 Omitted, the deliverable batch is dealt blind to its own rubrics. Step 1 may legitimately have
 run before the evals existed; this call may not.
@@ -188,8 +188,9 @@ Fetch the finished `suite_diagnostics` job of the pass that judged the CURRENT s
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status '{"id": "<that suite_diagnostics job id>"}' > "$ART/suite_diagnostics_qual.json"
+SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
 "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/coverage_closure.py" --diagnostics "$ART/suite_diagnostics_qual.json" \
-  --scenario-set-id "$(cat "$WORKDIR/.scenario_set_id")" --topology "$ART/agent_topology.json" \
+  --scenario-set-id "$SCENARIO_SET_ID" --topology "$ART/agent_topology.json" \
   --policies "$WORKDIR/policies_config.yaml" > "$ART/coverage_closure.json"; echo "closure exit=$?"
 ```
 
@@ -226,7 +227,7 @@ are not optional:
    still carries the flow is a false statement to the customer about their own suite — worse than
    no line at all.
 
-**Pass `previous_scenario_set_id=$(cat "$WORKDIR/.scenario_set_id")`** — here and on every Step 3
+**Pass `previous_scenario_set_id=<read_id.py scenarios>`** — here and on every Step 3
 loop regeneration. It keeps the dimension graph's FLOW IDS stable across the rebuild, which is
 what stops the eval set from silently unscoping every time the loop edits an input: each policy's
 `target_flows` / `current_elements` is keyed on those ids, and a rebuild otherwise renames flows
@@ -352,12 +353,17 @@ environment (folders do not count toward `count`), and leaves to the bundle any 
 scenario also carries. Carrying regressions or trace scenarios never forfeits adoption on its own;
 the adoption conditions alone decide it.
 
-**The cap counts both halves.** The stage fitted the folders under the cap it assumed. When the
-call is still refused because `count + <folder count>` exceeds the backend's
-`scenario_job_max_count`, the refusal names both numbers and nothing starts: re-stage with
-`--max-count <the cap it names>`, which holds trace scenarios back to fit, and upload again. Never
-drop a regression to fit: retire the ones whose issues are fixed and verified (delete the folder,
-which is how a regression is retired), or ask for a cap raise at support@plurai.ai or on Discord
+**A top-up that carries a bundle still needs `count` above the number of adoptable scenarios.** The
+walk draws the difference beside the folders, as `count = 7` does when fewer than seven are
+adoptable. The delivered batch never passes `bundle_only`; that flag belongs to `/record-regression`.
+
+**The cap counts what the job generates.** The stage fitted the folders under the cap it assumed.
+The cap counts the walk scenarios the job draws plus the folders; scenarios adopted from a donor do
+not count against it. When the call is still refused because the generated scenarios plus the
+folders exceed the backend's `scenario_job_max_count`, the refusal names both numbers and nothing
+starts: re-stage with `--max-count <the cap it names>`, which holds trace scenarios back to fit,
+and upload again. Never drop a regression to fit: retire the ones whose issues are fixed and
+verified (delete the folder, which is how a regression is retired), or ask for a cap raise at support@plurai.ai or on Discord
 (https://discord.gg/bg34gh76uJ): a request, not the contact hand-off.
 
 **Log it before launching**, naming the bundle and every folder riding it — the folders are the
@@ -447,8 +453,8 @@ generate the final set fresh rather than adopting on a proof nobody holds.
 **Solvability.**
 
    ```
-   solvability_check_start(run_upload_id=<the qual upload>, eval_set_id=<.eval_set_id>,
-                           scenario_set_id=<.scenario_set_id>, author_missing_paths=True)
+   solvability_check_start(run_upload_id=<the qual upload>, eval_set_id=<read_id.py evals>,
+                           scenario_set_id=<read_id.py scenarios>, author_missing_paths=True)
    ```
 
    **Only a PASSING qual run is adopted as a scenario's reference.** A scenario the agent FAILED
@@ -520,7 +526,7 @@ within the same ONE amend round (no second full critic):
    ```
 
    then, before the re-render, each `policy_never_scored` finding of step 3's report is named untested — `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/eval_rounds.py" never-scored --report "$ART/suite_diagnostics_final.json" --loop-log "$ART/loop_log.md" --run-dir "<the final run>" --name-untested` (exit 3: a loop-log entry ACCEPTED one — it never is);
-   then `verdict_corrections.py build` LAST, after any re-run above, then, after its `check`, name the evals its corrections found at fault — `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/eval_rounds.py" flagged --run-dir "<the final run>" --scenario-set-id "$(cat "$WORKDIR/.scenario_set_id")" --out "$ART/flagged_evals.json"` (each eval the audit ruled `FALSE RED` / `FALSE PASS` with a `prompt`, `rubric`, `type` or `target_clause` cause, by its display name, with each `rubric` / `type` ruling, which the next build's eval generation reads; Step 5's `evals.md` and Step 6's hand-off read it) — then the re-render, the re-attach, `correct-scores` and the records, and last the revision the bounded round left when it ran, which `artifact_deps` reads as current (unrecorded, every verdict rescored at it reads `eval-revision-moved`):
+   then `verdict_corrections.py build` LAST, after any re-run above, then, after its `check`, name the evals its corrections found at fault — `SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/eval_rounds.py" flagged --run-dir "<the final run>" --scenario-set-id "$SCENARIO_SET_ID" --out "$ART/flagged_evals.json"` (each eval the audit ruled `FALSE RED` / `FALSE PASS` with a `prompt`, `rubric`, `type` or `target_clause` cause, by its display name, with each `rubric` / `type` ruling, which the next build's eval generation reads; Step 5's `evals.md` and Step 6's hand-off read it) — then the re-render, the re-attach, `correct-scores` and the records, and last the revision the bounded round left when it ran, which `artifact_deps` reads as current (unrecorded, every verdict rescored at it reads `eval-revision-moved`):
 
    ```bash
    source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
@@ -536,7 +542,7 @@ as covering it: say so.
 
 <a id="adoption-conditions"></a>
 **Reuse the qualification scenarios when — and only when — they earned it.** Pass
-`adopt_from_scenario_set_id=$(cat "$WORKDIR/.scenario_set_id")` — every generation writes that
+`adopt_from_scenario_set_id=<read_id.py scenarios>` — every generation writes that
 file, so it holds the LAST qualification set even after the loop regenerated the batch, and
 this step overwrites it with the final set only afterwards — whether or not the batch carries bundle folders
 ([above](#the-final-bundle): pass the bundle's `additional_bundle_id` on the same call) —
@@ -547,8 +553,9 @@ qualification batch was generated — **decide this with the script, never by co
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/append_loop_log.py" \
-  --adoption-test --donor-set "$(cat "$WORKDIR/.scenario_set_id")"
+  --adoption-test --donor-set "$SCENARIO_SET_ID"
 ```
 
 Exit 0 → condition (a) holds. **Any non-zero → forfeited**; it prints the entries that
@@ -586,8 +593,8 @@ call ONCE with `adopt_from_scenario_set_id=<the short set>`: the shipped scenari
 adopted, only the dead slots are regenerated, and the backend's own shortfall warning
 already says to re-run for a fresh budget. The two-condition adoption test above governs
 adopting the QUALIFICATION set. **Two things this call inherits from the Step 3 top-up rule, and
-neither is optional here:** `count` stays the ORIGINAL total (the backend refuses any `count` at
-or below the number of adoptable scenarios), and the re-drive contract is byte-diffed against the
+neither is optional here:** `count` stays the ORIGINAL total (this call carries no bundle, so
+`count` must exceed the number of adoptable scenarios), and the re-drive contract is byte-diffed against the
 donor except for sixteen exempt fields — so if you repaired anything between the batch and its
 top-up, read the exemption list in `SKILL.md` before re-running. Do not assume nothing was edited:
 a short batch usually arrives WITH a defect to repair, which is exactly when the diff bites.
@@ -634,11 +641,22 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
     --phase final_scenarios --status landed --set scenario_set=<the new set id>
   ```
 
-- **Overwrite `$WORKDIR/.scenario_set_id` with the new set id** — this final set is
-  what Steps 4–6 report and what `/simulation-run` scores next. Leave the qualification
+- **Record the final set id in `.scenario_set_id`** with the id-file writer, which reads the done job and moves that marker
+  only — this final set is what Steps 4–6 report and what `/simulation-run` scores next. Leave the qualification
   set on the backend (its run artifacts reference it); don't delete it.
+
+  ```bash
+  source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+  source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status '{"id": "<final set id>"}' \
+    | "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" created --kind scenarios -
+  ```
+
 - **Immediately RELINK the eval set to the final set**: call
-  `relink_eval_scenario_set(eval_set_id=<eval_set_id>, scenario_set_id=<final set id>)`.
+  `relink_eval_scenario_set(eval_set_id=<eval_set_id>, scenario_set_id=<final set id>)`. The relink copies the eval set
+  under a new id: write its result to `$ART/relink.result.json` with the Write tool and run
+  `source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"; "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" minted "$ART/relink.result.json"`, which moves `.eval_set_id`
+  only (a null `minted_id` writes nothing). Every later `<eval_set_id>` below is the id the writer left.
   The eval set still records the QUALIFICATION set it was born against, and every
   set-dependent audit on it — **guard coverage above all** (an `applicability_guard`
   false on every scenario is skipped set-wide and grades NOTHING), the memory-probe
@@ -791,8 +809,10 @@ that ends between them is a turn nothing resumes.
 
      ```bash
      source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+     EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
+     SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
      python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" eval_coverage_audit \
-       "{\"eval_set_id\": \"$(cat "$WORKDIR/.eval_set_id")\", \"scenario_set_id\": \"$(cat "$WORKDIR/.scenario_set_id")\", \"run_stage\": \"final\"}" \
+       "{\"eval_set_id\": \"$EVAL_SET_ID\", \"scenario_set_id\": \"$SCENARIO_SET_ID\", \"run_stage\": \"final\"}" \
        > "$ART/coverage_audit_final.json"
      ```
 
@@ -871,8 +891,8 @@ that ends between them is a turn nothing resumes.
      (`edit_session_start(target_kind='evals', target_id=<the CURRENT .eval_set_id>, additive=True, workspace_id=<bench workspace id>, ledger_version=<the pin>)`,
      the id being the stdout of `source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/workspace_id.py"`):
      in that mode the already-committed policies publish byte-verbatim whatever the session does,
-     so closing a gap cannot disturb the judges this loop just validated. The set keeps its id —
-     the marker does not move. Never a full regeneration, and never `extend_eval_set_id`: it
+     so closing a gap cannot disturb the judges this loop just validated. The commit ships the edited set under a new
+     id and `/edit-evals` records it in `.eval_set_id`: read the marker again afterwards, and the marker moves once. Never a full regeneration, and never `extend_eval_set_id`: it
      authors against the final suite with no run to check the result, which is the one shape this
      step exists to keep out of the deliverable (`/generate-evals` documents the by-hand case it
      still serves).
@@ -911,8 +931,9 @@ that ends between them is a turn nothing resumes.
      ```bash
      source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
      source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+     EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
      "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/bench_manifest.py" phase record \
-       --phase final_evals --status landed --set eval_set="$(cat "$WORKDIR/.eval_set_id")"
+       --phase final_evals --status landed --set eval_set="$EVAL_SET_ID"
      ```
 
      Read the id back from the MARKER rather than typing the one you remember: on the branches
@@ -1010,7 +1031,8 @@ Each eval row's `kind` (`llm_judge` / `code` / `hybrid`) is derived from the pol
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
 rm -f "$ART/suite_missing.json" "$ART/suite_declined.json" "$ART/suite_ungraded.json"   # this build's answers only
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" get_artifact_meta "{\"id\": \"$(cat "$WORKDIR/.scenario_set_id")\"}" > "$ART/final_set_meta.json"
+SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" get_artifact_meta "{\"id\": \"$SCENARIO_SET_ID\"}" > "$ART/final_set_meta.json"
 ```
 
 A non-zero exit leaves no usable file: run it again. The builder refuses an answer whose job is not
@@ -1040,7 +1062,7 @@ in neither list: the builder writes `held_back_trace_scenarios` (`{folder, reaso
 `final_bundle.json`'s `held_back`.
 
 **Regressions declined on the record:**
-`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status "{\"id\": \"$(cat "$WORKDIR/.eval_set_id")\"}" | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" ledger-owners - --declined > "$ART/suite_declined.json"`.
+`EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status "{\"id\": \"$EVAL_SET_ID\"}" | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" ledger-owners - --declined > "$ART/suite_declined.json"`.
 It prints `{}` when none is declined, else `declined_regressions: [{folder, reason}, …]`.
 
 **Ungraded on their target — internal, never the customer's** — after the relink and the
@@ -1138,7 +1160,8 @@ the previous set whole, which moves to `artifacts/history/`.
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-plurai-urls.sh"
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
-"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/report_pieces.py" bundle "$WORKDIR" --set-id "$(cat "$WORKDIR/.scenario_set_id")"
+SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/report_pieces.py" bundle "$WORKDIR" --set-id "$SCENARIO_SET_ID"
 ```
 
 Exit 1 is a real failure — a fetch broke, or a slot has no `scenario.yaml`. **Exit 3 is INCONCLUSIVE**:
@@ -1576,7 +1599,8 @@ behind it is flagged for improvement rather than edited after the run. Paste wha
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/eval_rounds.py" flagged-line --file "$ART/flagged_evals.json" --scenario-set-id "$(cat "$WORKDIR/.scenario_set_id")"
+SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/eval_rounds.py" flagged-line --file "$ART/flagged_evals.json" --scenario-set-id "$SCENARIO_SET_ID"
 ```
 
 No count of your own, no cause and no repair offer: `evals.md`'s "Evals to optimize" section names each one's next step.

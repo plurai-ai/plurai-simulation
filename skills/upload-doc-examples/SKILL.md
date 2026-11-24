@@ -28,7 +28,7 @@ The split that matters:
 │       → UploadFinalizeResult { set_id, status: 'done', ... }          │
 │       (set_id is server-minted, in this same call)                   │
 │  4. MCP: get_upload_meta(set_id) → 'done'.                          │
-│  5. Write plurai_sim/.doc_examples_set_id (no trailing newline).    │
+│  5. write_id_file.py created → .doc_examples_set_id.                │
 └──────────────────────────────────────────────────────────────────────┘
                                    │ MCP
 ┌── Plurai-hosted backend ─────────┴──────────────────────────────────┐
@@ -292,19 +292,14 @@ a plain-terms ask; for a backend problem you can't fix from here, run the contac
 ### Step 4: Write the marker (PER ENV)
 
 Record `set_id` so it's scoped to THIS env (each env has its own doc set — same discipline as
-`corpus_id`). If `plurai_sim/envs/` exists, write it to the **active env's manifest**:
+`corpus_id`). Write the `upload_doc_examples_start` result (`UploadFinalizeResult`) to `$ART/doc_examples_upload.json`
+with the Write tool. The id-file writer takes the `set_id` from it, only when `status` is `done`, and writes the
+one-line marker (the bare-mode fallback) and, when `plurai_sim/envs/` exists, the **active env's manifest**:
 
 ```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"   # ABSOLUTE $PLURAI_DIR — cwd-reset-proof
-python "${CLAUDE_PLUGIN_ROOT}/skills/manage-envs/scripts/env_manifest.py" \
-    write "$PLURAI_DIR" --name "$(basename "$PLURAI_DIR")" --doc-examples-set-id "<set_id>"
-```
-
-Then (always, as the bare-mode fallback + a quick local marker) also write the one-liner:
-
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"   # $PLURAI_DIR — re-source in THIS block
-printf %s "<set_id>" > "$PLURAI_DIR/.doc_examples_set_id"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" created --kind doc_examples "$ART/doc_examples_upload.json"
 ```
 
 Stage it — it names the backend example set the generated documents were templated

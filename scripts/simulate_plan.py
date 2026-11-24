@@ -278,6 +278,14 @@ def _read_json(path: Path) -> object:
         return None
 
 
+def _suite_id(workdir: Path, kind: str) -> str:
+    """The committed scenario or eval set id, read through `read_id.py` in CI's order; '' when none is recorded."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import read_id  # noqa: PLC0415 - sibling script: the one reader of the committed suite ids
+
+    return read_id.committed_id(workdir, kind) or ''
+
+
 def _read_line(path: Path) -> str:
     try:
         return path.read_text(encoding='utf-8').strip()
@@ -785,8 +793,8 @@ def facts(workdir: Path) -> dict:
     scanned = (exists and (workdir / 'plurai.config.yaml').is_file() and (workdir / 'simulate.py').is_file()
                and (_art(workdir) / 'verification.json').is_file())
     attempt = _attempt(workdir) if exists else None
-    scenarios = bool(_read_line(workdir / '.scenario_set_id'))
-    evals = bool(_read_line(workdir / '.eval_set_id'))
+    scenarios = bool(_suite_id(workdir, 'scenarios'))
+    evals = bool(_suite_id(workdir, 'evals'))
     finished = _handed_off(workdir)
     unfinished = not finished and _bench_manifest().open_build(_phases(workdir)) is not None
     run_dir = _run_dir_from_pointer(workdir)
@@ -1110,7 +1118,7 @@ def run_stage(workdir: Path, since: float | None) -> str:
 
     index = runs_index.build_index(workdir, {})
     entry = ([r for r in index['runs'] if r['stage'] == 'final'] or [None])[-1]
-    current = _read_line(workdir / '.scenario_set_id')
+    current = _suite_id(workdir, 'scenarios')
     written = _parse_time(entry.get('written_at')) if entry else None
     if (entry and entry.get('stage') == 'final' and current and entry.get('scenario_set_id') == current
             and written is not None and written >= since):

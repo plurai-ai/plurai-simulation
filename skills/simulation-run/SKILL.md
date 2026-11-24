@@ -624,7 +624,7 @@ comparable, while **each run** is its own experiment row under it. Two distinct 
   ```bash
   source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"   # $WORKDIR — re-source in THIS block
   AGENT_NAME=$(…from plurai.config.yaml…)          # meaningful
-  SID=$(cat "$WORKDIR/.scenario_set_id")
+  SID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
   DATASET_NAME="${AGENT_NAME} · sim-${SID:0:8}"     # stable (sid) + unique across suites
   ```
 
@@ -703,7 +703,7 @@ see the keep/delete table there, which is also where the `--observability` flag 
 
 ## Step 2 — enumerate scenarios
 
-Call `get_artifact_meta(scenario_set_id=<.scenario_set_id>)` to list scenario
+Call `get_artifact_meta(scenario_set_id=<read_id.py scenarios>)` to list scenario
 ids (the runner needs each `--scenario-id`). A retired regression stays in the set until the next build and is never
 played again: the ids Step 3 passes are the ones this prints.
 
@@ -796,6 +796,16 @@ esac
 echo "STAGE=$STAGE (flow marker: ${DRIVER:-none})"
 ```
 
+**Record the id files as they are now.** This step and Step 4c can re-plant the scenario set, which moves `.scenario_set_id` (and a
+relink moves `.eval_set_id`), and a push that carries such a file changes what CI runs. Step 5 says so when it happened; the snapshot
+it compares with is taken here:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/id_changes.py" snapshot --workdir "$WORKDIR" "$ART/id_snapshot.json"
+```
+
 DRIVEN (`generate-suite` / `analyze` own the window) is `qualification`; DIRECT — the marker
 holds `run`, or nothing — is `final`. A declared `FINAL_RUN` (`1` or `0`) outranks the marker. Getting this backwards is not a nuance: reading unset as
 FINAL makes the qualification pass STOP inside a driver's armed window, where `ask_guard` denies
@@ -816,7 +826,7 @@ has never been shown able to FAIL carries no information in its greens, and one 
 satisfy carries none in its reds. Ask before spending, not after:
 
 ```
-eval_coverage_audit(eval_set_id=<.eval_set_id>, scenario_set_id=<.scenario_set_id>, run_stage=<$STAGE, resolved above>)
+eval_coverage_audit(eval_set_id=<read_id.py evals>, scenario_set_id=<read_id.py scenarios>, run_stage=<$STAGE, resolved above>)
 ```
 
 Read-only, no LLM, seconds. Run it whenever `.eval_set_id` exists; with no eval set nothing is
@@ -872,28 +882,43 @@ names what the set could not seat, and the suite carries the premise to the next
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
 OUT="$ART/runs/<run-name>"
-mkdir -p "$OUT" && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" eval_coverage_audit '{"eval_set_id": "<.eval_set_id>", "scenario_set_id": "<.scenario_set_id>", "run_stage": "final"}' > "$OUT/coverage_audit.json" \
+mkdir -p "$OUT" && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" eval_coverage_audit '{"eval_set_id": "<read_id.py evals>", "scenario_set_id": "<read_id.py scenarios>", "run_stage": "final"}' > "$OUT/coverage_audit.json" \
   && python3 "${CLAUDE_PLUGIN_ROOT}/scripts/bounded_repair.py" claim --out "$OUT" --report "$OUT/coverage_audit.json"
 ```
 
 A non-zero exit → score the set as it is. Exit 0 → top it up ONCE, in `/simulation-generate-suite`'s top-up form ("A
 top-up is the MISSING SLOTS"): every input byte-identical to the call that generated the set, plus
-`adopt_from_scenario_set_id` and `previous_scenario_set_id` = `<.scenario_set_id>`, `eval_set_id`, `count` = the set's
+`adopt_from_scenario_set_id` and `previous_scenario_set_id` = `<read_id.py scenarios>`, `eval_set_id`, `count` = the set's
 size + the sum of the claim's `replant[].shortfall`, and `steering_demands` = one
 `{'kind': 'complication_dealt', 'subject': <one of the row's complications>, 'slots': <its shortfall>}` per `replant` row.
 It adopts every scenario of the set and authors only the missing ones.
 
 A refusal, or a demand delivered short (`detail.dataset_metadata.steering_demands`), ends the re-plant: log it and score
-the set as it is. Otherwise point everything at the new set:
+the set as it is. Otherwise point everything at the new set. The id-file writer reads the done top-up job and moves `.scenario_set_id`
+only:
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
 "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/bench_manifest.py" phase record --phase final_scenarios --status landed --set scenario_set=<the new set id>
-printf '%s\n' "<the new set id>" > "$WORKDIR/.scenario_set_id"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status '{"id": "<the new set id>"}' \
+  | "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" created --kind scenarios --top-up --keep-fingerprints -
 ```
 
-Then `relink_eval_scenario_set(eval_set_id=<.eval_set_id>, scenario_set_id=<the new set id>)`, re-audit
+Then `relink_eval_scenario_set(eval_set_id=<read_id.py evals>, scenario_set_id=<the new set id>)`. The relink copies the eval set
+under a new id (`minted_id`): write the relink's result to `$ART/relink.result.json` with the Write tool and pass it to the
+writer, which moves `.eval_set_id` only (a null `minted_id`, for a set already linked there, writes nothing):
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" minted "$ART/relink.result.json"
+```
+
+Never write an id file another way (`printf`, `echo`, the Write tool, or one copy by hand): the writer keeps the env
+folder's marker, its manifest key and the root marker in step, and CI refuses a branch whose copies disagree.
+
+Then re-audit with the `.eval_set_id` the writer left
 (`run_stage=<$STAGE>`), and repeat Step 2's `get_artifact_meta(scenario_set_id=<the new set id>)` listing so Step 3's
 `--scenario-id` flags carry the new scenario(s). Then score — whatever the audit says.
 
@@ -910,7 +935,8 @@ recorded regression, and a folder's `ROLES.md` probe can name a policy the set n
 
 ```bash
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status "{\"id\": \"$(cat "$WORKDIR/.eval_set_id")\"}" \
+EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status "{\"id\": \"$EVAL_SET_ID\"}" \
   | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" ledger-owners - > "$ART/regression_owners.tmp" \
   && mv "$ART/regression_owners.tmp" "$ART/regression_owners.json"
 ```
@@ -1041,14 +1067,15 @@ AGENT_MODULE_PATH="$(python3 -c 'import os, sys; print(os.path.abspath(os.path.e
 OUT="$ART/runs/<run-name>"                                               # Step 2b's <run-name> when it claimed a re-plant; else this block CREATES the run and names the dir (no .last_run yet)
 MOCK_URL=$([ -f "$WORKDIR/.mock_service_url" ] && cat "$WORKDIR/.mock_service_url" || true)  # absent in .run_mode=mockless runs
 [ -n "$MOCK_URL" ] || { echo "no \$WORKDIR/.mock_service_url — deploy the env, or DELETE this line together with the --mock-service-url one for a mockless run. An EMPTY --mock-service-url is worse than no flag: it OUTRANKS the sidecar." >&2; exit 1; }
-EVAL_SET_ID=$([ -f "$WORKDIR/.eval_set_id" ] && cat "$WORKDIR/.eval_set_id" || true)         # absent when nothing is scored
+EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals --absent '')" || exit $?   # empty when nothing is scored; a conflicted copy stops here
 PLURAI_BIN="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/resolve_plurai.py" --ask)" || { [ $? -eq 3 ] && exit 1; }   # 3 = the resolver stopped or asked: follow the lines it printed — never fall back
 [ -n "$PLURAI_BIN" ] && [ -x "${PLURAI_BIN%/*}/plurai-run-simulation" ] && RUNNER="${PLURAI_BIN%/*}/plurai-run-simulation" || RUNNER=plurai-run-simulation
 export PLURAI_OBSERVABILITY=recording   # Step 1a chose Experiment or Traces — delete this line on the None branch
 source "${CLAUDE_PLUGIN_ROOT}/scripts/runner-stage-flags.sh"             # $RUN_FLAGS — this stage's flags, from typed state; never type them by hand
+SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/run_start.py" -- \
 "$RUNNER" \
-  --scenario-set-id "$(cat "$WORKDIR/.scenario_set_id")" \
+  --scenario-set-id "$SCENARIO_SET_ID" \
   --scenario-id <id_1> --scenario-id <id_2> \
   --agent-module-path "$AGENT_MODULE_PATH" \
   --out "$OUT" \
@@ -1363,13 +1390,15 @@ PLAN_FLAGS=()   # a runner without --replay-plan replays every carried folder wh
 REPLAYS="$ART/regression_replays/<run-name>"
 MOCK_URL=$([ -f "$WORKDIR/.mock_service_url" ] && cat "$WORKDIR/.mock_service_url" || true)
 source "${CLAUDE_PLUGIN_ROOT}/scripts/runner-gate-flags.sh"
+SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?
+EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/sdk_call.py" "$RUNNER" \
-  --scenario-set-id "$(cat "$WORKDIR/.scenario_set_id")" \
+  --scenario-set-id "$SCENARIO_SET_ID" \
   --scenario-id <carried_1> --scenario-id <carried_2> \
   --agent-module-path "$AGENT_MODULE_PATH" \
   --out "$REPLAYS" \
   --mock-service-url "$MOCK_URL" \
-  --eval-set-id "$(cat "$WORKDIR/.eval_set_id")" \
+  --eval-set-id "$EVAL_SET_ID" \
   --trials="$K" --no-run-pointer --no-observability \
   --concurrency "${MAX_CONCURRENT:-4}" "${PLAN_FLAGS[@]}" "${OVERRULE_FLAGS[@]}"
 ```
@@ -1738,15 +1767,25 @@ Build `$OUT/run.json` with the shipped aggregator — run it, don't hand-roll it
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"   # $PLURAI_DIR / $WORKDIR — re-source in THIS block
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"    # $PLURAI_PY — the aggregator reads plurai.config.yaml's tool declaration through PyYAML
 OUT="$(cat "$WORKDIR/.last_run")"                             # likewise; the resolver does not export it
+EVAL_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" evals)" || exit $?
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" get_artifact_meta "{\"id\": \"$EVAL_SET_ID\"}" > "$OUT/eval_set_meta.json.tmp" \
+  && mv "$OUT/eval_set_meta.json.tmp" "$OUT/eval_set_meta.json"   # each policy's effective tier, as the backend serves it
+rm -f "$OUT/eval_set_meta.json.tmp"
 "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/skills/simulation-run/scripts/build_run_json.py" "$OUT" \
   --run-name "<run name>" --dataset-name "<DATASET_NAME>" --workdir "$PLURAI_DIR" \
-  --eval-set-id "$(cat "$PLURAI_DIR/.eval_set_id")" --gt-revision <N> \
+  --eval-set-id "$EVAL_SET_ID" --gt-revision <N> \
   --agent-version "<version>" --stage "<the STAGE Step 2b printed>" --local-only && \
   "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/runs_index.py" write "$WORKDIR" && \
   "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/artifact_deps.py" record "$WORKDIR" --run "$(basename "$OUT")"   # indexes this run, then records the harness, env and corpus it ran on
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/regressions.py" retire "$OUT/run.json" --before "$ART/regression_before.json" \
   --regressions-dir "$WORKDIR/regressions" --retired-dir "$ART/retired_regressions" --ledger "$ART/regression_clean_draws.json"
 ```
+
+**Each `evals[]` row's tier is the backend's.** `get_artifact_meta` on the eval set serves `detail.policy_tiers`, the
+effective tier each policy is scored at; the block saves it as `$OUT/eval_set_meta.json` and the aggregator reads it
+from there. The plugin never derives a tier from `policies_config.yaml`. When that read fails (exit 7 is a version
+refusal: say it as the error posture says), the build still runs, every row's tier is `unknown`, and an errored side
+judge voids its verdict instead of being spared; re-run the block once the backend answers.
 
 **`retire` follows every `run.json`.** A regression retires when its replays cleared on the SDK's own clear verdict —
 nothing caught in at least the clean replays its before asks for, gathered across scored runs — whether or not a fix
@@ -2071,6 +2110,20 @@ columns) + `$OUT/charts/{run_summary,evals_passrate}.svg` — all under the giti
 and `$OUT/eval_signal.md`, which is loop material and never handed to the operator.
 See `references/example_run.json` for the spec shape.
 
+**Then add the CI verdict.** It is the verdict `plurai ci run` gives this same `run.json`, drawn by the SDK's `plurai.report`
+(the plugin holds no outcome rule of its own). It is one block at the end of `analytics.md`, and nothing else in the report moves:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+OUT="$(cat "$WORKDIR/.last_run")"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/ci_verdict.py" "$OUT/run.json" --into "$OUT/analytics.md"
+```
+
+The script finds the SDK itself (the interpreter of the `plurai` runner `resolve_plurai.py` vouches for) and always exits 0. When the
+SDK cannot give a verdict (an SDK without `plurai.report`, a one-sample run with no `trials` block, an unknown schema) the block is
+one line, `CI verdict: not available. <why>.`; leave it as it is. A render of `analytics.md` drops the block, so run the script again
+after every render. Do not paste the block into the chat hand-off: its numbers are the CI reading, not the headline of this run.
+
 ## Step 4c — attribution + the release gate (before anything is presented)
 
 The run produced numbers. This step decides whose numbers they are and whether they are fit to
@@ -2110,8 +2163,8 @@ pass its members as separate arguments — `/simulation-generate-suite` Step 3 h
 then:
 
 ```
-suite_diagnostics_start(run_upload_id=<the upload>, eval_set_id=<.eval_set_id>,
-                        scenario_set_id=<.scenario_set_id>,
+suite_diagnostics_start(run_upload_id=<the upload>, eval_set_id=<read_id.py evals>,
+                        scenario_set_id=<read_id.py scenarios>,
                         run_stage=<$STAGE, resolved in Step 2b>,
                         current_harness_fingerprint=<HARNESS_FP>)
 ```
@@ -2233,7 +2286,7 @@ as it stands. Exit 0 → in this order, logging each step (`append_loop_log.py -
    `MAX_CONCURRENT=<the claim's rerun_concurrency>` when it is not null: Step 3's block with `OUT="$(cat "$WORKDIR/.last_run")"` in place of the mint, one
    literal `--scenario-id` per id; the stage-flags script keeps the run's own trials (it reads `$OUT/run_summary.json`,
    and a different N is refused). The runner merges those ids into the run.
-4. Steps 4–4d on the merged `$OUT` — after a top-up, add `--scenario-set-id "$(cat "$WORKDIR/.scenario_set_id")"` to
+4. Steps 4–4d on the merged `$OUT` — after a top-up, bind `SCENARIO_SET_ID="$(python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios)" || exit $?` and add `--scenario-set-id "$SCENARIO_SET_ID"` to
    `ingest-run` — then present whatever that gate says. A second claim exits 3.
 
 ## Step 4d — correct this official run's false reds (final runs only, before Step 5)
@@ -2259,12 +2312,25 @@ esac
 Skipped → Step 5. `red_units=0 green_units=0` → there is nothing to rule, and the audit is still owed: save `[]` (`red_cell_audit.py save --run-dir "$OUT" --stage final --rows -` fed `[]`), run the upload block of `final-run-corrections.md` step 1, call `suite_diagnostics_start` again with Step 4c's arguments, then Step 4c's banner block on that job, then Step 5. Otherwise follow
 `${CLAUDE_PLUGIN_ROOT}/skills/simulation-run/references/final-run-corrections.md` in full, on this run only: the audit's
 rows are saved to this run's own audit (`red_cell_audit.py save --run-dir "$OUT" --stage final`), the one every command on this run reads; the labels take
-Step 4c's upload as `run_upload_id`; the re-render re-runs Step 4c's banner and attach blocks. This step REPAIRS
+Step 4c's upload as `run_upload_id`; the re-render re-runs Step 4b's CI verdict call (the render drops the block), then Step 4c's banner and attach blocks. This step REPAIRS
 NOTHING: no `/edit-env`, no `edit_scenario_gt`, no `score_run`, no re-run. An `ENV` row, or a `scenario` or `env`
 `FALSE RED`, is recorded for the next build and never repaired here; repairs belong to `/simulation-generate-suite`.
 Step 5 presents the corrected numbers. This adds one red-cell audit to every official run that has a red or a sampled green.
 
 ## Step 5 — present (short, link-forward) + publish the dataset/experiment link
+
+**Id files this run moved — say it plainly, before the results.** A run that re-planted the scenario set (Step 2b or Step 4c) changed an
+id file, and committing it changes what CI runs. This prints nothing when no id file moved:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+[ -f "$ART/id_snapshot.json" ] && "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/id_changes.py" list --workdir "$WORKDIR" --before "$ART/id_snapshot.json"
+```
+
+For each `ID-FILE-CHANGED <path>: <old> -> <new>` line, say in one sentence: this run changed `<path>` from `<old>` to `<new>` (it added
+scenarios to cover a situation the set could not seat), and that committing it changes what CI runs, so the user reviews it before it
+goes into a push. Do not commit it yourself. No line: say nothing about it.
 
 **Recording-failure gate FIRST (C3).** If the user chose experiment/traces and `rc` is none of `0`, `1`, `11`, or `20` with `aborted.reason: credit`, `capacity` or `unavailable`
 with no `error.json` (Step 4), the run **scored but the recording failed** (upload error,

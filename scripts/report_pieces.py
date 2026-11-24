@@ -319,9 +319,9 @@ def _policies_key(workdir: Path) -> Optional[dict]:
     path = Path(workdir) / POLICIES
     if not path.is_file():
         return None
-    marker = Path(workdir) / '.eval_set_id'
-    eval_set = marker.read_text(encoding='utf-8').strip() if marker.is_file() else ''
-    return {'eval_set_id': eval_set or None, 'sha256': _sha256(path)}
+    import read_id  # noqa: PLC0415 - sibling script: the one reader of the committed suite ids
+
+    return {'eval_set_id': read_id.committed_id(Path(workdir), 'evals'), 'sha256': _sha256(path)}
 
 
 def _policies(workdir: Path, envelope: dict) -> list[str]:

@@ -52,8 +52,10 @@ on `run_mode: mockless`, an env edit stops here with "no env for this bench — 
 opens no session (a corpus edit is unaffected). A driver gets that line back and reroutes the order
 (`/analyze-simulation` step 6's no-env-lane route).
 
-Find the env's `env_id` — from `plurai_sim/.env_id`, else `plurai_sim/envs/*/plurai.env.yaml`, else
-via `list_artifacts(kind='env')`. If there's no generated env, tell the user to run
+Find the env's `env_id` with the id reader, `source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" env`: the active env folder's `.env_id`, then its
+manifest's `env_id` (in `plurai_sim/` without an active env: the env folder `ci.yaml` names, its `.env_id` then its manifest's
+`env_id`, then `plurai_sim/.env_id` last). CI reads the manifest's `env_id` alone. Exit 2 (a merge conflict, a file that holds no id): stop and say so. Exit 1:
+find it via `list_artifacts(kind='env')`. If there's no generated env, tell the user to run
 `/simulation-generate-suite` (it stands the world up as its first step); do not proceed. (There is no in-place edit of an env that doesn't exist —
 generate it, which auto-consumes any published trace brief.)
 
@@ -67,7 +69,11 @@ edit_session_start(target_kind='env', target_id=<env_id>, workspace_id=<bench wo
 ```
 
 **There is no `env_id` key** — the id you passed comes back as `target_id`, because one generic
-start serves evals / env / corpus. Reading `env_id` yields nothing on every session.
+start serves evals / env / corpus. Reading `env_id` yields nothing on every session. On a published env, `target_id`
+is the session's COPY and `source_id` the env it was copied from; the edits live
+under the copy and a commit ships it as a new id. Pass `target_id` wherever a call during the session names the edited
+env. Neither is a committed id: `.env_id` takes the `minted_id` of `end_edit_session` (Step 5) and nothing else, so never
+write `target_id` or `source_id` into an id file.
 
 `plurai_config_yaml`: the repo's CURRENT `plurai_sim/plurai.config.yaml`, verbatim (omit it when
 the file is absent). Every check of the session reads the edited env and the env as last
@@ -264,7 +270,24 @@ end_edit_session(session_id=<saved>)
        edit_refusals, latest_ledger_version, gate_authority, reason }
 ```
 
-Same rename as at Step 2: the env id comes back as **`target_id`**, not `env_id`.
+Same rename as at Step 2: the session's env comes back as **`target_id`**, not `env_id`, and a commit adds
+**`minted_id`** (`{kind, id}`, null when nothing shipped).
+
+**Record the minted id first.** Write the result to `$PLURAI_DIR/.end_session.json` with the Write tool, then run the
+id-file writer. It moves `.env_id` to `minted_id.id` (and the active env's manifest `env_id`, in a named-env repo) and
+nothing else, and writes nothing when `minted_id` is null (`refused`, `closed_unchanged`, `closed_failed`, `not_found`):
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" minted "$PLURAI_DIR/.end_session.json"
+```
+
+Never write an id file another way (`printf`, `echo`, the Write tool, or one copy by hand): the writer keeps the env
+folder's marker, its manifest key and the root marker in step, and CI refuses a branch whose copies disagree.
+
+The committed env serves at `/mock/<minted id>/`: the `mock_service_url` the result carries is the new one, so refresh
+`.mock_service_url` with it, joined to the base as below.
 
 **Branch on `outcome` first** — it is the typed statement of whether anything was committed, and
 it rides every finalize:
@@ -556,7 +579,8 @@ and when the grounding job is not settled this skill's own wait-and-pin rule dec
 
 - **Precondition + open.** Find the `corpus_id` — from `plurai_sim/.corpus_id` /
   `plurai_sim/.knowledge_bases`, or `list_artifacts(kind='corpus')`. Open with
-  `edit_session_start(target_kind='corpus', target_id=<corpus_id>, workspace_id=<bench workspace id>)` → `{ session_id, files }`
+  `edit_session_start(target_kind='corpus', target_id=<corpus_id>, workspace_id=<bench workspace id>)` → `{ session_id, target_id, source_id, files }`
+  (`target_id` is the session's copy, `source_id` the corpus you passed; the commit ships the copy as a new corpus id)
   (`files` = the three editable JSONs, keyed by BARE filename: `knowledge_graph.json` /
   `testset.json` / `corpus_meta.json`. `fetch_artifact`/`GET /artifacts/<id>/files/<name>` take the
   bare name, `corpus_meta.json`, never a path prefix.)
@@ -608,7 +632,17 @@ and when the grounding job is not settled this skill's own wait-and-pin rule dec
   The edits are already saved. Resynth the denials (each `corpus_edit.denial_written` finding names
   one), and read any unchecked references against the chunks yourself.
   `end_edit_session` reconciles `corpus_meta.json` counts (no redeploy) and returns
-  `files_patched` + `samples_resynthed`.
+  `files_patched` + `samples_resynthed`, and on a commit `minted_id` (`{kind: 'corpus', id}`). **Record it**: write the
+  result to `$PLURAI_DIR/.end_session.json` with the Write tool and name the corpus id the session was opened on, which
+  the writer replaces in `.corpus_id`, `.corpus_ids` and `.knowledge_bases` (and the manifest) and nowhere else:
+
+  ```bash
+  source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+  source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+  "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" minted "$PLURAI_DIR/.end_session.json" --replaces "<the corpus_id the session was opened on>"
+  ```
+
+  A null `minted_id` (`closed_unchanged`, `closed_failed`, `refused`) writes nothing.
 
 > **Downstream reconciliation.** If answer-affecting edits changed testset answers/entities,
 > knowledge scenarios + evals grounded in this corpus may be stale → run the `/build-rag-corpus`
@@ -645,6 +679,21 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
 "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/artifact_deps.py" apply "$WORKDIR" --refresh
 "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/grounding_pull.py" knowledge "$WORKDIR"
 ```
+
+## Last step — id files to commit
+
+Run this once, after the last edit above and before the hand-off. It lists, from git and never from memory, each suite id file
+(a `.scenario_set_id` / `.eval_set_id` / `.env_id` marker, or an id key of an env folder's `plurai.env.yaml`) that differs from `HEAD`.
+CI runs the ids that are committed, so a change pushed without its id files runs the old suite and shows no sign of the edit.
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/id_changes.py" list --workdir "$WORKDIR"
+```
+
+Put each `ID-FILE <path>: <old> -> <new>` line in the hand-off (the file, the id it held at `HEAD`, the id now) and tell the user to
+commit those files together with the change. `ID-FILES clean` and `ID-FILES unknown` (not a git work tree): say nothing about it.
 
 ## Last step — pull the grounding mirror
 

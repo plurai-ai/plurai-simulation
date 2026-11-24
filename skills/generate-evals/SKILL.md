@@ -538,7 +538,8 @@ Stop polling when:
 - `status='done'` → proceed to Step 5
 - `status='failed'` with `detail.draft_ref` set → an invariant gate refused the set and KEPT its
   draft; its findings on `detail.gate_authority.findings` say why. Nothing is published, so
-  there is nothing to fetch yet. Write the id to `plurai_sim/.eval_set_id` and repair the draft
+  there is nothing to fetch yet. Record the id with the id-file writer (the command under "Also record the eval set id"
+  in Step 5; it accepts a `failed` job that kept its draft) and repair the draft
   in ONE `/edit-evals` session on that id: the session opens over the draft, each withheld
   policy's authored body is in its `eval.policy.*` finding's `observed.policy_body`, and a
   commit that loads publishes the set under the same id. Then run Step 5. Without `draft_ref`,
@@ -618,9 +619,16 @@ other artifact field) and pass `paths=['policies_config.yaml']` — large artifa
 MCP result ceiling. The key is OMITTED, not `[]`, when the backend found no files, so an
 absent `detail.files` means "no manifest" — never read it as an empty artifact.)
 
-Also write `<agent>/plurai_sim/.eval_set_id`
-(one line) — the `/edit-evals` skill reads this to find the session's
-underlying eval set.
+Also record the eval set id with the id-file writer, which reads the done job itself: `.eval_set_id` is how `/edit-evals`
+finds the session's underlying eval set, and in a named-env repo the writer moves the active env's manifest too and
+refreshes its input fingerprints. A job that is not `done` (and kept no draft) writes nothing and exits 2:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/mcp_call.py" job_status '{"id": "<eval_set_id>"}' \
+  | "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" created --kind evals -
+```
 
 Stage both — `policies_config.yaml` is a mirror of a backend set, and without the id beside
 it a clone cannot tell WHICH set it mirrors or whether it is still in sync:
@@ -628,16 +636,6 @@ it a clone cannot tell WHICH set it mirrors or whether it is still in sync:
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/stage-inputs.sh" policies_config.yaml .eval_set_id
 ```
-
-**Environment manifest (if this repo uses named envs).** If `plurai_sim/envs/`
-exists, also record the eval set id into the active env's manifest:
-
-```bash
-source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"   # ABSOLUTE $PLURAI_DIR — cwd-reset-proof
-python "${CLAUDE_PLUGIN_ROOT}/skills/manage-envs/scripts/env_manifest.py" write "$PLURAI_DIR" --name "$(basename "$PLURAI_DIR")" --eval-set-id <eval_set_id>
-```
-
-Skip if there's no `envs/`. See the `manage-envs` skill.
 
 Then run the local validator. **What it is for, and what it is NOT.** It is a LOAD CHECK on the
 bytes that just landed in the customer's repo — does the local toolchain, at ITS schema version,

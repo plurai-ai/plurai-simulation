@@ -9,15 +9,16 @@ description: >-
 
 You apply targeted corrections to a generated scenario's **grading ground truth** with the
 backend's `edit_scenario_gt` MCP tool. This is NOT a session and NOT an editor over scenario
-files: one deterministic call per field, applied in place on the backend, gated server-side.
+files: one deterministic call per field, applied to a copy of the set on the backend, gated server-side.
 It exists for the eval-quality iteration loop — before it, correcting one wrong
 `expected_answer` cost a full scenario regeneration (~45 min); now it is one call plus a
 `score_run` re-score (minutes, judge tokens only), because the judges re-read scenario GT
-live from the artifact at score time.
+live from the artifact at score time. An applied edit leaves the set it was made on untouched and ships the edited copy
+under a new scenario set id (`minted_id`), which becomes `.scenario_set_id`.
 
 **The three verbs, positioned:** `/generate-scenarios` = new dice. `/refine-scenarios` =
 steered new dice (always a NEW `scenario_set_id`). `edit_scenario_gt` = same dice, corrected
-label — the id never changes, so every saved run stays rescoreable.
+label — the edit lands under a new set id and the old set keeps its content, so every saved run stays rescoreable.
 
 <!-- BEGIN backend-check: generated from ${CLAUDE_PLUGIN_ROOT}/docs/backend-check-block.md; edit there -->
 ## Check the backend first
@@ -65,7 +66,7 @@ the generator's seed validator then passes). Their normal fix is still `/generat
 entries) gives `applied: false` with the invariant `scenario.gt_field_unknown`: nothing is
 editable there, so re-check the path — never overrule it.
 
-## Judgment BEFORE the call — two request shapes
+## Judgment BEFORE the call — three request shapes
 
 1. **The source rule.** Every GT change must be grounded in a NAMED external truth, passed as
    `cited_source`: an operator-stated fact ("the user confirmed the refund window is 60
@@ -84,12 +85,28 @@ editable there, so re-check the path — never overrule it.
    "seed a different order" — refuse and route: these change behaviour under test, so the fix
    is `/refine-scenarios` (steer + regenerate) or `/generate-scenarios`. Say why in one plain
    sentence; never forward them hoping the backend sorts it out.
+3. **"Remove this scenario."** The backend has no tool that removes one scenario from a set: `edit_scenario_gt` edits fields (removing
+   a plan entry is `scenario.gt_field_unknown`), and a top-up adopts every scenario of the set it grows from. Say that in one plain
+   sentence, never forward the ask, and offer the two supported ways. Both keep the eval link:
+   - **Ignore it in CI** (the smaller change; the scenario stays in the set and in local runs): `/simulation-ci` adds an override, `ci_edit.py
+     override add --agent <dir> --scenario <name> --reason "<why>"`. It needs a report (a local run, or a downloaded CI `run.json` with `--report`).
+     The verdict stops counting that scenario, and `ci.yaml` shows the reason under "Ignored by ci.yaml". No id file moves.
+   - **Leave it out of a new set** (the scenario is gone from the set itself): steer a regeneration away from it (`/refine-scenarios`, then
+     `/generate-scenarios`). A regenerated set starts with no link to the eval set, and CI refuses a scenario set its eval set does not
+     link to. So relink: close any open `/edit-evals` session first (the backend refuses a relink while one is held), call
+     `relink_eval_scenario_set(eval_set_id=<read_id.py evals>, scenario_set_id=<the new set id>)`, write its result to
+     `$ART/relink.result.json` with the Write tool and run `write_id_file.py minted "$ART/relink.result.json"`, which moves `.eval_set_id` only.
+     Never regenerate without relinking. Tell the user to commit both id files together.
 
 ## The call
 
+Read the scenario set id with the id reader, never with `cat`: `source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"; python3 "${CLAUDE_PLUGIN_ROOT}/scripts/read_id.py" scenarios`. It reads the
+copies in CI's order (the active env folder's marker, its manifest key, the root marker), so the edit lands on the set
+CI tests. Exit 1: no scenario set is recorded yet, so tell the user `/simulation-generate-suite` builds one and stop.
+
 ```
 edit_scenario_gt(
-  scenario_set_id  = $(cat plurai_sim/.scenario_set_id),
+  scenario_set_id  = <the output of read_id.py scenarios, below>,
   scenario_name    = <folder name, e.g. from list_artifacts / the run report>,
   field_path       = 'knowledge_plan[2].expected_answer',
   new_value_json   = '"60 days from delivery for damaged items."',   # JSON-encoded!
@@ -99,16 +116,32 @@ edit_scenario_gt(
 
 `new_value_json` is the JSON encoding of the value: a string field takes a JSON string
 (quoted), `evidences` a JSON array of `{passage_index, quote}` objects, `metadata` a JSON
-object. One field per call; batch several corrections as several calls.
+object. One field per call; batch several corrections as several calls, each on the `.scenario_set_id` the previous one
+left (an applied edit moves it).
+
+**Record the minted id after every call.** Write the call's result to `$ART/edit_scenario_gt.result.json` with the Write
+tool and pass it to the id-file writer. It moves `.scenario_set_id` to `minted_id.id` and nothing else, writes nothing
+when `minted_id` is null (`applied: false`: no id was minted), and never takes `scenario_set_id` of the answer, which is
+the set the edit was made on:
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/write_id_file.py" minted "$ART/edit_scenario_gt.result.json"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/stage-inputs.sh" .scenario_set_id
+```
+
+Never write an id file another way (`printf`, `echo`, the Write tool, or one copy by hand): the writer keeps the env
+folder's marker, its manifest key and the root marker in step, and CI refuses a branch whose copies disagree.
 
 **Branch on `applied`** (a backend predating it has no such field: there a refusal is an error
 and a returned result is an applied edit):
 
-- `applied: true` → the edit is written; the response carries `gt_revision` (the set's edit
+- `applied: true` → the edit is written into the new set `minted_id` names; the response carries `gt_revision` (the new set's edit
   counter); `warnings` is empty on the wire. After an overruled locked-field edit the scenario
   asks something its generation did not author: every saved run of that scenario was played
   against the old version, so re-run it rather than re-score it, and never relay a finding's text.
-- `applied: false` → nothing was written. Read `gate_authority.findings` and dispatch each per
+- `applied: false` → nothing was written and no id was minted. Read `gate_authority.findings` and dispatch each per
   `${CLAUDE_PLUGIN_ROOT}/docs/gate-findings.md`. A holding `scenario.gt_field_locked` or
   `scenario.gt_edit_check` finding you decide to lift goes back on the SAME call with
   `overrules=[{gate_id, fingerprint, reason}]` copied from it; the outcome of each comes back on
@@ -135,7 +168,8 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
   local run dir and that `run_upload_id` (`rescore='changed'`, each item's current cells as `baseline_cells`), so those
   runs' verdicts follow the edit; empty → nothing was uploaded to re-score.
 - **Re-score, don't re-run.** Re-score the `rescore` items it lists (only those scenarios). When qualification-run artifacts exist, verify with the
-  backend's `score_run` exactly as `/edit-evals` Step 5 (the score_run item) does. **The run
+  backend's `score_run` exactly as `/edit-evals` Step 5 (the score_run item) does, passing the edited set (`.scenario_set_id`
+  now) as its `scenario_set_id`. **The run
   upload is pre-authorized by the invocation — never ask consent for it**; the harness's
   tool-approval prompt is the chokepoint and disclosure is a statement, never a question.
   (Upload the run once:
@@ -179,6 +213,21 @@ source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
 source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
 "$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/artifact_deps.py" check "$WORKDIR" --json
 ```
+
+## Last step — id files to commit
+
+Run this once, after the last edit above and before the hand-off. It lists, from git and never from memory, each suite id file
+(a `.scenario_set_id` / `.eval_set_id` / `.env_id` marker, or an id key of an env folder's `plurai.env.yaml`) that differs from `HEAD`.
+CI runs the ids that are committed, so a change pushed without its id files runs the old suite and shows no sign of the edit.
+
+```bash
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-workdir.sh"
+source "${CLAUDE_PLUGIN_ROOT}/scripts/resolve-python.sh"
+"$PLURAI_PY" "${CLAUDE_PLUGIN_ROOT}/scripts/id_changes.py" list --workdir "$WORKDIR"
+```
+
+Put each `ID-FILE <path>: <old> -> <new>` line in the hand-off (the file, the id it held at `HEAD`, the id now) and tell the user to
+commit those files together with the change. `ID-FILES clean` and `ID-FILES unknown` (not a git work tree): say nothing about it.
 
 ## Last step — pull the grounding mirror
 
